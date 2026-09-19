@@ -1,0 +1,187 @@
+rules_version = '2';
+
+// Firestore security rules for Salesforce Business Manager.
+//
+// Authorization model (mirrors lib/core/permissions.dart):
+//   OWNER  — full access to everything.
+//   ADMIN  — read/write records belonging to businesses assigned to them.
+//   USER   — read records for assigned businesses; may create products,
+//            campaigns and orders but not delete records or edit settings.
+//
+// These rules are the authoritative backend enforcement. The Flutter UI hides
+// unauthorized actions for convenience, but must never be relied upon alone.
+//
+// Data model: flat top-level collections. Every business-scoped document
+// carries a `businessId` field. User profiles live in `users/{uid}` where the
+// document id equals the Firebase Auth uid.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Helpers ------------------------------------------------------------
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function isActive() {
+      // Absence of an explicit status is treated as active.
+      return !('status' in userDoc()) || userDoc().status == 'ACTIVE';
+    }
+
+    function isOwner() {
+      return isSignedIn() && isActive() && role() == 'OWNER';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && isActive() && role() == 'ADMIN';
+    }
+
+    function isUser() {
+      return isSignedIn() && isActive() && role() == 'USER';
+    }
+
+    // Businesses assigned to the caller (owner is unrestricted).
+    function assignedBusinesses() {
+      return userDoc().assignedBusinessIds;
+    }
+
+    function canAccessBusiness(businessId) {
+      return isOwner() ||
+        (isActive() && businessId in assignedBusinesses());
+    }
+
+    // Effective per-user permission overrides.
+    function granted() {
+      return ('grantedPermissions' in userDoc())
+        ? userDoc().grantedPermissions : [];
+    }
+    function revoked() {
+      return ('revokedPermissions' in userDoc())
+        ? userDoc().revokedPermissions : [];
+    }
+    function hasGrant(perm) {
+      return perm in granted();
+    }
+    function isRevoked(perm) {
+      return perm in revoked();
+    }
+
+    // Whether the project has been claimed by a first Owner yet.
+    function projectClaimed() {
+      return exists(/databases/$(database)/documents/meta/system);
+    }
+
+    // ---- Bootstrap metadata -------------------------------------------------
+    // `meta/system` marks the project as claimed. It may be created exactly once
+    // by the first signed-in user (as part of claiming Owner), read by any
+    // signed-in user, and never updated or deleted from the client.
+    match /meta/{doc} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && !projectClaimed();
+      allow update, delete: if false;
+    }
+
+    // ---- Users --------------------------------------------------------------
+    // A user may always read their own profile. Only the owner may list or
+    // write user profiles (create Admin/User accounts, assign businesses, etc.).
+    //
+    // First-run bootstrap: while the project is unclaimed, a signed-in user may
+    // create their OWN profile as OWNER. Once `meta/system` exists this path is
+    // closed and only the existing Owner can write user profiles.
+    match /users/{uid} {
+      allow get: if isSignedIn() && (request.auth.uid == uid || isOwner());
+      allow list: if isOwner();
+      allow create: if isOwner() ||
+        (isSignedIn() && request.auth.uid == uid && !projectClaimed() &&
+         request.resource.data.role == 'OWNER');
+      allow update, delete: if isOwner();
+    }
+
+    // ---- Businesses ---------------------------------------------------------
+    match /businesses/{businessId} {
+      allow read: if canAccessBusiness(businessId);
+      allow create, update: if isOwner();
+      allow delete: if isOwner();
+    }
+
+    // ---- Business-scoped records --------------------------------------------
+    // Products: create allowed for owner/admin/user; edit for owner/admin (or a
+    // user with an explicit grant); delete for owner/admin only.
+    match /products/{id} {
+      allow read: if canAccessBusiness(resource.data.businessId);
+      allow create: if canAccessBusiness(request.resource.data.businessId) &&
+        (isOwner() || isAdmin() || isUser());
+      allow update: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || (isUser() && hasGrant('editProduct')));
+      allow delete: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || (isAdmin() && !isRevoked('deleteProduct')) ||
+         hasGrant('deleteProduct'));
+    }
+
+    match /campaigns/{id} {
+      allow read: if canAccessBusiness(resource.data.businessId);
+      allow create: if canAccessBusiness(request.resource.data.businessId) &&
+        (isOwner() || isAdmin() || isUser());
+      allow update: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || (isUser() && hasGrant('editCampaign')));
+      allow delete: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || (isAdmin() && !isRevoked('deleteCampaign')) ||
+         hasGrant('deleteCampaign'));
+    }
+
+    match /orders/{id} {
+      allow read: if canAccessBusiness(resource.data.businessId);
+      allow create: if canAccessBusiness(request.resource.data.businessId) &&
+        (isOwner() || isAdmin() || isUser());
+      allow update: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || (isUser() && hasGrant('editOrder')));
+      allow delete: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || (isAdmin() && !isRevoked('deleteOrder')) ||
+         hasGrant('deleteOrder'));
+    }
+
+    // Expenses & dealers: managed by owner/admin (users have view-only access).
+    match /expenses/{id} {
+      allow read: if canAccessBusiness(resource.data.businessId);
+      allow create: if canAccessBusiness(request.resource.data.businessId) &&
+        (isOwner() || isAdmin() || hasGrant('createExpense'));
+      allow update: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || hasGrant('editExpense'));
+      allow delete: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || hasGrant('deleteExpense'));
+    }
+
+    match /dealers/{id} {
+      allow read: if canAccessBusiness(resource.data.businessId);
+      allow create: if canAccessBusiness(request.resource.data.businessId) &&
+        (isOwner() || isAdmin() || hasGrant('createDealer'));
+      allow update: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || hasGrant('editDealer'));
+      allow delete: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || hasGrant('deleteDealer'));
+    }
+
+    // ---- Audit logs ---------------------------------------------------------
+    // Append-only trail. Any signed-in, active user may append a log entry;
+    // only the owner may read the trail. Logs are never updated or deleted.
+    match /auditLogs/{id} {
+      allow read: if isOwner();
+      allow create: if isSignedIn() && isActive();
+      allow update, delete: if false;
+    }
+
+    // Deny everything not explicitly matched above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
