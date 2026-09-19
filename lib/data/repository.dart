@@ -64,16 +64,6 @@ class Repository {
     }
   }
 
-  /// Filters a list of business-scoped documents down to those the current
-  /// user may access.
-  List<T> _visible<T>(List<T> items, String Function(T) businessOf) {
-    final user = _currentUser;
-    if (user == null) return const [];
-    if (user.isOwner) return items;
-    return items
-        .where((item) => user.assignedBusinessIds.contains(businessOf(item)))
-        .toList();
-  }
 
   AuditFields _stampCreate() => AuditFields(
         createdAt: _now,
@@ -113,10 +103,26 @@ class Repository {
   // ---- Businesses -----------------------------------------------------------
 
   Future<List<Business>> fetchBusinesses() async {
-    final docs = await _backend.fetchCollection(Collections.businesses);
-    final all = docs.map(Business.fromMap).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-    return _visible(all, (b) => b.id);
+    final user = _currentUser;
+    if (user == null) return const [];
+    List<Business> all;
+    if (user.isOwner) {
+      // Owner may list the whole collection.
+      final docs = await _backend.fetchCollection(Collections.businesses);
+      all = docs.map(Business.fromMap).toList();
+    } else {
+      // Non-owners must NOT issue an unfiltered `list` (Firestore rejects the
+      // whole query when not every doc is provably readable — "rules are not
+      // filters"). Instead fetch each assigned business by id, which the rules
+      // permit via `get`.
+      final docs = await Future.wait(user.assignedBusinessIds
+          .map((id) => _backend.fetchDoc(Collections.businesses, id)));
+      all = docs
+          .whereType<Map<String, dynamic>>()
+          .map(Business.fromMap)
+          .toList();
+    }
+    return all..sort((a, b) => a.name.compareTo(b.name));
   }
 
   Future<Business> saveBusiness(Business business, {required bool isNew}) async {
@@ -166,17 +172,61 @@ class Repository {
 
   // ---- Generic business-scoped helpers -------------------------------------
 
+  /// Computes the next sequential id for [collection] *without* an unfiltered
+  /// `list`. Owners scan the whole collection; non-owners scan only their
+  /// assigned businesses — an unfiltered list would be rejected wholesale by
+  /// the security rules ("rules are not filters"), which is exactly what broke
+  /// record creation for Admin/User accounts.
+  ///
+  /// Because the Owner provisions the bulk of data (businesses and typically
+  /// products), ids remain globally sequential in practice. The only way a
+  /// non-owner could mint an id that already exists in a business they cannot
+  /// see is if numbering was interleaved across businesses by the Owner; that
+  /// edge case is documented here rather than hardened, since eliminating it
+  /// entirely would require a server-side counter or a doc-key scheme change.
+  Future<String> _nextScopedId(String prefix, String collection,
+      {int width = 5}) async {
+    final user = _currentUser;
+    List<Map<String, dynamic>> docs;
+    if (user == null || user.isOwner) {
+      docs = await _backend.fetchCollection(collection);
+    } else {
+      final perBusiness = await Future.wait(user.assignedBusinessIds
+          .map((id) => _backend.fetchCollection(collection, businessId: id)));
+      docs = perBusiness.expand((d) => d).toList();
+    }
+    return IdGenerator.next(prefix, docs.map((e) => e['id'] as String? ?? ''),
+        width: width);
+  }
+
   Future<List<T>> _fetchScoped<T>(
     String collection,
-    T Function(Map<String, dynamic>) fromMap,
-    String Function(T) businessOf, {
+    T Function(Map<String, dynamic>) fromMap, {
     String? businessId,
   }) async {
-    if (businessId != null) _requireBusinessAccess(businessId);
-    final docs =
-        await _backend.fetchCollection(collection, businessId: businessId);
-    final all = docs.map(fromMap).toList();
-    return businessId != null ? all : _visible(all, businessOf);
+    final user = _currentUser;
+    if (user == null) return const [];
+
+    // Explicit single-business scope.
+    if (businessId != null) {
+      _requireBusinessAccess(businessId);
+      final docs =
+          await _backend.fetchCollection(collection, businessId: businessId);
+      return docs.map(fromMap).toList();
+    }
+
+    // Owner may list the whole collection unfiltered.
+    if (user.isOwner) {
+      final docs = await _backend.fetchCollection(collection);
+      return docs.map(fromMap).toList();
+    }
+
+    // Non-owners must query per assigned business. An unfiltered `list` would
+    // be rejected wholesale by Firestore ("rules are not filters"), whereas a
+    // query filtered by `businessId` for an assigned business is permitted.
+    final perBusiness = await Future.wait(user.assignedBusinessIds.map(
+        (id) => _backend.fetchCollection(collection, businessId: id)));
+    return perBusiness.expand((docs) => docs).map(fromMap).toList();
   }
 
   // ---- Products -------------------------------------------------------------
@@ -184,7 +234,6 @@ class Repository {
   Future<List<Product>> fetchProducts({String? businessId}) => _fetchScoped(
         Collections.products,
         Product.fromMap,
-        (p) => p.businessId,
         businessId: businessId,
       );
 
@@ -201,9 +250,8 @@ class Repository {
     _requireBusinessAccess(product.businessId);
     var toSave = product;
     if (isNew) {
-      final existing = await _backend.fetchCollection(Collections.products);
-      final id = IdGenerator.next(IdGenerator.productPrefix,
-          existing.map((e) => e['id'] as String? ?? ''));
+      final id = await _nextScopedId(
+          IdGenerator.productPrefix, Collections.products);
       toSave = Product(
         id: id,
         businessId: product.businessId,
@@ -242,7 +290,6 @@ class Repository {
   Future<List<Campaign>> fetchCampaigns({String? businessId}) => _fetchScoped(
         Collections.campaigns,
         Campaign.fromMap,
-        (c) => c.businessId,
         businessId: businessId,
       );
 
@@ -251,9 +298,8 @@ class Repository {
     _requireBusinessAccess(campaign.businessId);
     var toSave = campaign;
     if (isNew) {
-      final existing = await _backend.fetchCollection(Collections.campaigns);
-      final id = IdGenerator.next(IdGenerator.campaignPrefix,
-          existing.map((e) => e['id'] as String? ?? ''));
+      final id = await _nextScopedId(
+          IdGenerator.campaignPrefix, Collections.campaigns);
       toSave = campaign.copyWith(audit: _stampCreate());
       toSave = _withCampaignId(toSave, id);
     } else {
@@ -301,7 +347,6 @@ class Repository {
   Future<List<Order>> fetchOrders({String? businessId}) => _fetchScoped(
         Collections.orders,
         Order.fromMap,
-        (o) => o.businessId,
         businessId: businessId,
       );
 
@@ -310,9 +355,8 @@ class Repository {
     _requireBusinessAccess(order.businessId);
     var toSave = order;
     if (isNew) {
-      final existing = await _backend.fetchCollection(Collections.orders);
-      final id = IdGenerator.next(IdGenerator.orderPrefix,
-          existing.map((e) => e['id'] as String? ?? ''),
+      final id = await _nextScopedId(
+          IdGenerator.orderPrefix, Collections.orders,
           width: 6);
       toSave = order.copyWith(audit: _stampCreate());
       toSave = _withOrderId(toSave, id);
@@ -360,7 +404,6 @@ class Repository {
   Future<List<Expense>> fetchExpenses({String? businessId}) => _fetchScoped(
         Collections.expenses,
         Expense.fromMap,
-        (e) => e.businessId,
         businessId: businessId,
       );
 
@@ -369,9 +412,8 @@ class Repository {
     _requireBusinessAccess(expense.businessId);
     var toSave = expense;
     if (isNew) {
-      final existing = await _backend.fetchCollection(Collections.expenses);
-      final id = IdGenerator.next(IdGenerator.expensePrefix,
-          existing.map((e) => e['id'] as String? ?? ''));
+      final id = await _nextScopedId(
+          IdGenerator.expensePrefix, Collections.expenses);
       toSave = expense.copyWith(audit: _stampCreate());
       toSave = _withExpenseId(toSave, id);
     } else {
@@ -420,7 +462,6 @@ class Repository {
   Future<List<Dealer>> fetchDealers({String? businessId}) => _fetchScoped(
         Collections.dealers,
         Dealer.fromMap,
-        (d) => d.businessId,
         businessId: businessId,
       );
 
@@ -429,9 +470,8 @@ class Repository {
     _requireBusinessAccess(dealer.businessId);
     var toSave = dealer;
     if (isNew) {
-      final existing = await _backend.fetchCollection(Collections.dealers);
-      final id = IdGenerator.next(IdGenerator.dealerPrefix,
-          existing.map((e) => e['id'] as String? ?? ''));
+      final id = await _nextScopedId(
+          IdGenerator.dealerPrefix, Collections.dealers);
       toSave = dealer.copyWith(audit: _stampCreate());
       toSave = _withDealerId(toSave, id);
     } else {
