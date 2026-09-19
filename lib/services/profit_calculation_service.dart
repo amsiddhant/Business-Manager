@@ -135,7 +135,9 @@ class ProfitCalculationService {
   // ---- Order-based aggregation ---------------------------------------------
 
   /// Filters orders to those whose [Order.orderDate] falls within [range] and
-  /// that contribute to recognised revenue (excludes cancelled/returned).
+  /// that contribute to recognised revenue. Cancelled orders are excluded;
+  /// returned/refunded orders are kept because they still recognise their
+  /// retained (non-refunded) portion.
   List<Order> recognisedOrdersIn(List<Order> orders, DateRange range) {
     return orders
         .where((o) =>
@@ -145,11 +147,14 @@ class ProfitCalculationService {
         .toList();
   }
 
+  /// Recognised revenue, net of any refunds on returned orders.
   Money revenueOf(Iterable<Order> orders) =>
-      orders.fold(Money.zero, (sum, o) => sum + o.totalRevenue);
+      orders.fold(Money.zero, (sum, o) => sum + o.recognisedRevenue);
 
+  /// Recognised product cost, with returned units' cost reversed proportionally
+  /// to the refunded fraction (returned stock is assumed restocked).
   Money productCostOf(Iterable<Order> orders) =>
-      orders.fold(Money.zero, (sum, o) => sum + o.productCost);
+      orders.fold(Money.zero, (sum, o) => sum + o.recognisedProductCost);
 
   int unitsSoldOf(Iterable<Order> orders) =>
       orders.fold(0, (sum, o) => sum + o.quantity);
@@ -292,8 +297,8 @@ class ProfitCalculationService {
     final recognised = recognisedOrdersIn(orders, range);
     final revenueByProduct = <String, Money>{};
     for (final o in recognised) {
-      revenueByProduct.update(o.productId, (v) => v + o.totalRevenue,
-          ifAbsent: () => o.totalRevenue);
+      revenueByProduct.update(o.productId, (v) => v + o.recognisedRevenue,
+          ifAbsent: () => o.recognisedRevenue);
     }
 
     // When multiple campaigns target the same product, split that product's

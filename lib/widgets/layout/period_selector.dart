@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
+import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
 
 /// Global reporting-period selector. Opens a menu to choose FY / calendar year /
@@ -14,10 +15,11 @@ class PeriodSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final filter = context.watch<FilterController>();
+    final data = context.watch<DataController>();
 
     return InkWell(
       borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-      onTap: () => _openMenu(context, filter),
+      onTap: () => _openMenu(context, filter, data),
       child: Container(
         padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md, vertical: 9),
@@ -44,17 +46,33 @@ class PeriodSelector extends StatelessWidget {
   }
 
   Future<void> _openMenu(
-      BuildContext context, FilterController filter) async {
+      BuildContext context, FilterController filter, DataController data) async {
+    // Derive the selectable FY / calendar-year options from the real span of
+    // activity (scoped to the current business), never a hardcoded list.
+    final dates =
+        data.activityDates(businessId: filter.selectedBusinessId).toList();
+    final fyOptions = PeriodOptions.financialYears(dates);
+    final calendarYears = PeriodOptions.calendarYears(dates);
     await showDialog<void>(
       context: context,
-      builder: (context) => _PeriodDialog(filter: filter),
+      builder: (context) => _PeriodDialog(
+        filter: filter,
+        fyOptions: fyOptions,
+        calendarYears: calendarYears,
+      ),
     );
   }
 }
 
 class _PeriodDialog extends StatefulWidget {
-  const _PeriodDialog({required this.filter});
+  const _PeriodDialog({
+    required this.filter,
+    required this.fyOptions,
+    required this.calendarYears,
+  });
   final FilterController filter;
+  final List<FinancialYear> fyOptions;
+  final List<int> calendarYears;
 
   @override
   State<_PeriodDialog> createState() => _PeriodDialogState();
@@ -67,13 +85,7 @@ class _PeriodDialogState extends State<_PeriodDialog> {
   Widget build(BuildContext context) {
     final filter = widget.filter;
     final currentFy = FinancialYear.forDate(DateTime.now());
-    final fyOptions = [
-      currentFy.next,
-      currentFy,
-      currentFy.previous,
-      currentFy.previous.previous,
-    ];
-    final now = DateTime.now();
+    final fyOptions = widget.fyOptions;
 
     return AlertDialog(
       title: const Text('Select period'),
@@ -97,7 +109,7 @@ class _PeriodDialogState extends State<_PeriodDialog> {
             const SizedBox(height: AppSpacing.lg),
             const Divider(height: 1),
             const SizedBox(height: AppSpacing.lg),
-            _body(context, filter, fyOptions, currentFy, now),
+            _body(context, filter, fyOptions, currentFy),
           ],
         ),
       ),
@@ -111,7 +123,7 @@ class _PeriodDialogState extends State<_PeriodDialog> {
   }
 
   Widget _body(BuildContext context, FilterController filter,
-      List<FinancialYear> fyOptions, FinancialYear currentFy, DateTime now) {
+      List<FinancialYear> fyOptions, FinancialYear currentFy) {
     switch (_type) {
       case PeriodType.financialYear:
         final selectedFy = filter.periodType == PeriodType.financialYear
@@ -132,7 +144,7 @@ class _PeriodDialogState extends State<_PeriodDialog> {
           ],
         );
       case PeriodType.calendarYear:
-        final years = [now.year + 1, now.year, now.year - 1, now.year - 2];
+        final years = widget.calendarYears;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

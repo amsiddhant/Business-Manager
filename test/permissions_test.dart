@@ -44,7 +44,14 @@ void main() {
       final user = Permissions.forRole(UserRole.user);
       expect(user.contains(Permission.viewProduct), isTrue);
       expect(user.contains(Permission.createProduct), isTrue);
+      expect(user.contains(Permission.createCampaign), isTrue);
       expect(user.contains(Permission.createOrder), isTrue);
+      // A user may add expenses but never edit or delete them.
+      expect(user.contains(Permission.createExpense), isTrue);
+      expect(user.contains(Permission.editExpense), isFalse);
+      expect(user.contains(Permission.deleteExpense), isFalse);
+      expect(user.contains(Permission.editProduct), isFalse);
+      expect(user.contains(Permission.editOrder), isFalse);
       expect(user.contains(Permission.deleteProduct), isFalse);
       expect(user.contains(Permission.deleteOrder), isFalse);
       expect(user.contains(Permission.manageUsers), isFalse);

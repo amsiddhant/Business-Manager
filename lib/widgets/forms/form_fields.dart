@@ -120,6 +120,7 @@ class AppMoneyField extends StatelessWidget {
     this.symbol = '₹',
     this.validator,
     this.helper,
+    this.onChanged,
   });
 
   final String label;
@@ -128,6 +129,7 @@ class AppMoneyField extends StatelessWidget {
   final String symbol;
   final String? Function(String?)? validator;
   final String? helper;
+  final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -137,6 +139,7 @@ class AppMoneyField extends StatelessWidget {
       isRequired: isRequired,
       validator: validator,
       helper: helper,
+      onChanged: onChanged,
       prefixText: '$symbol ',
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [

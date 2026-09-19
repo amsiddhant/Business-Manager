@@ -23,6 +23,8 @@ class Order {
     this.buyingCost = Money.zero,
     this.marketingAllocation = Money.zero,
     this.status = OrderStatus.pending,
+    this.refundAmount = Money.zero,
+    this.refundDate,
     this.customerReference = '',
     this.notes = '',
     this.audit = const AuditFields(),
@@ -48,6 +50,15 @@ class Order {
   final Money marketingAllocation;
 
   final OrderStatus status;
+
+  /// Amount refunded to the customer for a returned/refunded order. Supports
+  /// both partial (< [totalRevenue]) and full (== [totalRevenue]) refunds. Zero
+  /// for orders that were never returned.
+  final Money refundAmount;
+
+  /// When the refund was issued (null when not refunded).
+  final DateTime? refundDate;
+
   final String customerReference;
   final String notes;
   final AuditFields audit;
@@ -55,22 +66,66 @@ class Order {
   /// Product revenue = selling cost × quantity.
   Money get productRevenue => sellingCost * quantity;
 
-  /// Total revenue = product revenue + shipping + other − discount.
+  /// Total (gross, pre-refund) revenue = product revenue + shipping + other −
+  /// discount. This is the amount originally billed for the order.
   Money get totalRevenue =>
       productRevenue + shippingRevenue + otherRevenue - discount;
 
-  /// Product cost = buying price × quantity.
+  /// Product cost = buying price × quantity (gross, pre-refund).
   Money get productCost => buyingCost * quantity;
 
-  /// Gross profit for this order (before marketing / operating expenses).
+  /// Gross profit for this order (before marketing / operating expenses),
+  /// based on gross figures. See [recognisedGrossProfit] for the net-of-refund
+  /// figure used in profit calculations.
   Money get grossProfit => totalRevenue - productCost;
 
-  /// Whether this order's revenue is recognised (cancelled/returned excluded).
+  /// Whether this order contributes to recognised revenue. Cancelled orders are
+  /// fully excluded; returned/refunded orders still contribute their retained
+  /// (non-refunded) portion, so they remain recognised.
   bool get isRecognised => status.contributesToRevenue;
 
-  /// Revenue that actually counts towards reporting.
-  Money get recognisedRevenue => isRecognised ? totalRevenue : Money.zero;
-  Money get recognisedProductCost => isRecognised ? productCost : Money.zero;
+  /// True when this order has been returned (and therefore carries a refund).
+  bool get isRefunded => status == OrderStatus.returned;
+
+  /// The refund actually applied to this order.
+  ///
+  /// Only returned orders refund anything. A returned order with no explicit
+  /// [refundAmount] recorded (e.g. legacy data, or a plain "mark returned")
+  /// is treated as a **full** refund — matching the historical behaviour where
+  /// returned orders were excluded entirely. An explicit positive amount is a
+  /// partial (or full) refund, clamped to never exceed total revenue.
+  Money get effectiveRefund {
+    if (status != OrderStatus.returned) return Money.zero;
+    final full = totalRevenue;
+    if (refundAmount <= Money.zero) return full;
+    return refundAmount > full ? full : refundAmount;
+  }
+
+  /// The refunded fraction of the order's revenue in the range [0, 1]. Used to
+  /// proportionally reverse product cost (returned units are assumed
+  /// restocked). Guards against zero/negative total revenue.
+  double get refundRatio {
+    if (!isRefunded) return 0;
+    if (totalRevenue.minor <= 0) return 1; // fully refunded by definition
+    final ratio = effectiveRefund.minor / totalRevenue.minor;
+    return ratio > 1 ? 1 : ratio;
+  }
+
+  /// Revenue that actually counts towards reporting: gross revenue less any
+  /// refund. Cancelled orders recognise nothing.
+  Money get recognisedRevenue =>
+      isRecognised ? totalRevenue - effectiveRefund : Money.zero;
+
+  /// Product cost that actually counts towards reporting. Returned units are
+  /// assumed restocked, so cost is reversed in proportion to the refunded
+  /// fraction of revenue. Cancelled orders recognise nothing.
+  Money get recognisedProductCost => isRecognised
+      ? productCost - (productCost * refundRatio)
+      : Money.zero;
+
+  /// Net-of-refund gross profit used by the profit engine.
+  Money get recognisedGrossProfit =>
+      recognisedRevenue - recognisedProductCost;
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -86,6 +141,8 @@ class Order {
         'buyingCostMinor': buyingCost.minor,
         'marketingAllocationMinor': marketingAllocation.minor,
         'status': status.wire,
+        'refundAmountMinor': refundAmount.minor,
+        if (refundDate != null) 'refundDate': refundDate!.toIso8601String(),
         'customerReference': customerReference,
         'notes': notes,
         ...audit.toMap(),
@@ -107,6 +164,8 @@ class Order {
         marketingAllocation:
             Money((map['marketingAllocationMinor'] as num?)?.toInt() ?? 0),
         status: OrderStatus.fromWire(map['status'] as String?),
+        refundAmount: Money((map['refundAmountMinor'] as num?)?.toInt() ?? 0),
+        refundDate: parseDate(map['refundDate']),
         customerReference: map['customerReference'] as String? ?? '',
         notes: map['notes'] as String? ?? '',
         audit: AuditFields.fromMap(map),
@@ -124,6 +183,8 @@ class Order {
     Money? buyingCost,
     Money? marketingAllocation,
     OrderStatus? status,
+    Money? refundAmount,
+    DateTime? refundDate,
     String? customerReference,
     String? notes,
     AuditFields? audit,
@@ -142,6 +203,8 @@ class Order {
         buyingCost: buyingCost ?? this.buyingCost,
         marketingAllocation: marketingAllocation ?? this.marketingAllocation,
         status: status ?? this.status,
+        refundAmount: refundAmount ?? this.refundAmount,
+        refundDate: refundDate ?? this.refundDate,
         customerReference: customerReference ?? this.customerReference,
         notes: notes ?? this.notes,
         audit: audit ?? this.audit,

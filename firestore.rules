@@ -6,7 +6,8 @@ rules_version = '2';
 //   OWNER  — full access to everything.
 //   ADMIN  — read/write records belonging to businesses assigned to them.
 //   USER   — read records for assigned businesses; may create products,
-//            campaigns and orders but not delete records or edit settings.
+//            campaigns, orders and expenses but not edit or delete records,
+//            nor change settings.
 //
 // These rules are the authoritative backend enforcement. The Flutter UI hides
 // unauthorized actions for convenience, but must never be relied upon alone.
@@ -164,13 +165,15 @@ service cloud.firestore {
          hasGrant('deleteOrder'));
     }
 
-    // Expenses & dealers: managed by owner/admin (users have view-only access).
+    // Expenses: create allowed for owner/admin/user; edit/delete for
+    // owner/admin only (a user may add expenses but never modify or remove
+    // them). Dealers remain owner/admin-managed (users have view-only access).
     match /expenses/{id} {
       allow read: if canAccessBusiness(resource.data.businessId);
       allow create: if canAccessBusiness(request.resource.data.businessId) &&
-        (isOwner() || isAdmin() || hasGrant('createExpense'));
+        (isOwner() || isAdmin() || isUser() || hasGrant('createExpense'));
       allow update: if canAccessBusiness(resource.data.businessId) &&
-        (isOwner() || isAdmin() || hasGrant('editExpense'));
+        (isOwner() || isAdmin() || (isUser() && hasGrant('editExpense')));
       allow delete: if canAccessBusiness(resource.data.businessId) &&
         (isOwner() || isAdmin() || hasGrant('deleteExpense'));
     }

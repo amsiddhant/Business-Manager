@@ -190,7 +190,9 @@ class _ReportsScreenState extends State<ReportsScreen>
         'Date',
         'Product',
         'Quantity',
-        'Revenue',
+        'Gross Revenue',
+        'Refund',
+        'Net Revenue',
         'Product Cost',
         'Gross Profit',
         'Status',
@@ -203,8 +205,10 @@ class _ReportsScreenState extends State<ReportsScreen>
             o.productName,
             o.quantity,
             o.totalRevenue.major,
-            o.productCost.major,
-            o.grossProfit.major,
+            o.effectiveRefund.major,
+            o.recognisedRevenue.major,
+            o.recognisedProductCost.major,
+            o.recognisedGrossProfit.major,
             o.status.label,
           ],
       ],
@@ -239,18 +243,28 @@ class _ReportsScreenState extends State<ReportsScreen>
             AppColumn(
                 label: 'Revenue',
                 numeric: true,
-                cell: (o) => Text(MoneyFormatter.format(o.totalRevenue, currency)),
-                sortValue: (o) => o.totalRevenue.minor),
+                cell: (o) =>
+                    Text(MoneyFormatter.format(o.recognisedRevenue, currency)),
+                sortValue: (o) => o.recognisedRevenue.minor),
+            AppColumn(
+                label: 'Refund',
+                numeric: true,
+                cell: (o) => Text(o.effectiveRefund.isZero
+                    ? '—'
+                    : MoneyFormatter.format(o.effectiveRefund, currency)),
+                sortValue: (o) => o.effectiveRefund.minor),
             AppColumn(
                 label: 'Cost',
                 numeric: true,
-                cell: (o) => Text(MoneyFormatter.format(o.productCost, currency)),
-                sortValue: (o) => o.productCost.minor),
+                cell: (o) => Text(
+                    MoneyFormatter.format(o.recognisedProductCost, currency)),
+                sortValue: (o) => o.recognisedProductCost.minor),
             AppColumn(
                 label: 'Gross Profit',
                 numeric: true,
-                cell: (o) => Text(MoneyFormatter.format(o.grossProfit, currency)),
-                sortValue: (o) => o.grossProfit.minor),
+                cell: (o) => Text(
+                    MoneyFormatter.format(o.recognisedGrossProfit, currency)),
+                sortValue: (o) => o.recognisedGrossProfit.minor),
             AppColumn(
                 label: 'Status',
                 cell: (o) => StatusBadge.order(o.status),

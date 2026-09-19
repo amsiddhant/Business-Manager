@@ -146,9 +146,12 @@ enum OrderStatus {
     );
   }
 
-  /// Cancelled and returned orders are excluded from recognised revenue.
-  bool get contributesToRevenue =>
-      this != OrderStatus.cancelled && this != OrderStatus.returned;
+  /// Whether an order in this status contributes to recognised revenue.
+  ///
+  /// Cancelled orders are fully excluded. Returned/refunded orders still
+  /// contribute their retained (non-refunded) portion, so they remain
+  /// recognised — the refund amount is netted off in [Order.recognisedRevenue].
+  bool get contributesToRevenue => this != OrderStatus.cancelled;
 }
 
 /// Frequency for recurring expenses / dealer costs.

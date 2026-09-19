@@ -24,6 +24,8 @@ Order _order({
   int otherMinor = 0,
   int discountMinor = 0,
   OrderStatus status = OrderStatus.delivered,
+  int refundMinor = 0,
+  DateTime? refundDate,
 }) =>
     Order(
       id: id,
@@ -38,6 +40,8 @@ Order _order({
       otherRevenue: Money(otherMinor),
       discount: Money(discountMinor),
       status: status,
+      refundAmount: Money(refundMinor),
+      refundDate: refundDate,
     );
 
 Campaign _campaign({
@@ -110,8 +114,65 @@ void main() {
     });
   });
 
+  group('Return / refund recognition', () {
+    test('full return (no explicit refund) reverses revenue and cost', () {
+      final o = _order(
+        quantity: 2,
+        sellingMinor: 100000, // rev 2000
+        buyingMinor: 60000, // cost 1200
+        status: OrderStatus.returned,
+      );
+      // Whole order refunded -> nothing recognised, gross profit ~zero.
+      expect(o.effectiveRefund.minor, 200000);
+      expect(o.recognisedRevenue, Money.zero);
+      expect(o.recognisedProductCost, Money.zero);
+      expect(o.recognisedGrossProfit, Money.zero);
+    });
+
+    test('partial refund nets revenue and reverses cost proportionally', () {
+      final o = _order(
+        quantity: 4,
+        sellingMinor: 100000, // rev 4000
+        buyingMinor: 50000, // cost 2000
+        status: OrderStatus.returned,
+        refundMinor: 100000, // ₹1000 refunded = 25% of ₹4000
+      );
+      expect(o.effectiveRefund.minor, 100000);
+      // Net revenue = 4000 - 1000 = 3000
+      expect(o.recognisedRevenue.minor, 300000);
+      // Cost reversed by 25% -> 2000 * 0.75 = 1500
+      expect(o.recognisedProductCost.minor, 150000);
+      // Gross = 3000 - 1500 = 1500
+      expect(o.recognisedGrossProfit.minor, 150000);
+    });
+
+    test('refund is capped at total revenue', () {
+      final o = _order(
+        quantity: 1,
+        sellingMinor: 100000, // rev 1000
+        status: OrderStatus.returned,
+        refundMinor: 500000, // absurd over-refund
+      );
+      expect(o.effectiveRefund.minor, 100000);
+      expect(o.recognisedRevenue, Money.zero);
+    });
+
+    test('refund on a non-returned order is ignored', () {
+      final o = _order(
+        quantity: 1,
+        sellingMinor: 100000,
+        buyingMinor: 40000,
+        status: OrderStatus.delivered,
+        refundMinor: 50000, // stale refund left from an earlier return
+      );
+      expect(o.effectiveRefund, Money.zero);
+      expect(o.recognisedRevenue.minor, 100000);
+      expect(o.recognisedProductCost.minor, 40000);
+    });
+  });
+
   group('recognisedOrdersIn', () {
-    test('excludes cancelled and returned orders', () {
+    test('excludes cancelled but keeps returned (partially recognised)', () {
       final orders = [
         _order(id: 'a', status: OrderStatus.delivered),
         _order(id: 'b', status: OrderStatus.cancelled),
@@ -119,8 +180,10 @@ void main() {
         _order(id: 'd', status: OrderStatus.pending),
       ];
       final recognised = _service.recognisedOrdersIn(orders, _fy);
-      expect(recognised.map((o) => o.id), containsAll(['a', 'd']));
-      expect(recognised.length, 2);
+      // Returned orders stay in the set so partial refunds still contribute.
+      expect(recognised.map((o) => o.id), containsAll(['a', 'c', 'd']));
+      expect(recognised.map((o) => o.id), isNot(contains('b')));
+      expect(recognised.length, 3);
     });
 
     test('excludes orders outside the range', () {
@@ -166,6 +229,32 @@ void main() {
       expect(s.operatingExpenses.major, closeTo(1200, 5));
       // Net = 6000 - 3600 - 850 - ~1200 ≈ 350
       expect(s.netProfit.major, closeTo(350, 5));
+    });
+
+    test('partial refunds net down revenue and cost in the summary', () {
+      final orders = [
+        _order(quantity: 2, sellingMinor: 100000, buyingMinor: 60000), // rev 2000, cost 1200
+        _order(
+          id: 'ORD-R',
+          quantity: 4,
+          sellingMinor: 100000, // rev 4000
+          buyingMinor: 50000, // cost 2000
+          status: OrderStatus.returned,
+          refundMinor: 100000, // 25% refunded -> net rev 3000, cost 1500
+        ),
+      ];
+      final s = _service.summarise(
+        orders: orders,
+        campaigns: const [],
+        expenses: const [],
+        range: _fy,
+      );
+      // Revenue = 2000 + 3000 = 5000
+      expect(s.revenue.minor, 500000);
+      // Product cost = 1200 + 1500 = 2700
+      expect(s.productCost.minor, 270000);
+      // Gross = 5000 - 2700 = 2300
+      expect(s.grossProfit.minor, 230000);
     });
 
     test('gross & net margin handle zero revenue safely', () {

@@ -132,4 +132,25 @@ class DataController extends ChangeNotifier {
 
   List<Order> ordersForProduct(String productId) =>
       orders.where((o) => o.productId == productId).toList();
+
+  /// All meaningful activity dates across orders, campaigns and expenses,
+  /// optionally scoped to a business. Powers the data-derived period selector
+  /// so the FY/year filter reflects the real span of data, not a hardcoded set.
+  Iterable<DateTime> activityDates({String? businessId}) sync* {
+    for (final o in ordersFor(businessId)) {
+      final d = o.orderDate ?? o.audit.createdAt;
+      if (d != null) yield d;
+      if (o.refundDate != null) yield o.refundDate!;
+    }
+    for (final c in campaignsFor(businessId)) {
+      final start = c.startDate ?? c.audit.createdAt;
+      if (start != null) yield start;
+      if (c.endDate != null) yield c.endDate!;
+    }
+    for (final e in expensesFor(businessId)) {
+      final start = e.startDate ?? e.audit.createdAt;
+      if (start != null) yield start;
+      if (e.endDate != null) yield e.endDate!;
+    }
+  }
 }

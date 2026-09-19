@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
+import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
@@ -115,23 +116,23 @@ class OrdersScreen extends StatelessWidget {
             AppColumn(
               label: 'Revenue',
               numeric: true,
-              cell: (o) => CurrencyText(o.totalRevenue,
-                  currency: _currencyFor(data, o.businessId)),
-              sortValue: (o) => o.totalRevenue.minor,
+              cell: (o) => _RevenueCell(
+                  order: o, currency: _currencyFor(data, o.businessId)),
+              sortValue: (o) => o.recognisedRevenue.minor,
             ),
             AppColumn(
               label: 'Cost',
               numeric: true,
-              cell: (o) => CurrencyText(o.productCost,
+              cell: (o) => CurrencyText(o.recognisedProductCost,
                   currency: _currencyFor(data, o.businessId)),
-              sortValue: (o) => o.productCost.minor,
+              sortValue: (o) => o.recognisedProductCost.minor,
             ),
             AppColumn(
               label: 'Profit',
               numeric: true,
-              cell: (o) => CurrencyText(o.grossProfit,
+              cell: (o) => CurrencyText(o.recognisedGrossProfit,
                   currency: _currencyFor(data, o.businessId)),
-              sortValue: (o) => o.grossProfit.minor,
+              sortValue: (o) => o.recognisedGrossProfit.minor,
             ),
             AppColumn(
               label: 'Status',
@@ -277,15 +278,9 @@ class _RowActions extends StatelessWidget {
           success: 'Order cancelled — excluded from revenue',
         );
       case _OrderAction.returnRefund:
-        await _changeStatus(
-          context,
-          OrderStatus.returned,
-          title: 'Mark as returned / refunded?',
-          message: 'Mark order ${order.id} as returned/refunded? Its revenue '
-              'and product cost will be excluded from all profit calculations.',
-          success: 'Order marked returned — excluded from revenue',
-        );
+        await _returnRefund(context);
       case _OrderAction.reinstate:
+        // Clear any recorded refund so reinstated revenue/cost count in full.
         await _changeStatus(
           context,
           OrderStatus.confirmed,
@@ -293,7 +288,43 @@ class _RowActions extends StatelessWidget {
           message: 'Reinstate order ${order.id} as confirmed? Its revenue and '
               'product cost will count towards profit calculations again.',
           success: 'Order reinstated — counted in revenue',
+          clearRefund: true,
         );
+    }
+  }
+
+  /// Opens the refund dialog and, if confirmed, marks the order returned with
+  /// the captured refund amount and date.
+  Future<void> _returnRefund(BuildContext context) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    final currency =
+        data.businessById(order.businessId)?.currency ?? CurrencyCode.inr;
+    final result = await showDialog<_RefundResult>(
+      context: context,
+      builder: (_) => _RefundDialog(order: order, currency: currency),
+    );
+    if (result == null) return;
+    try {
+      await repo.saveOrder(
+        order.copyWith(
+          status: OrderStatus.returned,
+          refundAmount: result.amount,
+          refundDate: result.date,
+        ),
+        isNew: false,
+      );
+      await data.refresh();
+      if (context.mounted) {
+        final full = result.amount >= order.totalRevenue;
+        showSuccessSnack(
+            context,
+            full
+                ? 'Order fully refunded — revenue reversed'
+                : 'Order partially refunded — recognised revenue reduced');
+      }
+    } catch (e) {
+      if (context.mounted) showErrorSnack(context, e);
     }
   }
 
@@ -303,6 +334,7 @@ class _RowActions extends StatelessWidget {
     required String title,
     required String message,
     required String success,
+    bool clearRefund = false,
   }) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
@@ -315,7 +347,29 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.saveOrder(order.copyWith(status: status), isNew: false);
+      var updated = order.copyWith(status: status);
+      if (clearRefund) {
+        // copyWith can't null a field, so rebuild without the refund.
+        updated = Order(
+          id: updated.id,
+          businessId: updated.businessId,
+          productId: updated.productId,
+          productName: updated.productName,
+          orderDate: updated.orderDate,
+          quantity: updated.quantity,
+          sellingCost: updated.sellingCost,
+          discount: updated.discount,
+          shippingRevenue: updated.shippingRevenue,
+          otherRevenue: updated.otherRevenue,
+          buyingCost: updated.buyingCost,
+          marketingAllocation: updated.marketingAllocation,
+          status: updated.status,
+          customerReference: updated.customerReference,
+          notes: updated.notes,
+          audit: updated.audit,
+        );
+      }
+      await repo.saveOrder(updated, isNew: false);
       await data.refresh();
       if (context.mounted) showSuccessSnack(context, success);
     } catch (e) {
@@ -362,6 +416,168 @@ class _ActionRow extends StatelessWidget {
         Text(label),
       ],
     );
+  }
+}
+
+/// Revenue table cell that shows the recognised (net-of-refund) revenue and,
+/// for refunded orders, the original gross amount struck through as a tooltip.
+class _RevenueCell extends StatelessWidget {
+  const _RevenueCell({required this.order, required this.currency});
+
+  final Order order;
+  final CurrencyCode currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final net = CurrencyText(order.recognisedRevenue, currency: currency);
+    if (!order.isRefunded) return net;
+    return Tooltip(
+      message: 'Refunded ${MoneyFormatter.format(order.effectiveRefund, currency)}'
+          ' of ${MoneyFormatter.format(order.totalRevenue, currency)}',
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          net,
+          const SizedBox(width: 4),
+          const Icon(Icons.info_outline,
+              size: 13, color: AppColors.textTertiary),
+        ],
+      ),
+    );
+  }
+}
+
+/// The captured result of the refund dialog.
+class _RefundResult {
+  const _RefundResult(this.amount, this.date);
+  final Money amount;
+  final DateTime date;
+}
+
+/// Dialog to record a full or partial refund against an order. Prefills the
+/// full order revenue; the user can reduce it for a partial refund.
+class _RefundDialog extends StatefulWidget {
+  const _RefundDialog({required this.order, required this.currency});
+
+  final Order order;
+  final CurrencyCode currency;
+
+  @override
+  State<_RefundDialog> createState() => _RefundDialogState();
+}
+
+class _RefundDialogState extends State<_RefundDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _amount;
+  late DateTime _date;
+
+  Money get _total => widget.order.totalRevenue;
+
+  @override
+  void initState() {
+    super.initState();
+    // Prefill with any existing refund, otherwise the full order revenue.
+    final initial =
+        widget.order.refundAmount.isPositive ? widget.order.refundAmount : _total;
+    _amount = TextEditingController(text: initial.major.toString());
+    _date = widget.order.refundDate ?? DateTime.now();
+  }
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  Money get _entered => Money.parse(_amount.text);
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.currency;
+    final entered = _entered;
+    final retained = _total - entered;
+    final isFull = entered >= _total;
+    return FormDialog(
+      title: 'Return / Refund',
+      submitLabel: 'Record refund',
+      onSubmit: _submit,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Order ${widget.order.id} · ${widget.order.productName}',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 13.5)),
+            const SizedBox(height: 4),
+            Text('Order revenue: ${MoneyFormatter.format(_total, c)}',
+                style: const TextStyle(color: AppColors.textSecondary)),
+            const FormGap(),
+            FormRow([
+              AppMoneyField(
+                label: 'Refund Amount',
+                controller: _amount,
+                isRequired: true,
+                onChanged: (_) => setState(() {}),
+                validator: (v) {
+                  final base = Validators.nonNegativeNumber(v, field: 'Refund');
+                  if (base != null) return base;
+                  if (Money.parse(v ?? '') > _total) {
+                    return 'Cannot exceed order revenue';
+                  }
+                  return null;
+                },
+                helper: 'Full or partial. Max ${MoneyFormatter.format(_total, c)}.',
+              ),
+              AppDateField(
+                label: 'Refund Date',
+                value: _date,
+                onChanged: (v) => setState(() => _date = v ?? _date),
+              ),
+            ]),
+            const FormGap(),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isFull ? 'Full refund' : 'Partial refund',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Recognised revenue after refund: '
+                    '${MoneyFormatter.format(retained.isNegative ? Money.zero : retained, c)}. '
+                    'Returned units are treated as restocked, so product cost '
+                    'is reversed proportionally.',
+                    style: const TextStyle(
+                        color: AppColors.textSecondary, fontSize: 12.5),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return false;
+    var amount = _entered;
+    if (amount > _total) amount = _total;
+    Navigator.of(context).pop(_RefundResult(amount, _date));
+    return true;
   }
 }
 

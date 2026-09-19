@@ -69,6 +69,46 @@ class FinancialYear {
   int get hashCode => startYear.hashCode;
 }
 
+/// Derives the selectable reporting periods (financial & calendar years) from
+/// the actual span of activity dates, so the global filter is never hardcoded.
+///
+/// Both lists are newest-first and always include the period containing [now],
+/// so the current FY/year is selectable even before any data exists (that is
+/// the empty-data fallback). Any FY/year that has real activity — including
+/// forward-dated records — is included automatically.
+class PeriodOptions {
+  PeriodOptions._();
+
+  static List<FinancialYear> financialYears(
+    Iterable<DateTime> dates, {
+    DateTime? now,
+  }) {
+    final current = FinancialYear.forDate(now ?? DateTime.now());
+    var minYear = current.startYear;
+    var maxYear = current.startYear;
+    for (final d in dates) {
+      final y = FinancialYear.forDate(d).startYear;
+      if (y < minYear) minYear = y;
+      if (y > maxYear) maxYear = y;
+    }
+    return [for (var y = maxYear; y >= minYear; y--) FinancialYear(y)];
+  }
+
+  static List<int> calendarYears(
+    Iterable<DateTime> dates, {
+    DateTime? now,
+  }) {
+    final currentYear = (now ?? DateTime.now()).year;
+    var minYear = currentYear;
+    var maxYear = currentYear;
+    for (final d in dates) {
+      if (d.year < minYear) minYear = d.year;
+      if (d.year > maxYear) maxYear = d.year;
+    }
+    return [for (var y = maxYear; y >= minYear; y--) y];
+  }
+}
+
 /// The kind of period the global date filter is currently expressing.
 enum PeriodType {
   financialYear('Financial Year'),

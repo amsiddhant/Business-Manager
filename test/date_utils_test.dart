@@ -46,6 +46,42 @@ void main() {
     });
   });
 
+  group('PeriodOptions (data-derived filter options)', () {
+    final now = DateTime(2026, 9, 20); // FY 2026-27, CY 2026
+
+    test('financialYears spans min→max of data, newest-first', () {
+      final dates = [
+        DateTime(2024, 5, 1), // FY 2024
+        DateTime(2026, 1, 10), // Jan -> FY 2025
+        DateTime(2026, 6, 1), // FY 2026
+      ];
+      final fys = PeriodOptions.financialYears(dates, now: now);
+      expect(fys.map((f) => f.startYear), [2026, 2025, 2024]);
+    });
+
+    test('financialYears includes forward-dated activity', () {
+      final dates = [DateTime(2028, 5, 1)]; // FY 2028, beyond current
+      final fys = PeriodOptions.financialYears(dates, now: now);
+      // Current FY (2026) up through the future FY (2028), newest-first.
+      expect(fys.map((f) => f.startYear), [2028, 2027, 2026]);
+    });
+
+    test('financialYears falls back to the current FY when no data', () {
+      final fys = PeriodOptions.financialYears(const [], now: now);
+      expect(fys.map((f) => f.startYear), [2026]);
+    });
+
+    test('calendarYears spans min→max of data, newest-first', () {
+      final dates = [DateTime(2023, 3, 1), DateTime(2026, 8, 1)];
+      final years = PeriodOptions.calendarYears(dates, now: now);
+      expect(years, [2026, 2025, 2024, 2023]);
+    });
+
+    test('calendarYears falls back to the current year when no data', () {
+      expect(PeriodOptions.calendarYears(const [], now: now), [2026]);
+    });
+  });
+
   group('DateRange', () {
     test('contains is inclusive at day granularity', () {
       final r = DateRange(DateTime(2026, 4, 1), DateTime(2026, 4, 30));

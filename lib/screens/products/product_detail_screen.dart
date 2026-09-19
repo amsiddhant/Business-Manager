@@ -398,20 +398,23 @@ class _OrdersCard extends StatelessWidget {
           AppColumn(
             label: 'Revenue',
             numeric: true,
-            cell: (o) => CurrencyText(o.totalRevenue, currency: currency),
-            sortValue: (o) => o.totalRevenue.minor,
+            cell: (o) =>
+                CurrencyText(o.recognisedRevenue, currency: currency),
+            sortValue: (o) => o.recognisedRevenue.minor,
           ),
           AppColumn(
             label: 'Cost',
             numeric: true,
-            cell: (o) => CurrencyText(o.productCost, currency: currency),
-            sortValue: (o) => o.productCost.minor,
+            cell: (o) =>
+                CurrencyText(o.recognisedProductCost, currency: currency),
+            sortValue: (o) => o.recognisedProductCost.minor,
           ),
           AppColumn(
             label: 'Profit',
             numeric: true,
-            cell: (o) => CurrencyText(o.grossProfit, currency: currency),
-            sortValue: (o) => o.grossProfit.minor,
+            cell: (o) =>
+                CurrencyText(o.recognisedGrossProfit, currency: currency),
+            sortValue: (o) => o.recognisedGrossProfit.minor,
           ),
           AppColumn(
             label: 'Status',

@@ -39,8 +39,9 @@ enum Permission {
 class Permissions {
   Permissions._();
 
-  /// Permissions granted to a plain USER: view + add on core modules, no
-  /// deletes, no settings/user/firebase administration.
+  /// Permissions granted to a plain USER: view + add on core modules
+  /// (products, campaigns, orders and expenses), no edits, no deletes, no
+  /// settings/user/firebase administration.
   static const Set<Permission> _userPermissions = {
     Permission.viewDashboard,
     Permission.viewBusiness,
@@ -51,6 +52,7 @@ class Permissions {
     Permission.viewOrder,
     Permission.createOrder,
     Permission.viewExpense,
+    Permission.createExpense,
     Permission.viewDealer,
     Permission.viewReports,
   };
