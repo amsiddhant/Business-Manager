@@ -43,7 +43,11 @@ class _UsersScreenState extends State<UsersScreen> {
   Future<List<AppUser>> _load() =>
       context.read<AppState>().repository.fetchUsers();
 
-  void _reload() => setState(() => _future = _load());
+  // Use a block body: `setState(() => _future = _load())` would *return* the
+  // assigned Future from the closure, which setState rejects at runtime.
+  void _reload() => setState(() {
+        _future = _load();
+      });
 
   @override
   Widget build(BuildContext context) {
