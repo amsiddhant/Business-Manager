@@ -90,6 +90,11 @@ class Collections {
   static const dealers = 'dealers';
   static const auditLogs = 'auditLogs';
 
+  /// Pending access requests raised when a signed-in identity (e.g. Google)
+  /// has no `users/{uid}` profile yet. Keyed by the auth uid so the Owner can
+  /// provision a profile against the *existing* account.
+  static const accessRequests = 'accessRequests';
+
   /// Application metadata (e.g. the `meta/system` bootstrap sentinel that marks
   /// the first Owner as having claimed the project).
   static const meta = 'meta';

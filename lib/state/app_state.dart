@@ -115,8 +115,14 @@ class AppState extends ChangeNotifier {
         // existing Owner, so we sign out with an explanatory message.
         profile = await repository.bootstrapFirstOwnerIfNeeded(account);
         if (profile == null) {
+          // Record a pending access request *before* signing out, while the
+          // requester is still authenticated (the rules only permit them to
+          // write their own request). The Owner approves it later, which
+          // provisions a profile against this existing account.
+          await repository.recordAccessRequest(account);
           _authError =
-              'Your account has no profile. Contact your administrator.';
+              'Your account is awaiting approval. An owner has been notified — '
+              "you'll be able to sign in once access is granted.";
           await _backend.signOut();
           return;
         }

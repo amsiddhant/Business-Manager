@@ -2,6 +2,7 @@ import '../core/app_exception.dart';
 import '../core/enums.dart';
 import '../core/permissions.dart';
 import '../core/utils/id_generator.dart';
+import '../models/access_request.dart';
 import '../models/app_user.dart';
 import '../models/audit_fields.dart';
 import '../models/audit_log.dart';
@@ -580,7 +581,23 @@ class Repository {
       throw const AppException(
           'Owner accounts cannot be created from this screen.');
     }
-    final uid = await _backend.createAccount(email, password);
+    final String uid;
+    try {
+      uid = await _backend.createAccount(email, password);
+    } on AppException catch (e) {
+      // A pre-existing auth account (e.g. the person already signed in with
+      // Google) collides on email. Point the Owner to the approval flow, which
+      // provisions a profile against that existing account instead.
+      if (e.code == 'email-already-in-use') {
+        throw const AppException(
+            'Someone has already signed in with this email but has no profile '
+            'yet. Ask them to sign in once (e.g. with Google), then approve '
+            'their request under "Pending access requests" — that grants access '
+            'without creating a duplicate account.',
+            code: 'email-already-in-use');
+      }
+      rethrow;
+    }
     final user = AppUser(
       uid: uid,
       loginId: loginId,
@@ -609,6 +626,107 @@ class Repository {
     if (doc == null) throw const NotFoundException();
     final user = AppUser.fromMap(doc).copyWith(status: status);
     await saveUserProfile(user);
+  }
+
+  /// Permanently deletes a user *profile* (`users/{uid}`). Owner-only.
+  ///
+  /// Note: this removes the application profile and access grant. The
+  /// underlying Firebase Auth account can only be deleted with Admin
+  /// privileges (a server-side concern), so the account may still exist in
+  /// Firebase Auth — but without a profile it cannot access the app, and if it
+  /// signs in again it will simply raise a fresh access request. The Owner
+  /// account itself can never be deleted from here.
+  Future<void> deleteUser(String uid) async {
+    _require(Permission.manageUsers);
+    final doc = await _backend.fetchDoc(Collections.users, uid);
+    if (doc == null) throw const NotFoundException();
+    final user = AppUser.fromMap(doc);
+    if (user.isOwner) {
+      throw const AppException('The owner account cannot be deleted.');
+    }
+    if (uid == _currentUser?.uid) {
+      throw const AppException('You cannot delete your own account.');
+    }
+    await _backend.deleteDoc(Collections.users, uid);
+    // Clear any lingering access request for the same identity.
+    await _backend.deleteDoc(Collections.accessRequests, uid);
+    await _log(AuditAction.delete, 'User', uid, summary: user.name);
+  }
+
+  // ---- Access requests ------------------------------------------------------
+
+  /// Records a pending access request for a signed-in identity that has no
+  /// profile yet. Best-effort and called *while the requester is still
+  /// authenticated*, so the write is performed as that account (the security
+  /// rules allow a signed-in user to create only their own request document).
+  Future<void> recordAccessRequest(AuthAccount account) async {
+    final request = AccessRequest(
+      uid: account.uid,
+      email: account.email,
+      displayName: account.displayName,
+      requestedAt: _now,
+    );
+    try {
+      await _backend.setDoc(
+          Collections.accessRequests, account.uid, request.toMap());
+    } catch (_) {
+      // Never surface a failure here — the sign-in has already been rejected
+      // and the user is being signed out regardless.
+    }
+  }
+
+  /// Lists pending access requests, newest first. Owner-only.
+  Future<List<AccessRequest>> fetchAccessRequests() async {
+    _require(Permission.manageUsers);
+    final docs = await _backend.fetchCollection(Collections.accessRequests);
+    return docs.map(AccessRequest.fromMap).toList()
+      ..sort((a, b) => (b.requestedAt ?? DateTime(0))
+          .compareTo(a.requestedAt ?? DateTime(0)));
+  }
+
+  /// Approves an access request by provisioning a `users/{uid}` profile against
+  /// the requester's *existing* auth account. This is the path for identities
+  /// that signed in (e.g. with Google) before the Owner created their profile —
+  /// it never creates a new auth account, so it cannot collide on email.
+  Future<AppUser> approveAccessRequest(
+    AccessRequest request, {
+    required String loginId,
+    required String name,
+    required UserRole role,
+    required List<String> assignedBusinessIds,
+    Set<Permission> grantedPermissions = const {},
+    Set<Permission> revokedPermissions = const {},
+  }) async {
+    _require(Permission.manageUsers);
+    if (role == UserRole.owner) {
+      throw const AppException('Owner accounts cannot be assigned here.');
+    }
+    final existing = await _backend.fetchDoc(Collections.users, request.uid);
+    if (existing != null) {
+      throw const AppException(
+          'This person already has a profile. Remove the request from the queue.');
+    }
+    final user = AppUser(
+      uid: request.uid,
+      loginId: loginId,
+      name: name,
+      email: request.email,
+      role: role,
+      assignedBusinessIds: assignedBusinessIds,
+      grantedPermissions: grantedPermissions,
+      revokedPermissions: revokedPermissions,
+      audit: _stampCreate(),
+    );
+    await _backend.setDoc(Collections.users, request.uid, user.toMap());
+    await _backend.deleteDoc(Collections.accessRequests, request.uid);
+    await _log(AuditAction.create, 'User', request.uid, summary: name);
+    return user;
+  }
+
+  /// Dismisses a pending access request without granting access. Owner-only.
+  Future<void> denyAccessRequest(String uid) async {
+    _require(Permission.manageUsers);
+    await _backend.deleteDoc(Collections.accessRequests, uid);
   }
 
   /// Updates the last-login timestamp for [uid]. Best-effort.

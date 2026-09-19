@@ -106,6 +106,21 @@ service cloud.firestore {
       allow update, delete: if isOwner();
     }
 
+    // ---- Access requests ----------------------------------------------------
+    // Raised by a signed-in identity that has no profile yet (e.g. someone who
+    // signed in with Google before the Owner provisioned them). The requester
+    // may only create/update/remove their OWN request document (keyed by their
+    // uid); the Owner reads the queue and clears entries on approve/deny.
+    //
+    // The self checks are ordered first so they short-circuit before isOwner(),
+    // which would otherwise read a not-yet-existing profile for the requester.
+    match /accessRequests/{uid} {
+      allow read: if isOwner();
+      allow list: if isOwner();
+      allow create, update: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if (isSignedIn() && request.auth.uid == uid) || isOwner();
+    }
+
     // ---- Businesses ---------------------------------------------------------
     match /businesses/{businessId} {
       allow read: if canAccessBusiness(businessId);

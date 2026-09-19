@@ -8,10 +8,12 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
+import '../../models/access_request.dart';
 import '../../models/app_user.dart';
 import '../../models/business.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../widgets/common/app_card.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
@@ -20,10 +22,10 @@ import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
 
-/// Owner-only user management: create Admin/User accounts, edit profiles,
-/// assign businesses, tune per-user permission overrides and enable/disable
-/// accounts. Users are fetched directly (they are not part of the cached
-/// working set).
+/// Owner-only user management: approve pending access requests, create
+/// Admin/User accounts, edit profiles, assign businesses, tune per-user
+/// permission overrides, enable/disable and delete accounts. Users and access
+/// requests are fetched directly (they are not part of the cached working set).
 class UsersScreen extends StatefulWidget {
   const UsersScreen({super.key});
 
@@ -32,7 +34,7 @@ class UsersScreen extends StatefulWidget {
 }
 
 class _UsersScreenState extends State<UsersScreen> {
-  late Future<List<AppUser>> _future;
+  late Future<_UsersData> _future;
 
   @override
   void initState() {
@@ -40,8 +42,19 @@ class _UsersScreenState extends State<UsersScreen> {
     _future = _load();
   }
 
-  Future<List<AppUser>> _load() =>
-      context.read<AppState>().repository.fetchUsers();
+  Future<_UsersData> _load() async {
+    final repo = context.read<AppState>().repository;
+    final users = await repo.fetchUsers();
+    // Access requests are best-effort: a backend or ruleset without the
+    // collection should not break the whole screen.
+    var requests = const <AccessRequest>[];
+    try {
+      requests = await repo.fetchAccessRequests();
+    } catch (_) {
+      requests = const [];
+    }
+    return _UsersData(users: users, requests: requests);
+  }
 
   // Use a block body: `setState(() => _future = _load())` would *return* the
   // assigned Future from the closure, which setState rejects at runtime.
@@ -86,7 +99,7 @@ class _UsersScreenState extends State<UsersScreen> {
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
-        FutureBuilder<List<AppUser>>(
+        FutureBuilder<_UsersData>(
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
@@ -104,14 +117,30 @@ class _UsersScreenState extends State<UsersScreen> {
                 ),
               );
             }
-            final users = snapshot.data ?? const <AppUser>[];
-            return _UsersTable(
-              users: users,
-              currentUid: user?.uid,
-              businesses: data.businesses,
-              onEdit: (u) => _openForm(u, data.selectableBusinesses),
-              onToggleStatus: _toggleStatus,
-              onResetPassword: _resetPassword,
+            final result = snapshot.data ?? const _UsersData(users: [], requests: []);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (result.requests.isNotEmpty) ...[
+                  _AccessRequestsCard(
+                    requests: result.requests,
+                    businesses: data.selectableBusinesses,
+                    onApprove: (r) =>
+                        _approveRequest(r, data.selectableBusinesses),
+                    onDeny: _denyRequest,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+                _UsersTable(
+                  users: result.users,
+                  currentUid: user?.uid,
+                  businesses: data.businesses,
+                  onEdit: (u) => _openForm(u, data.selectableBusinesses),
+                  onToggleStatus: _toggleStatus,
+                  onResetPassword: _resetPassword,
+                  onDelete: _deleteUser,
+                ),
+              ],
             );
           },
         ),
@@ -141,6 +170,44 @@ class _UsersScreenState extends State<UsersScreen> {
     }
   }
 
+  Future<void> _approveRequest(
+      AccessRequest request, List<Business> businesses) async {
+    final repo = context.read<AppState>().repository;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _UserFormDialog(
+        existing: null,
+        request: request,
+        repo: repo,
+        businesses: businesses,
+      ),
+    );
+    if (saved == true) {
+      _reload();
+      if (mounted) showSuccessSnack(context, 'Access granted');
+    }
+  }
+
+  Future<void> _denyRequest(AccessRequest request) async {
+    final repo = context.read<AppState>().repository;
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Deny access request?',
+      message:
+          'Dismiss the request from ${request.email}? They will not gain access. '
+          'They can request again by signing in.',
+      confirmLabel: 'Deny',
+    );
+    if (ok != true) return;
+    try {
+      await repo.denyAccessRequest(request.uid);
+      _reload();
+      if (mounted) showSuccessSnack(context, 'Request dismissed');
+    } catch (e) {
+      if (mounted) showErrorSnack(context, e);
+    }
+  }
+
   Future<void> _toggleStatus(AppUser u) async {
     final repo = context.read<AppState>().repository;
     final disabling = u.isActive;
@@ -167,6 +234,25 @@ class _UsersScreenState extends State<UsersScreen> {
     }
   }
 
+  Future<void> _deleteUser(AppUser u) async {
+    final repo = context.read<AppState>().repository;
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Delete user?',
+      message: 'Permanently delete "${u.name}" (${u.email})? This removes their '
+          'profile and access. This action cannot be undone.',
+      confirmLabel: 'Delete',
+    );
+    if (ok != true) return;
+    try {
+      await repo.deleteUser(u.uid);
+      _reload();
+      if (mounted) showSuccessSnack(context, 'User deleted');
+    } catch (e) {
+      if (mounted) showErrorSnack(context, e);
+    }
+  }
+
   Future<void> _resetPassword(AppUser u) async {
     final appState = context.read<AppState>();
     final ok = await showConfirmDialog(
@@ -186,6 +272,119 @@ class _UsersScreenState extends State<UsersScreen> {
   }
 }
 
+/// Combined payload for the screen's single future.
+class _UsersData {
+  const _UsersData({required this.users, required this.requests});
+  final List<AppUser> users;
+  final List<AccessRequest> requests;
+}
+
+/// Highlights identities that have signed in but have no profile yet, letting
+/// the Owner grant access against the *existing* account (avoiding the
+/// "email already in use" collision that blocks re-creating the account).
+class _AccessRequestsCard extends StatelessWidget {
+  const _AccessRequestsCard({
+    required this.requests,
+    required this.businesses,
+    required this.onApprove,
+    required this.onDeny,
+  });
+
+  final List<AccessRequest> requests;
+  final List<Business> businesses;
+  final ValueChanged<AccessRequest> onApprove;
+  final ValueChanged<AccessRequest> onDeny;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.how_to_reg_outlined,
+                  size: 20, color: AppColors.primary),
+              const SizedBox(width: AppSpacing.sm),
+              Text('Pending access requests',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(width: AppSpacing.sm),
+              StatusBadge(
+                  label: '${requests.length}', tone: BadgeTone.primary),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'These people signed in but have no profile yet. Approve to grant '
+            'access to their existing account.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          for (final r in requests) ...[
+            const Divider(height: 1, color: AppColors.border),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: _RequestRow(
+                request: r,
+                onApprove: () => onApprove(r),
+                onDeny: () => onDeny(r),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RequestRow extends StatelessWidget {
+  const _RequestRow({
+    required this.request,
+    required this.onApprove,
+    required this.onDeny,
+  });
+
+  final AccessRequest request;
+  final VoidCallback onApprove;
+  final VoidCallback onDeny;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = request.displayName.trim().isNotEmpty
+        ? request.displayName.trim()
+        : request.email;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(
+                '${request.email} · requested ${AppDate.format(request.requestedAt)}',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        TextButton(onPressed: onDeny, child: const Text('Deny')),
+        const SizedBox(width: AppSpacing.sm),
+        ElevatedButton.icon(
+          onPressed: onApprove,
+          icon: const Icon(Icons.check, size: 16),
+          label: const Text('Approve'),
+        ),
+      ],
+    );
+  }
+}
+
 class _UsersTable extends StatelessWidget {
   const _UsersTable({
     required this.users,
@@ -194,6 +393,7 @@ class _UsersTable extends StatelessWidget {
     required this.onEdit,
     required this.onToggleStatus,
     required this.onResetPassword,
+    required this.onDelete,
   });
 
   final List<AppUser> users;
@@ -202,6 +402,7 @@ class _UsersTable extends StatelessWidget {
   final ValueChanged<AppUser> onEdit;
   final ValueChanged<AppUser> onToggleStatus;
   final ValueChanged<AppUser> onResetPassword;
+  final ValueChanged<AppUser> onDelete;
 
   String _accessLabel(AppUser u) {
     if (u.isOwner) return 'All businesses';
@@ -272,6 +473,7 @@ class _UsersTable extends StatelessWidget {
             onEdit: () => onEdit(u),
             onToggleStatus: () => onToggleStatus(u),
             onResetPassword: () => onResetPassword(u),
+            onDelete: () => onDelete(u),
           ),
         ),
       ],
@@ -286,6 +488,7 @@ class _RowActions extends StatelessWidget {
     required this.onEdit,
     required this.onToggleStatus,
     required this.onResetPassword,
+    required this.onDelete,
   });
 
   final AppUser user;
@@ -293,6 +496,7 @@ class _RowActions extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onToggleStatus;
   final VoidCallback onResetPassword;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -328,6 +532,13 @@ class _RowActions extends StatelessWidget {
           // Guard against disabling yourself.
           onPressed: isSelf ? null : onToggleStatus,
         ),
+        IconButton(
+          tooltip: isSelf ? 'You cannot delete your own account' : 'Delete',
+          icon: const Icon(Icons.delete_outline, size: 18),
+          color: AppColors.error,
+          // Guard against deleting yourself.
+          onPressed: isSelf ? null : onDelete,
+        ),
       ],
     );
   }
@@ -338,9 +549,15 @@ class _UserFormDialog extends StatefulWidget {
     required this.existing,
     required this.repo,
     required this.businesses,
+    this.request,
   });
 
   final AppUser? existing;
+
+  /// When set (and [existing] is null) the dialog is in "approve" mode: it
+  /// provisions a profile for an already-authenticated identity rather than
+  /// creating a fresh auth account.
+  final AccessRequest? request;
   final Repository repo;
   final List<Business> businesses;
 
@@ -360,15 +577,25 @@ class _UserFormDialogState extends State<_UserFormDialog> {
   late Set<Permission> _revoked;
 
   AppUser? get _existing => widget.existing;
-  bool get _isNew => _existing == null;
+  AccessRequest? get _request => widget.request;
+
+  /// Editing an existing profile.
+  bool get _isEdit => _existing != null;
+
+  /// Approving a pending request (auth account already exists).
+  bool get _isApprove => _existing == null && _request != null;
+
+  /// Creating a brand-new user (and a new auth account).
+  bool get _isCreate => _existing == null && _request == null;
 
   @override
   void initState() {
     super.initState();
     final u = _existing;
-    _name = TextEditingController(text: u?.name ?? '');
-    _email = TextEditingController(text: u?.email ?? '');
-    _loginId = TextEditingController(text: u?.loginId ?? '');
+    final r = _request;
+    _name = TextEditingController(text: u?.name ?? r?.displayName ?? '');
+    _email = TextEditingController(text: u?.email ?? r?.email ?? '');
+    _loginId = TextEditingController(text: u?.loginId ?? r?.email ?? '');
     _password = TextEditingController();
     _role = u?.role ?? UserRole.user;
     _assigned = {...?u?.assignedBusinessIds};
@@ -427,8 +654,14 @@ class _UserFormDialogState extends State<_UserFormDialog> {
       granted: _granted,
       revoked: _revoked,
     );
+    final title = _isEdit
+        ? 'Edit User'
+        : _isApprove
+            ? 'Approve Access Request'
+            : 'Add User';
     return FormDialog(
-      title: _isNew ? 'Add User' : 'Edit User',
+      title: title,
+      submitLabel: _isApprove ? 'Grant Access' : 'Save',
       onSubmit: _submit,
       child: Form(
         key: _formKey,
@@ -456,8 +689,8 @@ class _UserFormDialogState extends State<_UserFormDialog> {
                 controller: _email,
                 isRequired: true,
                 keyboardType: TextInputType.emailAddress,
-                enabled: _isNew,
-                helper: _isNew ? null : 'Email cannot be changed.',
+                enabled: _isCreate,
+                helper: _isCreate ? null : 'Email cannot be changed.',
                 validator: Validators.email,
               ),
             ]),
@@ -472,7 +705,7 @@ class _UserFormDialogState extends State<_UserFormDialog> {
                 itemLabel: (r) => r.label,
                 onChanged: (v) => setState(() => _role = v ?? _role),
               ),
-              if (_isNew)
+              if (_isCreate)
                 AppTextField(
                   label: 'Temporary Password',
                   controller: _password,
@@ -550,7 +783,7 @@ class _UserFormDialogState extends State<_UserFormDialog> {
   Future<bool> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
     try {
-      if (_isNew) {
+      if (_isCreate) {
         final created = await widget.repo.createUser(
           loginId: _loginId.text.trim(),
           name: _name.text.trim(),
@@ -566,6 +799,16 @@ class _UserFormDialogState extends State<_UserFormDialog> {
             revokedPermissions: _revoked,
           ));
         }
+      } else if (_isApprove) {
+        await widget.repo.approveAccessRequest(
+          _request!,
+          loginId: _loginId.text.trim(),
+          name: _name.text.trim(),
+          role: _role,
+          assignedBusinessIds: _assigned.toList(),
+          grantedPermissions: _granted,
+          revokedPermissions: _revoked,
+        );
       } else {
         await widget.repo.saveUserProfile(_existing!.copyWith(
           loginId: _loginId.text.trim(),
