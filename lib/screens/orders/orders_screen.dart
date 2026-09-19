@@ -212,6 +212,11 @@ class _RowActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!canEdit && !canDelete) return const SizedBox.shrink();
+    // Statuses that remove the order from recognised revenue/cost.
+    final canCancel = canEdit && order.status != OrderStatus.cancelled;
+    final canReturn = canEdit && order.status != OrderStatus.returned;
+    final canReinstate = canEdit && !order.status.contributesToRevenue;
+    final hasMenu = canCancel || canReturn || canReinstate;
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
@@ -223,6 +228,33 @@ class _RowActions extends StatelessWidget {
             onPressed: () =>
                 OrdersScreen._openForm(context, order, order.businessId),
           ),
+        if (hasMenu)
+          PopupMenuButton<_OrderAction>(
+            tooltip: 'More actions',
+            icon: const Icon(Icons.more_vert, size: 18),
+            onSelected: (action) => _runAction(context, action),
+            itemBuilder: (_) => [
+              if (canCancel)
+                const PopupMenuItem(
+                  value: _OrderAction.cancel,
+                  child: _ActionRow(
+                      icon: Icons.cancel_outlined, label: 'Cancel order'),
+                ),
+              if (canReturn)
+                const PopupMenuItem(
+                  value: _OrderAction.returnRefund,
+                  child: _ActionRow(
+                      icon: Icons.assignment_return_outlined,
+                      label: 'Return / Refund'),
+                ),
+              if (canReinstate)
+                const PopupMenuItem(
+                  value: _OrderAction.reinstate,
+                  child: _ActionRow(
+                      icon: Icons.restart_alt, label: 'Reinstate order'),
+                ),
+            ],
+          ),
         if (canDelete)
           IconButton(
             tooltip: 'Delete',
@@ -231,6 +263,64 @@ class _RowActions extends StatelessWidget {
           ),
       ],
     );
+  }
+
+  Future<void> _runAction(BuildContext context, _OrderAction action) async {
+    switch (action) {
+      case _OrderAction.cancel:
+        await _changeStatus(
+          context,
+          OrderStatus.cancelled,
+          title: 'Cancel order?',
+          message: 'Cancel order ${order.id}? Its revenue and product cost '
+              'will be excluded from all profit calculations.',
+          success: 'Order cancelled — excluded from revenue',
+        );
+      case _OrderAction.returnRefund:
+        await _changeStatus(
+          context,
+          OrderStatus.returned,
+          title: 'Mark as returned / refunded?',
+          message: 'Mark order ${order.id} as returned/refunded? Its revenue '
+              'and product cost will be excluded from all profit calculations.',
+          success: 'Order marked returned — excluded from revenue',
+        );
+      case _OrderAction.reinstate:
+        await _changeStatus(
+          context,
+          OrderStatus.confirmed,
+          title: 'Reinstate order?',
+          message: 'Reinstate order ${order.id} as confirmed? Its revenue and '
+              'product cost will count towards profit calculations again.',
+          success: 'Order reinstated — counted in revenue',
+        );
+    }
+  }
+
+  Future<void> _changeStatus(
+    BuildContext context,
+    OrderStatus status, {
+    required String title,
+    required String message,
+    required String success,
+  }) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    final ok = await showConfirmDialog(
+      context,
+      title: title,
+      message: message,
+      confirmLabel: 'Confirm',
+      destructive: !status.contributesToRevenue,
+    );
+    if (ok != true) return;
+    try {
+      await repo.saveOrder(order.copyWith(status: status), isNew: false);
+      await data.refresh();
+      if (context.mounted) showSuccessSnack(context, success);
+    } catch (e) {
+      if (context.mounted) showErrorSnack(context, e);
+    }
   }
 
   Future<void> _delete(BuildContext context) async {
@@ -249,6 +339,29 @@ class _RowActions extends StatelessWidget {
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);
     }
+  }
+}
+
+/// Quick status changes available from the orders row overflow menu.
+enum _OrderAction { cancel, returnRefund, reinstate }
+
+/// A leading-icon + label row used inside the order actions popup menu.
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: AppSpacing.sm),
+        Text(label),
+      ],
+    );
   }
 }
 

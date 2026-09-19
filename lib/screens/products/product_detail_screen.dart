@@ -200,18 +200,16 @@ class _SummaryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (product.url.isNotEmpty) ...[
-            InkWell(
-              onTap: () => _openUrl(product.url),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.link, size: 16, color: AppColors.primary),
-                  const SizedBox(width: 6),
-                  Text(product.url,
-                      style: const TextStyle(
-                          color: AppColors.primary,
-                          decoration: TextDecoration.underline)),
-                ],
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _openUrl(product.url),
+                icon: const Icon(Icons.open_in_new, size: 16),
+                label: const Text('Open product page'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.primary),
+                ),
               ),
             ),
             const SizedBox(height: AppSpacing.md),

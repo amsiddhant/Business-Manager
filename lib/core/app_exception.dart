@@ -65,6 +65,17 @@ class ErrorMapper {
         return 'Network error. Check your connection and try again.';
       case 'requires-recent-login':
         return 'Please sign in again to complete this sensitive action.';
+      case 'operation-not-allowed':
+        return 'Email/Password sign-in is not enabled in Firebase. Open the '
+            'Firebase Console → Authentication → Sign-in method and enable the '
+            'Email/Password provider, then try again.';
+      case 'admin-restricted-operation':
+        return 'Creating accounts is restricted in this Firebase project. '
+            'Disable "email enumeration protection" / enable sign-up under '
+            'Authentication settings, then try again.';
+      case 'configuration-not-found':
+        return 'Firebase Authentication is not configured for this project. '
+            'Enable Authentication in the Firebase Console and try again.';
       default:
         return 'Something went wrong. Please try again.';
     }

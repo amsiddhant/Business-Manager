@@ -147,43 +147,54 @@ class _AppDataTableState<T> extends State<AppDataTable<T>> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                  minWidth: MediaQuery.sizeOf(context).width > 1200
-                      ? MediaQuery.sizeOf(context).width - 320
-                      : 0),
-              child: DataTable(
-                sortColumnIndex: _sortColumn,
-                sortAscending: _ascending,
-                showCheckboxColumn: false,
-                columns: [
-                  for (final col in widget.columns)
-                    DataColumn(
-                      label: col.width != null
-                          ? SizedBox(width: col.width, child: Text(col.label))
-                          : Text(col.label),
-                      numeric: col.numeric,
-                      onSort: col.sortValue != null
-                          ? (i, _) => _onSort(i)
-                          : null,
-                    ),
-                ],
-                rows: [
-                  for (final row in pageRows)
-                    DataRow(
-                      onSelectChanged: widget.onRowTap != null
-                          ? (_) => widget.onRowTap!(row)
-                          : null,
-                      cells: [
-                        for (final col in widget.columns)
-                          DataCell(col.cell(row)),
-                      ],
-                    ),
-                ],
-              ),
-            ),
+          // Stretch the table to fill the card interior so the header
+          // background and column alignment span the full width, while still
+          // allowing horizontal scrolling when the natural width overflows the
+          // available space (narrow screens / many columns). Using the actual
+          // available width from LayoutBuilder — rather than guessing from the
+          // window width minus a fixed sidebar — keeps the table aligned inside
+          // any container (including nested cards on the product detail page).
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final available = constraints.maxWidth;
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                      minWidth: available.isFinite ? available : 0),
+                  child: DataTable(
+                    sortColumnIndex: _sortColumn,
+                    sortAscending: _ascending,
+                    showCheckboxColumn: false,
+                    columns: [
+                      for (final col in widget.columns)
+                        DataColumn(
+                          label: col.width != null
+                              ? SizedBox(
+                                  width: col.width, child: Text(col.label))
+                              : Text(col.label),
+                          numeric: col.numeric,
+                          onSort: col.sortValue != null
+                              ? (i, _) => _onSort(i)
+                              : null,
+                        ),
+                    ],
+                    rows: [
+                      for (final row in pageRows)
+                        DataRow(
+                          onSelectChanged: widget.onRowTap != null
+                              ? (_) => widget.onRowTap!(row)
+                              : null,
+                          cells: [
+                            for (final col in widget.columns)
+                              DataCell(col.cell(row)),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
           if (pageCount > 1)
             Padding(
