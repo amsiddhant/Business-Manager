@@ -11,6 +11,7 @@ import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
+import '../../core/utils/money.dart';
 import '../../models/app_user.dart';
 import '../../models/business.dart';
 import '../../models/customer.dart';
@@ -24,6 +25,7 @@ import '../../widgets/common/responsive.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import 'customers_screen.dart';
+import 'service_contract_form.dart';
 
 /// A full-screen customer profile: contact & company details on the left, and a
 /// deal-status / last-activity / comment-thread column on the right.
@@ -83,11 +85,28 @@ class CustomerDetailScreen extends StatelessWidget {
     ];
     final canEdit = user?.can(Permission.editCustomer) ?? false;
     final isMobile = Responsive.isMobile(context);
+    // A customer can span several businesses; use the first visible business's
+    // currency for the contract display (they are typically homogeneous).
+    final currency =
+        businesses.isNotEmpty ? businesses.first.currency : CurrencyCode.inr;
 
     final left = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _ProfileCard(customer: customer, businesses: businesses),
+        _ProfileCard(
+          customer: customer,
+          businesses: businesses,
+          currency: currency,
+          canEdit: canEdit,
+        ),
+        if (customer.hasServiceContract) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _ServiceContractCard(
+            customer: customer,
+            currency: currency,
+            canEdit: canEdit,
+          ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         _TeamAccessCard(customer: customer),
       ],
@@ -166,12 +185,20 @@ class CustomerDetailScreen extends StatelessWidget {
 
 /// Left column: avatar + contact and company details. Every field shows a small
 /// copy icon; the social-media value renders as a link button opening in a new
-/// tab.
+/// tab. The header carries a colour-coded deal-status changer, and — once a
+/// deal is won — a prominent subscription total.
 class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.customer, required this.businesses});
+  const _ProfileCard({
+    required this.customer,
+    required this.businesses,
+    required this.currency,
+    required this.canEdit,
+  });
 
   final Customer customer;
   final List<Business> businesses;
+  final CurrencyCode currency;
+  final bool canEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -182,13 +209,17 @@ class _ProfileCard extends StatelessWidget {
       _Detail('Contact No', customer.contactNo, Icons.phone_outlined),
       _Detail('Email', customer.email, Icons.mail_outline),
       _Detail('Location', customer.location, Icons.location_on_outlined),
-      _Detail('Deal Status', customer.dealStatus.label, Icons.flag_outlined),
       _Detail('Social Media', customer.socialMedia, Icons.public,
           isLink: true),
     ];
 
     return SectionCard(
       title: 'Profile',
+      trailing: _DealStatusChanger(
+        customer: customer,
+        currency: currency,
+        enabled: canEdit,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -224,6 +255,13 @@ class _ProfileCard extends StatelessWidget {
               ),
             ],
           ),
+          if (customer.hasServiceContract) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _SubscriptionHighlight(
+              contract: customer.serviceContract!,
+              currency: currency,
+            ),
+          ],
           const SizedBox(height: AppSpacing.lg),
           const Divider(height: 1),
           const SizedBox(height: AppSpacing.lg),
@@ -261,6 +299,825 @@ class _ProfileCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// The colour-coded deal-status changer shown in the Profile card header.
+///
+/// Renders the current status as a coloured pill with a dropdown caret. Picking
+/// a new status persists it immediately; picking "Successful" first opens the
+/// [ServiceContractFormDialog] and only commits the status if a contract is
+/// saved. Disabled (non-interactive pill) when the viewer lacks edit rights.
+class _DealStatusChanger extends StatefulWidget {
+  const _DealStatusChanger({
+    required this.customer,
+    required this.currency,
+    required this.enabled,
+  });
+
+  final Customer customer;
+  final CurrencyCode currency;
+  final bool enabled;
+
+  @override
+  State<_DealStatusChanger> createState() => _DealStatusChangerState();
+}
+
+class _DealStatusChangerState extends State<_DealStatusChanger> {
+  bool _busy = false;
+
+  ({Color fg, Color bg}) _colorsFor(DealStatus status) {
+    switch (status) {
+      case DealStatus.successful:
+        return (fg: AppColors.success, bg: AppColors.successSurface);
+      case DealStatus.inProgress:
+        return (fg: AppColors.info, bg: AppColors.infoSurface);
+      case DealStatus.pending:
+        return (fg: AppColors.warning, bg: AppColors.warningSurface);
+      case DealStatus.cancelled:
+        return (fg: AppColors.error, bg: AppColors.errorSurface);
+    }
+  }
+
+  Future<void> _select(DealStatus status) async {
+    if (_busy || status == widget.customer.dealStatus) return;
+    if (status == DealStatus.successful) {
+      await _openContractForm();
+      return;
+    }
+    await _persistStatus(status);
+  }
+
+  /// Marks the deal won by capturing a service contract. The status only moves
+  /// to Successful when the contract is actually saved.
+  Future<void> _openContractForm() async {
+    final repo = context.read<AppState>().repository;
+    final data = context.read<DataController>();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => ServiceContractFormDialog(
+        customer: widget.customer,
+        repo: repo,
+        currency: widget.currency,
+      ),
+    );
+    if (saved == true) {
+      await data.refresh();
+      if (mounted) {
+        showSuccessSnack(context, 'Deal won — service contract saved');
+      }
+    }
+  }
+
+  Future<void> _persistStatus(DealStatus status) async {
+    final repo = context.read<AppState>().repository;
+    final data = context.read<DataController>();
+    setState(() => _busy = true);
+    try {
+      await repo.saveCustomer(
+        widget.customer.copyWith(dealStatus: status),
+        isNew: false,
+      );
+      await data.refresh();
+      if (mounted) {
+        showSuccessSnack(context, 'Deal status updated to ${status.label}');
+      }
+    } catch (e) {
+      if (mounted) showErrorSnack(context, e);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = widget.customer.dealStatus;
+    final c = _colorsFor(status);
+    final pill = Container(
+      padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
+      decoration: BoxDecoration(
+        color: c.bg,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: c.fg, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            status.label,
+            style: TextStyle(
+                color: c.fg, fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          if (widget.enabled) ...[
+            const SizedBox(width: 2),
+            _busy
+                ? SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: c.fg),
+                    ),
+                  )
+                : Icon(Icons.arrow_drop_down, color: c.fg, size: 20),
+          ],
+        ],
+      ),
+    );
+
+    if (!widget.enabled) return pill;
+
+    return PopupMenuButton<DealStatus>(
+      enabled: !_busy,
+      tooltip: 'Change deal status',
+      position: PopupMenuPosition.under,
+      onSelected: _select,
+      itemBuilder: (context) => [
+        for (final s in DealStatus.values)
+          PopupMenuItem<DealStatus>(
+            value: s,
+            child: _StatusMenuItem(
+              status: s,
+              colors: _colorsFor(s),
+              selected: s == status,
+            ),
+          ),
+      ],
+      child: pill,
+    );
+  }
+}
+
+/// One row in the deal-status dropdown menu: a colour dot, the label, and
+/// (for the current status) a check.
+class _StatusMenuItem extends StatelessWidget {
+  const _StatusMenuItem({
+    required this.status,
+    required this.colors,
+    required this.selected,
+  });
+
+  final DealStatus status;
+  final ({Color fg, Color bg}) colors;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: colors.fg, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            status == DealStatus.successful
+                ? '${status.label} — add contract'
+                : status.label,
+            style: TextStyle(
+              fontSize: 13.5,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ),
+        if (selected)
+          const Icon(Icons.check, size: 16, color: AppColors.primary),
+      ],
+    );
+  }
+}
+
+/// The prominent total-subscription figure shown inside the Profile card once a
+/// contract exists. A gradient band mirroring the form's total banner.
+class _SubscriptionHighlight extends StatelessWidget {
+  const _SubscriptionHighlight({
+    required this.contract,
+    required this.currency,
+  });
+
+  final ServiceContract contract;
+  final CurrencyCode currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final remaining = contract.timeRemainingAsOf(DateTime.now());
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [AppColors.primary, AppColors.primaryDark],
+        ),
+        borderRadius: BorderRadius.circular(AppSpacing.radius),
+        boxShadow: AppTheme.cardShadow,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.workspace_premium_outlined,
+                        color: Colors.white70, size: 18),
+                    const SizedBox(width: 6),
+                    Text(
+                      '${contract.plan.label} · Total Subscription',
+                      style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${MoneyFormatter.format(contract.total, currency)} '
+                  '/${contract.billingCycle.unit}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.w800,
+                      height: 1.1),
+                ),
+                if (contract.billingCycle == BillingCycle.monthly) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '${MoneyFormatter.format(contract.annualTotal, currency)} / year',
+                    style: const TextStyle(
+                        color: Colors.white60, fontSize: 12),
+                  ),
+                ],
+                if (contract.hasOneTimeCharge) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '+ ${MoneyFormatter.format(contract.oneTimeTotal, currency)} one-time',
+                    style: const TextStyle(
+                        color: Colors.white60, fontSize: 12),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (remaining != null) ...[
+            const SizedBox(width: AppSpacing.md),
+            _RemainingPill(remaining: remaining),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A compact "time remaining" chip rendered on the subscription highlight band.
+/// Shows the largest units (e.g. "1 yr 2 mo") with a "left"/"ago" caption, and
+/// turns translucent-red once the term has lapsed.
+class _RemainingPill extends StatelessWidget {
+  const _RemainingPill({required this.remaining});
+
+  final TimeRemaining remaining;
+
+  @override
+  Widget build(BuildContext context) {
+    final expired = remaining.isPast;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: expired
+            ? AppColors.error.withValues(alpha: 0.9)
+            : Colors.white.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(
+            remaining.isToday ? 'Today' : remaining.shortLabel,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                height: 1.1),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            remaining.isToday
+                ? 'expires'
+                : (expired ? 'overdue' : 'remaining'),
+            style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The "Service Contract" card shown directly under the Profile card once a
+/// deal is won. Presents the plan, billing cadence, dates and add-on line items
+/// with a running total, and offers an edit action for permitted viewers.
+class _ServiceContractCard extends StatelessWidget {
+  const _ServiceContractCard({
+    required this.customer,
+    required this.currency,
+    required this.canEdit,
+  });
+
+  final Customer customer;
+  final CurrencyCode currency;
+  final bool canEdit;
+
+  Future<void> _openForm(BuildContext context, {required bool isRenewal}) async {
+    final repo = context.read<AppState>().repository;
+    final data = context.read<DataController>();
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => ServiceContractFormDialog(
+        customer: customer,
+        repo: repo,
+        currency: currency,
+        isRenewal: isRenewal,
+      ),
+    );
+    if (saved == true) {
+      await data.refresh();
+      if (context.mounted) {
+        showSuccessSnack(
+          context,
+          isRenewal ? 'Contract renewed' : 'Service contract updated',
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final contract = customer.serviceContract!;
+    final now = DateTime.now();
+    final expired = contract.isExpiredAsOf(now);
+    final remaining = contract.timeRemainingAsOf(now);
+
+    return SectionCard(
+      title: 'Service Contract',
+      subtitle: customer.hasContractHistory
+          ? 'Active term · renewed ${customer.contractHistory.length}×'
+          : 'Subscription captured when the deal was won',
+      trailing: canEdit
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _openForm(context, isRenewal: true),
+                  icon: const Icon(Icons.autorenew, size: 16),
+                  label: const Text('Renew'),
+                ),
+                const SizedBox(width: 2),
+                TextButton.icon(
+                  onPressed: () => _openForm(context, isRenewal: false),
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: const Text('Edit'),
+                  style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary),
+                ),
+              ],
+            )
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Headline chips: plan, billing cadence, contract state.
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              _ContractChip(
+                icon: Icons.workspace_premium_outlined,
+                label: contract.plan.label,
+                tone: BadgeTone.primary,
+              ),
+              _ContractChip(
+                icon: Icons.autorenew,
+                label: contract.billingCycle.label,
+                tone: BadgeTone.info,
+              ),
+              _ContractChip(
+                icon: expired
+                    ? Icons.error_outline
+                    : Icons.verified_outlined,
+                label: expired ? 'Expired' : 'Active',
+                tone: expired ? BadgeTone.error : BadgeTone.success,
+              ),
+              if (remaining != null && !remaining.isPast)
+                _ContractChip(
+                  icon: Icons.hourglass_bottom,
+                  label: '${remaining.shortLabel} left',
+                  tone: BadgeTone.neutral,
+                ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          // Dates + time remaining.
+          Row(
+            children: [
+              Expanded(
+                child: _ContractStat(
+                  icon: Icons.event_available_outlined,
+                  label: 'Purchased',
+                  value: AppDate.format(contract.purchaseDate),
+                ),
+              ),
+              Expanded(
+                child: _ContractStat(
+                  icon: Icons.event_busy_outlined,
+                  label: 'Expires',
+                  value: AppDate.format(contract.expiryDate),
+                  valueColor: expired ? AppColors.error : null,
+                ),
+              ),
+            ],
+          ),
+          if (remaining != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            _ContractStat(
+              icon: remaining.isPast
+                  ? Icons.warning_amber_rounded
+                  : Icons.hourglass_bottom,
+              label: remaining.isPast ? 'Overdue by' : 'Time remaining',
+              value: remaining.isToday
+                  ? 'Expires today'
+                  : '${remaining.shortLabel}'
+                      '${remaining.isPast ? ' overdue' : ' remaining'}',
+              valueColor: remaining.isPast ? AppColors.error : AppColors.primary,
+            ),
+          ],
+          const SizedBox(height: AppSpacing.lg),
+          const Divider(height: 1),
+          const SizedBox(height: AppSpacing.md),
+          // Line items: base plan + each add-on, with a total footer.
+          _ContractLine(
+            label: contract.priceOneTime
+                ? '${contract.plan.label} plan (one-time)'
+                : '${contract.plan.label} plan',
+            value: MoneyFormatter.format(contract.price, currency),
+            emphasise: true,
+            muted: contract.priceOneTime,
+          ),
+          for (final a in contract.addOns) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _ContractLine(
+              label: a.name.isEmpty ? 'Add-on' : a.name,
+              value: MoneyFormatter.format(a.price, currency),
+              leadingIcon: Icons.add_circle_outline,
+            ),
+          ],
+          const SizedBox(height: AppSpacing.md),
+          const Divider(height: 1),
+          const SizedBox(height: AppSpacing.md),
+          _ContractLine(
+            label: 'Total per ${contract.billingCycle.unit}',
+            value:
+                '${MoneyFormatter.format(contract.total, currency)} /${contract.billingCycle.unit}',
+            isTotal: true,
+          ),
+          if (contract.hasOneTimeCharge) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _ContractLine(
+              label: 'One-time charge',
+              value: MoneyFormatter.format(contract.oneTimeTotal, currency),
+              muted: true,
+            ),
+          ],
+          if (contract.comment.trim().isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.notes_outlined,
+                          size: 15, color: AppColors.textTertiary),
+                      SizedBox(width: 6),
+                      Text('Comment',
+                          style: TextStyle(
+                              fontSize: 12, color: AppColors.textSecondary)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(contract.comment,
+                      style: const TextStyle(fontSize: 13, height: 1.4)),
+                ],
+              ),
+            ),
+          ],
+          if (customer.hasContractHistory) ...[
+            const SizedBox(height: AppSpacing.lg),
+            _RenewalHistory(
+              history: customer.contractHistory,
+              currency: currency,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A collapsible timeline of superseded contract terms (the renewal log),
+/// newest-first. The active term is shown above in the main card; this lists
+/// each prior term with its plan, window and recurring total.
+class _RenewalHistory extends StatelessWidget {
+  const _RenewalHistory({required this.history, required this.currency});
+
+  final List<ServiceContract> history;
+  final CurrencyCode currency;
+
+  @override
+  Widget build(BuildContext context) {
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.history, size: 20, color: AppColors.textTertiary),
+        title: Text('Renewal History (${history.length})',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        subtitle: const Text('Previous terms, most recent first',
+            style: TextStyle(fontSize: 11.5, color: AppColors.textTertiary)),
+        children: [
+          for (var i = 0; i < history.length; i++) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.sm),
+            _RenewalHistoryEntry(
+              contract: history[i],
+              currency: currency,
+              ordinal: history.length - i,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One superseded term in the renewal history.
+class _RenewalHistoryEntry extends StatelessWidget {
+  const _RenewalHistoryEntry({
+    required this.contract,
+    required this.currency,
+    required this.ordinal,
+  });
+
+  final ServiceContract contract;
+  final CurrencyCode currency;
+
+  /// 1-based position of this term in the customer's lifetime (term #1 is the
+  /// original), used purely as a label.
+  final int ordinal;
+
+  @override
+  Widget build(BuildContext context) {
+    final window =
+        '${AppDate.format(contract.purchaseDate)} → ${AppDate.format(contract.expiryDate)}';
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                ),
+                child: Text('Term $ordinal',
+                    style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary)),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  '${contract.plan.label} · ${contract.billingCycle.label}',
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text(
+                '${MoneyFormatter.format(contract.total, currency)} /${contract.billingCycle.unit}',
+                style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              const Icon(Icons.date_range_outlined,
+                  size: 13, color: AppColors.textTertiary),
+              const SizedBox(width: 4),
+              Text(window,
+                  style: const TextStyle(
+                      fontSize: 12, color: AppColors.textSecondary)),
+            ],
+          ),
+          if (contract.hasOneTimeCharge) ...[
+            const SizedBox(height: 2),
+            Text(
+              '+ ${MoneyFormatter.format(contract.oneTimeTotal, currency)} one-time',
+              style: const TextStyle(
+                  fontSize: 12, color: AppColors.textTertiary),
+            ),
+          ],
+          if (contract.comment.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(contract.comment,
+                style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: AppColors.textSecondary)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A small icon + label chip used for the contract headline (plan / cadence /
+/// state), reusing the badge tone palette.
+class _ContractChip extends StatelessWidget {
+  const _ContractChip({
+    required this.icon,
+    required this.label,
+    required this.tone,
+  });
+
+  final IconData icon;
+  final String label;
+  final BadgeTone tone;
+
+  ({Color fg, Color bg}) get _colors {
+    switch (tone) {
+      case BadgeTone.success:
+        return (fg: AppColors.success, bg: AppColors.successSurface);
+      case BadgeTone.error:
+        return (fg: AppColors.error, bg: AppColors.errorSurface);
+      case BadgeTone.info:
+        return (fg: AppColors.info, bg: AppColors.infoSurface);
+      case BadgeTone.primary:
+        return (fg: AppColors.primary, bg: AppColors.primaryLight);
+      case BadgeTone.warning:
+        return (fg: AppColors.warning, bg: AppColors.warningSurface);
+      case BadgeTone.neutral:
+        return (fg: AppColors.textSecondary, bg: AppColors.surfaceAlt);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _colors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: c.bg,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: c.fg),
+          const SizedBox(width: 6),
+          Text(label,
+              style: TextStyle(
+                  color: c.fg, fontSize: 12.5, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+/// A labelled statistic (icon + caption + value) used for the contract dates.
+class _ContractStat extends StatelessWidget {
+  const _ContractStat({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: AppColors.textTertiary),
+        const SizedBox(width: AppSpacing.sm),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary)),
+            const SizedBox(height: 2),
+            Text(value,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: valueColor)),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// A single line item / total row within the contract breakdown.
+class _ContractLine extends StatelessWidget {
+  const _ContractLine({
+    required this.label,
+    required this.value,
+    this.leadingIcon,
+    this.emphasise = false,
+    this.isTotal = false,
+    this.muted = false,
+  });
+
+  final String label;
+  final String value;
+  final IconData? leadingIcon;
+  final bool emphasise;
+  final bool isTotal;
+
+  /// When true this line is a non-recurring item (e.g. a one-time charge): its
+  /// value is rendered in a subdued colour so it reads as excluded from the
+  /// recurring subscription total.
+  final bool muted;
+
+  @override
+  Widget build(BuildContext context) {
+    final valueColor = isTotal
+        ? AppColors.primary
+        : (muted ? AppColors.textTertiary : AppColors.textPrimary);
+    return Row(
+      children: [
+        if (leadingIcon != null) ...[
+          Icon(leadingIcon, size: 16, color: AppColors.textTertiary),
+          const SizedBox(width: 6),
+        ],
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: isTotal ? 14.5 : 13.5,
+              color: isTotal ? AppColors.textPrimary : AppColors.textSecondary,
+              fontWeight: isTotal
+                  ? FontWeight.w700
+                  : (emphasise ? FontWeight.w600 : FontWeight.w400),
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: isTotal ? 16 : 14,
+            fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+            color: valueColor,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -681,14 +1538,6 @@ class _ActivityColumn extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SectionCard(
-          title: 'Deal Status',
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: StatusBadge.deal(customer.dealStatus),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.lg),
         SectionCard(
           title: 'Last Activity',
           child: Row(

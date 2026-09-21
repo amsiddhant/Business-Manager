@@ -226,6 +226,48 @@ enum DealStatus {
   }
 }
 
+/// Subscription plan tier sold on a won ("Successful") deal's service contract.
+enum SubscriptionPlan {
+  basic('BASIC', 'Basic'),
+  pro('PRO', 'Pro'),
+  legend('LEGEND', 'Legend');
+
+  const SubscriptionPlan(this.wire, this.label);
+  final String wire;
+  final String label;
+
+  static SubscriptionPlan fromWire(String? value) {
+    return SubscriptionPlan.values.firstWhere(
+      (e) => e.wire == value,
+      orElse: () => SubscriptionPlan.basic,
+    );
+  }
+}
+
+/// Billing cadence for a service contract's subscription + add-on pricing.
+///
+/// [perYear] is how many times the recorded price is billed within one year,
+/// used to annualise the contract total for reporting/comparison.
+enum BillingCycle {
+  monthly('MONTHLY', 'Monthly', 'mo', 12),
+  yearly('YEARLY', 'Yearly', 'yr', 1);
+
+  const BillingCycle(this.wire, this.label, this.unit, this.perYear);
+  final String wire;
+  final String label;
+
+  /// Short suffix for prominent price display (e.g. "₹12,000 /yr").
+  final String unit;
+  final int perYear;
+
+  static BillingCycle fromWire(String? value) {
+    return BillingCycle.values.firstWhere(
+      (e) => e.wire == value,
+      orElse: () => BillingCycle.yearly,
+    );
+  }
+}
+
 /// Rough headcount band describing the size of a customer's organisation.
 enum CompanySize {
   micro('MICRO', 'Micro (1–10)'),

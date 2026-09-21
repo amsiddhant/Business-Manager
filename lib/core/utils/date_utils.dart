@@ -177,6 +177,83 @@ class AppDate {
       DateTime(date.year, date.month, date.day);
 }
 
+/// A calendar-accurate span between two dates, broken into whole years, months
+/// and days, plus the absolute day count. Used to show how long is left on a
+/// service contract ("1 yr 2 mo remaining", "23 days remaining", "Expired…").
+///
+/// [isPast] is true when the target date lies before the reference date, so the
+/// same value type expresses both "time remaining" and "time since expiry".
+class TimeRemaining {
+  const TimeRemaining({
+    required this.years,
+    required this.months,
+    required this.days,
+    required this.totalDays,
+    required this.isPast,
+  });
+
+  final int years;
+  final int months;
+  final int days;
+
+  /// Absolute whole-day difference between the two dates.
+  final int totalDays;
+
+  /// True when [to] is before [from] (i.e. the target date has passed).
+  final bool isPast;
+
+  /// Whole calendar span from [from] to [to], at day granularity. Order does
+  /// not matter — the magnitude is returned with [isPast] recording direction.
+  factory TimeRemaining.between(DateTime from, DateTime to) {
+    final f = DateTime(from.year, from.month, from.day);
+    final t = DateTime(to.year, to.month, to.day);
+    final past = t.isBefore(f);
+    final start = past ? t : f;
+    final end = past ? f : t;
+
+    var years = end.year - start.year;
+    var months = end.month - start.month;
+    var days = end.day - start.day;
+    if (days < 0) {
+      months -= 1;
+      // Borrow the number of days in the month preceding `end` (day 0 of a
+      // month resolves to the last day of the previous month).
+      days += DateTime(end.year, end.month, 0).day;
+    }
+    if (months < 0) {
+      years -= 1;
+      months += 12;
+    }
+    return TimeRemaining(
+      years: years,
+      months: months,
+      days: days,
+      totalDays: end.difference(start).inDays,
+      isPast: past,
+    );
+  }
+
+  bool get isToday => totalDays == 0;
+
+  /// A compact headline figure and unit, e.g. ("1 yr 2 mo"), ("23", "days").
+  /// Prefers the two largest non-zero units; falls back to days.
+  String get shortLabel {
+    if (isToday) return 'Today';
+    final parts = <String>[];
+    if (years > 0) parts.add('$years yr');
+    if (months > 0) parts.add('$months mo');
+    if (years == 0 && days > 0) parts.add('$days day${days == 1 ? '' : 's'}');
+    if (parts.isEmpty) return '$totalDays day${totalDays == 1 ? '' : 's'}';
+    return parts.join(' ');
+  }
+
+  /// A full sentence for captions: "1 yr 2 mo remaining" / "Expired 5 days ago".
+  String get label {
+    if (isToday) return isPast ? 'Expires today' : 'Expires today';
+    return isPast ? 'Expired $shortLabel ago' : '$shortLabel remaining';
+  }
+}
+
 /// Buckets used to group time-series data for charts.
 enum TimeBucket { month, quarter, year }
 
