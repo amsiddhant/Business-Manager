@@ -186,6 +186,18 @@ class FirebaseBackend implements Backend {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> fetchWhereArrayContains(
+      String collection, String field, String value) async {
+    try {
+      final snap =
+          await _col(collection).where(field, arrayContains: value).get();
+      return snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+    } on FirebaseException catch (e) {
+      throw AppException(ErrorMapper.friendly(e), code: e.code);
+    }
+  }
+
+  @override
   Future<Map<String, dynamic>?> fetchDoc(String collection, String id) async {
     try {
       final snap = await _col(collection).doc(id).get();

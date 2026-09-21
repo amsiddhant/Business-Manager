@@ -35,12 +35,17 @@ class CustomerComment {
       );
 }
 
-/// A customer / lead belonging to a business. Tracks CRM contact details and a
-/// deal pipeline stage, plus an embedded activity comment thread.
+/// A customer / lead that can be tagged to one or more businesses. Tracks CRM
+/// contact details and a deal pipeline stage, plus an embedded activity comment
+/// thread.
+///
+/// A customer is "tagged" to businesses via [businessIds]. The Owner may tag any
+/// businesses; an Admin/User may only tag businesses they are assigned to (and,
+/// when editing, must never drop a tag for a business they cannot see).
 class Customer {
   const Customer({
     required this.id,
-    required this.businessId,
+    required this.businessIds,
     required this.name,
     this.businessType = '',
     this.size = CompanySize.small,
@@ -57,7 +62,10 @@ class Customer {
   });
 
   final String id;
-  final String businessId;
+
+  /// The businesses this customer is tagged to. A customer may belong to
+  /// several businesses at once; never empty for a persisted customer.
+  final List<String> businessIds;
   final String name;
   final String businessType;
   final CompanySize size;
@@ -77,6 +85,20 @@ class Customer {
       .where((p) => p.trim().isNotEmpty)
       .join(', ');
 
+  /// Reads the tagged businesses, tolerating the legacy scalar `businessId`
+  /// field written before customers supported multi-business tagging.
+  static List<String> _readBusinessIds(Map<String, dynamic> map) {
+    final raw = map['businessIds'];
+    if (raw is List) {
+      return raw
+          .map((e) => e?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    final legacy = map['businessId'] as String?;
+    return (legacy != null && legacy.isNotEmpty) ? [legacy] : const [];
+  }
+
   /// The most recent activity date: newest comment, else last update/creation.
   DateTime? get lastActivityAt {
     DateTime? latest = audit.updatedAt ?? audit.createdAt;
@@ -89,7 +111,7 @@ class Customer {
 
   Map<String, dynamic> toMap() => {
         'id': id,
-        'businessId': businessId,
+        'businessIds': businessIds,
         'name': name,
         'businessType': businessType,
         'size': size.wire,
@@ -107,7 +129,7 @@ class Customer {
 
   factory Customer.fromMap(Map<String, dynamic> map) => Customer(
         id: map['id'] as String? ?? '',
-        businessId: map['businessId'] as String? ?? '',
+        businessIds: _readBusinessIds(map),
         name: map['name'] as String? ?? '',
         businessType: map['businessType'] as String? ?? '',
         size: CompanySize.fromWire(map['size'] as String?),
@@ -127,6 +149,7 @@ class Customer {
       );
 
   Customer copyWith({
+    List<String>? businessIds,
     String? name,
     String? businessType,
     CompanySize? size,
@@ -143,7 +166,7 @@ class Customer {
   }) =>
       Customer(
         id: id,
-        businessId: businessId,
+        businessIds: businessIds ?? this.businessIds,
         name: name ?? this.name,
         businessType: businessType ?? this.businessType,
         size: size ?? this.size,

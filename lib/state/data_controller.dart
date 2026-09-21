@@ -44,35 +44,66 @@ class DataController extends ChangeNotifier {
   List<Dealer> dealers = [];
   List<Customer> customers = [];
 
+  /// Non-fatal, per-collection load failures (e.g. one collection is denied by
+  /// the security rules while the rest load cleanly). Surfaced as a dismissible
+  /// warning banner rather than a full-screen block. Cleared on every load.
+  final List<String> warnings = [];
+
+  bool get hasWarnings => warnings.isNotEmpty;
+
   /// Loads everything the current user can access.
+  ///
+  /// Only [businesses] — the scope root — is treated as essential: without it
+  /// there is nothing to render, so its failure surfaces full-screen. Every
+  /// other collection is loaded in isolation; a single collection failing (for
+  /// example a Firestore permission-denied on one query) degrades to an empty
+  /// list plus a warning instead of blanking the entire application.
   Future<void> load() async {
     _loading = true;
     _error = null;
+    warnings.clear();
     notifyListeners();
+
+    // Essential: without businesses there is no scope to render anything.
     try {
-      final results = await Future.wait([
-        _repository.fetchBusinesses(),
-        _repository.fetchProducts(),
-        _repository.fetchCampaigns(),
-        _repository.fetchOrders(),
-        _repository.fetchExpenses(),
-        _repository.fetchDealers(),
-        _repository.fetchCustomers(),
-      ]);
-      businesses = results[0] as List<Business>;
-      products = results[1] as List<Product>;
-      campaigns = results[2] as List<Campaign>;
-      orders = results[3] as List<Order>;
-      expenses = results[4] as List<Expense>;
-      dealers = results[5] as List<Dealer>;
-      customers = results[6] as List<Customer>;
-      _loaded = true;
+      businesses = await _repository.fetchBusinesses();
     } catch (e) {
+      businesses = [];
       _error = ErrorMapper.friendly(e);
-    } finally {
+      _loaded = false;
       _loading = false;
       notifyListeners();
+      return;
     }
+
+    // Non-critical collections, each isolated. A failure clears stale data for
+    // that collection and records a warning; it never blocks the whole app.
+    Future<void> guard<T>(
+      String label,
+      Future<List<T>> Function() run,
+      void Function(List<T>) assign,
+    ) async {
+      try {
+        assign(await run());
+      } catch (e) {
+        assign(const []);
+        warnings.add('$label: ${ErrorMapper.friendly(e)}');
+        debugPrint('DataController.load: $label failed: $e');
+      }
+    }
+
+    await Future.wait([
+      guard('Products', _repository.fetchProducts, (v) => products = v),
+      guard('Campaigns', _repository.fetchCampaigns, (v) => campaigns = v),
+      guard('Orders', _repository.fetchOrders, (v) => orders = v),
+      guard('Expenses', _repository.fetchExpenses, (v) => expenses = v),
+      guard('Dealers', _repository.fetchDealers, (v) => dealers = v),
+      guard('Customers', _repository.fetchCustomers, (v) => customers = v),
+    ]);
+
+    _loaded = true;
+    _loading = false;
+    notifyListeners();
   }
 
   /// Reloads from the backend (after create/update/delete).
@@ -87,6 +118,7 @@ class DataController extends ChangeNotifier {
     expenses = [];
     dealers = [];
     customers = [];
+    warnings.clear();
     _loaded = false;
     _error = null;
     notifyListeners();
@@ -134,7 +166,7 @@ class DataController extends ChangeNotifier {
 
   List<Customer> customersFor(String? businessId) => businessId == null
       ? customers
-      : customers.where((c) => c.businessId == businessId).toList();
+      : customers.where((c) => c.businessIds.contains(businessId)).toList();
 
   Customer? customerById(String id) {
     for (final c in customers) {

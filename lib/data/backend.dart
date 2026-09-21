@@ -64,6 +64,16 @@ abstract class DataBackend {
     String? businessId,
   });
 
+  /// Reads documents in [collection] whose array-valued [field] contains
+  /// [value] (Firestore `array-contains`). Used to scope records tagged to
+  /// multiple businesses (e.g. customers) without an unfiltered list — a
+  /// non-owner runs one such query per assigned business.
+  Future<List<Map<String, dynamic>>> fetchWhereArrayContains(
+    String collection,
+    String field,
+    String value,
+  );
+
   Future<Map<String, dynamic>?> fetchDoc(String collection, String id);
 
   Future<void> setDoc(

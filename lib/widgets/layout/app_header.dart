@@ -152,6 +152,17 @@ class _NotificationsButton extends StatelessWidget {
             'Data is stored locally. Configure Firebase in Settings to go live.',
       ));
     }
+    // Partial-load failures: one collection was unreadable while the rest of
+    // the app loaded fine. Surfaced here (not as a full-screen error) so the
+    // user keeps access to everything else.
+    for (final w in data.warnings) {
+      notes.add(_Note(
+        icon: Icons.error_outline,
+        color: AppColors.warning,
+        title: 'Some data could not be loaded',
+        message: w,
+      ));
+    }
     // Campaigns ending within 7 days.
     final now = DateTime.now();
     for (final c in data.campaigns) {

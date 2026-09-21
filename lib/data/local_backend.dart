@@ -209,6 +209,20 @@ class LocalBackend implements Backend {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> fetchWhereArrayContains(
+      String collection, String field, String value) async {
+    final coll = _store[collection];
+    if (coll == null) return [];
+    return coll.values
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((doc) {
+          final raw = doc[field];
+          return raw is List && raw.contains(value);
+        })
+        .toList();
+  }
+
+  @override
   Future<Map<String, dynamic>?> fetchDoc(String collection, String id) async {
     final doc = _store[collection]?[id];
     return doc == null ? null : Map<String, dynamic>.from(doc);

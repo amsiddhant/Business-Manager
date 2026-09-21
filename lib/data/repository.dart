@@ -65,6 +65,18 @@ class Repository {
     }
   }
 
+  /// Grants access when the caller can reach *any* of [businessIds] (they share
+  /// at least one assigned business with the record). Used for records that may
+  /// be tagged to several businesses at once (e.g. customers).
+  void _requireAnyBusinessAccess(Iterable<String> businessIds) {
+    final user = _currentUser;
+    if (user == null ||
+        !businessIds.any((id) => user.canAccessBusiness(id))) {
+      throw const PermissionDeniedException(
+          "You don't have access to this business.");
+    }
+  }
+
 
   AuditFields _stampCreate() => AuditFields(
         createdAt: _now,
@@ -185,12 +197,22 @@ class Repository {
   /// see is if numbering was interleaved across businesses by the Owner; that
   /// edge case is documented here rather than hardened, since eliminating it
   /// entirely would require a server-side counter or a doc-key scheme change.
+  ///
+  /// [arrayScoped] marks collections scoped by an array membership field (e.g.
+  /// customers' `businessIds`) rather than a scalar `businessId`. Non-owners
+  /// must scan via the matching query type, otherwise a scalar `businessId`
+  /// filter matches nothing and every id collides at `<prefix>-00001`, silently
+  /// overwriting prior records.
   Future<String> _nextScopedId(String prefix, String collection,
-      {int width = 5}) async {
+      {int width = 5, bool arrayScoped = false}) async {
     final user = _currentUser;
     List<Map<String, dynamic>> docs;
     if (user == null || user.isOwner) {
       docs = await _backend.fetchCollection(collection);
+    } else if (arrayScoped) {
+      final perBusiness = await Future.wait(
+          user.assignedBusinessIds.map(_fetchCustomerDocsForBusiness));
+      docs = perBusiness.expand((d) => d).toList();
     } else {
       final perBusiness = await Future.wait(user.assignedBusinessIds
           .map((id) => _backend.fetchCollection(collection, businessId: id)));
@@ -540,33 +562,116 @@ class Repository {
 
   // ---- Customers ------------------------------------------------------------
 
-  Future<List<Customer>> fetchCustomers({String? businessId}) => _fetchScoped(
-        Collections.customers,
-        Customer.fromMap,
-        businessId: businessId,
-      );
+  /// Customers can be tagged to several businesses, so scoping uses an
+  /// `array-contains` query per assigned business (never an unfiltered list for
+  /// non-owners), de-duplicated by customer id since one customer may match more
+  /// than one of the caller's businesses.
+  ///
+  /// Each scoped read is a single `where('businessIds', arrayContains: id)`
+  /// query for an assigned `id`. This is the only shape Firestore can prove
+  /// authorizable against the customers read rule ("rules are not filters"): the
+  /// query guarantees `id ∈ businessIds` for every result, and `id` is a member
+  /// of the caller's assigned set, so the rule's `businessIds.hasAny(assigned)`
+  /// holds for every returned document. A scalar `businessId` filter is NOT used
+  /// — the field is never written (see [Customer.toMap]) and such a query is not
+  /// provably authorizable, which would make Firestore reject the whole read.
+  Future<List<Customer>> fetchCustomers({String? businessId}) async {
+    final user = _currentUser;
+    if (user == null) return const [];
+
+    List<Map<String, dynamic>> docs;
+    if (businessId != null) {
+      _requireBusinessAccess(businessId);
+      docs = await _fetchCustomerDocsForBusiness(businessId);
+    } else if (user.isOwner) {
+      docs = await _backend.fetchCollection(Collections.customers);
+    } else {
+      final perBusiness = await Future.wait(
+          user.assignedBusinessIds.map(_fetchCustomerDocsForBusiness));
+      docs = perBusiness.expand((d) => d).toList();
+    }
+
+    final byId = <String, Customer>{};
+    for (final doc in docs) {
+      final c = Customer.fromMap(doc);
+      byId[c.id] = c;
+    }
+    return byId.values.toList();
+  }
+
+  /// Customer documents tagged to [businessId] via the `businessIds` array.
+  ///
+  /// A single `array-contains` query — the only provably-authorizable shape for
+  /// a non-owner (see [fetchCustomers]). No scalar `businessId` fallback: that
+  /// field is never persisted and the extra query would be rejected wholesale.
+  Future<List<Map<String, dynamic>>> _fetchCustomerDocsForBusiness(
+          String businessId) =>
+      _backend.fetchWhereArrayContains(
+          Collections.customers, 'businessIds', businessId);
 
   Future<Customer> saveCustomer(Customer customer,
       {required bool isNew}) async {
     _require(isNew ? Permission.createCustomer : Permission.editCustomer);
-    _requireBusinessAccess(customer.businessId);
+    final user = _currentUser;
+    final isOwner = user?.isOwner ?? false;
+
     var toSave = customer;
     if (isNew) {
+      // A new customer must be tagged to at least one business, and a non-owner
+      // may only tag businesses assigned to them.
+      if (customer.businessIds.isEmpty) {
+        throw const PermissionDeniedException(
+            'Select at least one business for this customer.');
+      }
+      if (!isOwner &&
+          customer.businessIds.any((id) => !(user?.canAccessBusiness(id) ?? false))) {
+        throw const PermissionDeniedException(
+            'You can only tag customers to businesses assigned to you.');
+      }
+      _requireAnyBusinessAccess(customer.businessIds);
       final id = await _nextScopedId(
-          IdGenerator.customerPrefix, Collections.customers);
+          IdGenerator.customerPrefix, Collections.customers,
+          arrayScoped: true);
       toSave = _withCustomerId(customer.copyWith(audit: _stampCreate()), id);
     } else {
-      toSave = customer.copyWith(audit: _stampUpdate(customer.audit));
+      // Authorize the edit against the record's *current* tags, then merge back
+      // any tags to businesses the caller cannot see so a non-owner never
+      // silently drops (or leaks) a business outside their scope.
+      final existingDoc =
+          await _backend.fetchDoc(Collections.customers, customer.id);
+      if (existingDoc == null) throw const NotFoundException();
+      final existing = Customer.fromMap(existingDoc);
+      _requireAnyBusinessAccess(existing.businessIds);
+
+      var next = customer;
+      if (!isOwner) {
+        final hidden = existing.businessIds
+            .where((id) => !(user?.canAccessBusiness(id) ?? false))
+            .toList();
+        // Drop any tag the caller cannot access from what they submitted, then
+        // union the hidden prior tags back in.
+        final visibleSubmitted = customer.businessIds
+            .where((id) => user?.canAccessBusiness(id) ?? false);
+        next = customer
+            .copyWith(businessIds: {...visibleSubmitted, ...hidden}.toList());
+      }
+      if (next.businessIds.isEmpty) {
+        throw const PermissionDeniedException(
+            'A customer must remain tagged to at least one business.');
+      }
+      toSave = next.copyWith(audit: _stampUpdate(next.audit));
     }
     await _backend.setDoc(Collections.customers, toSave.id, toSave.toMap());
     await _log(isNew ? AuditAction.create : AuditAction.update, 'Customer',
-        toSave.id, businessId: toSave.businessId, summary: toSave.name);
+        toSave.id,
+        businessId: toSave.businessIds.isEmpty ? null : toSave.businessIds.first,
+        summary: toSave.name);
     return toSave;
   }
 
   Customer _withCustomerId(Customer c, String id) => Customer(
         id: id,
-        businessId: c.businessId,
+        businessIds: c.businessIds,
         name: c.name,
         businessType: c.businessType,
         size: c.size,
@@ -587,10 +692,12 @@ class Repository {
     final doc = await _backend.fetchDoc(Collections.customers, id);
     if (doc == null) throw const NotFoundException();
     final customer = Customer.fromMap(doc);
-    _requireBusinessAccess(customer.businessId);
+    _requireAnyBusinessAccess(customer.businessIds);
     await _backend.deleteDoc(Collections.customers, id);
     await _log(AuditAction.delete, 'Customer', id,
-        businessId: customer.businessId, summary: customer.name);
+        businessId:
+            customer.businessIds.isEmpty ? null : customer.businessIds.first,
+        summary: customer.name);
   }
 
   // ---- Users ----------------------------------------------------------------

@@ -199,7 +199,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
         existing: existing,
         repo: repo,
         businesses: businesses,
-        preselectBusinessId: selectedBizId,
+        preselectBusinessIds:
+            selectedBizId == null ? const [] : [selectedBizId],
       ),
     );
     if (saved == true) {
@@ -334,8 +335,8 @@ class _RowActions extends StatelessWidget {
           IconButton(
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
-            onPressed: () => _CustomersScreenState._openForm(
-                context, customer, customer.businessId),
+            onPressed: () =>
+                _CustomersScreenState._openForm(context, customer, null),
           ),
         if (canDelete)
           IconButton(
@@ -374,13 +375,13 @@ class CustomerFormDialog extends StatefulWidget {
     required this.existing,
     required this.repo,
     required this.businesses,
-    this.preselectBusinessId,
+    this.preselectBusinessIds = const [],
   });
 
   final Customer? existing;
   final Repository repo;
   final List<Business> businesses;
-  final String? preselectBusinessId;
+  final List<String> preselectBusinessIds;
 
   @override
   State<CustomerFormDialog> createState() => _CustomerFormDialogState();
@@ -399,7 +400,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   late final TextEditingController _description;
   late CompanySize _size;
   late DealStatus _dealStatus;
-  String? _businessId;
+
+  /// Ids of businesses this customer is tagged to (multi-select).
+  final Set<String> _businessIds = {};
 
   Customer? get _existing => widget.existing;
 
@@ -418,9 +421,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
     _description = TextEditingController(text: c?.description ?? '');
     _size = c?.size ?? CompanySize.small;
     _dealStatus = c?.dealStatus ?? DealStatus.pending;
-    _businessId = c?.businessId ??
-        widget.preselectBusinessId ??
-        (widget.businesses.isNotEmpty ? widget.businesses.first.id : null);
+    // Seed the selection from the existing customer (only tags visible in this
+    // scope are shown/editable; hidden tags are preserved server-side on save),
+    // else from any preselected businesses (e.g. the current business filter).
+    final selectable = widget.businesses.map((b) => b.id).toSet();
+    if (c != null) {
+      _businessIds.addAll(c.businessIds.where(selectable.contains));
+    } else {
+      _businessIds.addAll(widget.preselectBusinessIds.where(selectable.contains));
+    }
   }
 
   @override
@@ -448,18 +457,23 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isNew && widget.businesses.length > 1) ...[
-              AppDropdown<String>(
-                label: 'Business',
-                isRequired: true,
-                value: _businessId,
-                items: [for (final b in widget.businesses) b.id],
-                itemLabel: (id) =>
-                    widget.businesses.firstWhere((b) => b.id == id).name,
-                onChanged: (v) => setState(() => _businessId = v),
+            LabeledField(
+              label: 'Businesses',
+              isRequired: true,
+              helper: 'Tag this customer to one or more businesses.',
+              child: _BusinessMultiSelect(
+                businesses: widget.businesses,
+                selected: _businessIds,
+                onToggle: (id, sel) => setState(() {
+                  if (sel) {
+                    _businessIds.add(id);
+                  } else {
+                    _businessIds.remove(id);
+                  }
+                }),
               ),
-              const FormGap(),
-            ],
+            ),
+            const FormGap(),
             AppTextField(
               label: 'Customer Name',
               controller: _name,
@@ -533,15 +547,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
   Future<bool> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
-    final bizId = _businessId;
-    if (bizId == null) {
-      showErrorSnack(context, 'Select a business for this customer.');
+    if (_businessIds.isEmpty) {
+      showErrorSnack(context, 'Select at least one business for this customer.');
       return false;
     }
     final isNew = _existing == null;
     final customer = (_existing ??
-            Customer(id: '', businessId: bizId, name: _name.text.trim()))
+            Customer(id: '', businessIds: const [], name: _name.text.trim()))
         .copyWith(
+      businessIds: _businessIds.toList(),
       name: _name.text.trim(),
       businessType: _businessType.text.trim(),
       size: _size,
@@ -561,5 +575,111 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
       if (mounted) showErrorSnack(context, e);
       return false;
     }
+  }
+}
+
+/// A searchable, multi-checkbox picker of onboarded businesses. Only businesses
+/// the caller can access are passed in, so selecting is inherently scoped to the
+/// user's assignments (Owner sees all; Admin/User see only assigned ones).
+class _BusinessMultiSelect extends StatefulWidget {
+  const _BusinessMultiSelect({
+    required this.businesses,
+    required this.selected,
+    required this.onToggle,
+  });
+
+  final List<Business> businesses;
+  final Set<String> selected;
+  final void Function(String id, bool selected) onToggle;
+
+  @override
+  State<_BusinessMultiSelect> createState() => _BusinessMultiSelectState();
+}
+
+class _BusinessMultiSelectState extends State<_BusinessMultiSelect> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.businesses.isEmpty) {
+      return const Text('No businesses available.',
+          style: TextStyle(fontSize: 12, color: AppColors.textTertiary));
+    }
+    final q = _query.trim().toLowerCase();
+    final filtered = q.isEmpty
+        ? widget.businesses
+        : widget.businesses
+            .where((b) => b.name.toLowerCase().contains(q) ||
+                b.id.toLowerCase().contains(q))
+            .toList();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            child: TextField(
+              onChanged: (v) => setState(() => _query = v),
+              decoration: const InputDecoration(
+                isDense: true,
+                prefixIcon: Icon(Icons.search, size: 18),
+                hintText: 'Search businesses…',
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 196),
+            child: filtered.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                    child: Text('No matching businesses.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                            fontSize: 12, color: AppColors.textTertiary)),
+                  )
+                : ListView(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    children: [
+                      for (final b in filtered)
+                        CheckboxListTile(
+                          dense: true,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          value: widget.selected.contains(b.id),
+                          onChanged: (v) => widget.onToggle(b.id, v ?? false),
+                          title: Text(b.name,
+                              style: const TextStyle(fontSize: 14)),
+                          subtitle: Text(b.id,
+                              style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppColors.textTertiary)),
+                        ),
+                    ],
+                  ),
+          ),
+          if (widget.selected.isNotEmpty) ...[
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+              child: Text(
+                '${widget.selected.length} '
+                '${widget.selected.length == 1 ? 'business' : 'businesses'} '
+                'selected',
+                style: const TextStyle(
+                    fontSize: 12, color: AppColors.textSecondary),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }

@@ -188,17 +188,68 @@ service cloud.firestore {
         (isOwner() || isAdmin() || hasGrant('deleteDealer'));
     }
 
-    // Customers (CRM): create allowed for owner/admin/user; edit for
-    // owner/admin or a user (users may add and edit but never delete); delete
-    // for owner/admin only (or an explicit grant).
+    // Customers (CRM): a customer may be tagged to several businesses via the
+    // `businessIds` array. Access is granted when the caller's assigned
+    // businesses intersect that array (owner is unrestricted).
+    //
+    // The read rule tests `resource.data.businessIds.hasAny(assignedBusinesses())`
+    // DIRECTLY on the array field — with no conditional/data-shape branch. This
+    // is what makes the client's per-business `where('businessIds',
+    // arrayContains: id)` query provably authorizable: Firestore "rules are not
+    // filters", so a list query passes only when its own constraints guarantee
+    // every possible result satisfies the rule. A single-value arrayContains for
+    // an assigned `id` guarantees `id ∈ businessIds`, and `id ∈ assigned`, so
+    // `hasAny(assigned)` is guaranteed true for every returned document. (An
+    // earlier `('businessIds' in data) ? ... : [data.businessId]` helper had a
+    // conditional branch the query analyzer cannot resolve, which rejected the
+    // whole read and locked out every non-owner — do not reintroduce it. All
+    // customer documents carry the `businessIds` array; there is no scalar
+    // `businessId` legacy shape to support.)
+    //
+    // create allowed for owner/admin/user; edit for owner/admin/user (users may
+    // add and edit but never delete); delete for owner/admin or explicit grant.
+    //
+    // On CREATE a non-owner may only tag businesses they can access, so the new
+    // array must be a non-empty subset of their assignments (an empty array is
+    // rejected because `hasOnly({})` is vacuously true — that would mint an
+    // orphan record only the owner could ever see).
+    //
+    // On UPDATE the incoming array is constrained so a non-owner can neither
+    // smuggle a customer into an unassigned business nor silently drop a tag for
+    // a business they cannot see: every business added *or* removed by the write
+    // must be within their own assignments, leaving out-of-scope tags identical
+    // before and after. This mirrors the repository's merge-back logic and the
+    // create rule's subset discipline (the honest client is no longer the only
+    // thing enforcing tenant isolation on edit).
     match /customers/{id} {
-      allow read: if canAccessBusiness(resource.data.businessId);
-      allow create: if canAccessBusiness(request.resource.data.businessId) &&
-        (isOwner() || isAdmin() || isUser());
-      allow update: if canAccessBusiness(resource.data.businessId) &&
-        (isOwner() || isAdmin() || isUser());
-      allow delete: if canAccessBusiness(resource.data.businessId) &&
-        (isOwner() || isAdmin() || hasGrant('deleteCustomer'));
+      allow read: if isOwner() ||
+        (isActive() &&
+         resource.data.businessIds is list &&
+         resource.data.businessIds.hasAny(assignedBusinesses()));
+      allow create: if (isOwner() ||
+        ((isAdmin() || isUser()) &&
+         request.resource.data.businessIds is list &&
+         request.resource.data.businessIds.size() > 0 &&
+         request.resource.data.businessIds.toSet()
+           .hasOnly(assignedBusinesses().toSet())));
+      allow update: if (isOwner() ||
+        ((isAdmin() || isUser()) &&
+         isActive() &&
+         resource.data.businessIds is list &&
+         resource.data.businessIds.hasAny(assignedBusinesses()) &&
+         request.resource.data.businessIds is list &&
+         request.resource.data.businessIds.size() > 0 &&
+         request.resource.data.businessIds.toSet()
+           .difference(resource.data.businessIds.toSet())
+           .hasOnly(assignedBusinesses().toSet()) &&
+         resource.data.businessIds.toSet()
+           .difference(request.resource.data.businessIds.toSet())
+           .hasOnly(assignedBusinesses().toSet())));
+      allow delete: if (isOwner() ||
+        (isActive() &&
+         resource.data.businessIds is list &&
+         resource.data.businessIds.hasAny(assignedBusinesses()) &&
+         (isAdmin() || hasGrant('deleteCustomer'))));
     }
 
     // ---- Audit logs ---------------------------------------------------------
