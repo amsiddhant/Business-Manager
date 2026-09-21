@@ -15,6 +15,7 @@ import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
 import '../../widgets/common/confirm_dialog.dart';
+import '../../widgets/common/csv_actions.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/initials_avatar.dart';
 import '../../widgets/common/page_header.dart';
@@ -65,6 +66,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
     final bizId = filter.selectedBusinessId;
     final canCreate = user?.can(Permission.createCustomer) ?? false;
+    final canExport = user?.can(Permission.exportData) ?? false;
     final canEdit = user?.can(Permission.editCustomer) ?? false;
     final canDelete = user?.can(Permission.deleteCustomer) ?? false;
 
@@ -82,6 +84,20 @@ class _CustomersScreenState extends State<CustomersScreen> {
           title: 'Customers',
           subtitle: 'Manage leads, contacts and deal pipeline',
           actions: [
+            if (canExport)
+              OutlinedButton.icon(
+                onPressed: customers.isEmpty
+                    ? null
+                    : () => exportCustomersCsv(context, customers),
+                icon: const Icon(Icons.file_download_outlined, size: 18),
+                label: const Text('Export CSV'),
+              ),
+            if (canCreate)
+              OutlinedButton.icon(
+                onPressed: () => importCustomersCsv(context),
+                icon: const Icon(Icons.file_upload_outlined, size: 18),
+                label: const Text('Import CSV'),
+              ),
             if (canCreate)
               ElevatedButton.icon(
                 onPressed: () => _openForm(context, null, bizId),

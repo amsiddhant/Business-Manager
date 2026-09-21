@@ -15,6 +15,7 @@ import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
 import '../../widgets/common/confirm_dialog.dart';
+import '../../widgets/common/csv_actions.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
@@ -52,6 +53,7 @@ class ProductsScreen extends StatelessWidget {
     final bizId = filter.selectedBusinessId;
     final products = data.productsFor(bizId);
     final canCreate = user?.can(Permission.createProduct) ?? false;
+    final canExport = user?.can(Permission.exportData) ?? false;
     final canEdit = user?.can(Permission.editProduct) ?? false;
     final canDelete = user?.can(Permission.deleteProduct) ?? false;
     final needsBusiness = bizId == null && data.selectableBusinesses.length > 1;
@@ -63,6 +65,20 @@ class ProductsScreen extends StatelessWidget {
           title: 'Products',
           subtitle: 'Track catalogue, pricing and profitability',
           actions: [
+            if (canExport)
+              OutlinedButton.icon(
+                onPressed: products.isEmpty
+                    ? null
+                    : () => exportProductsCsv(context, products),
+                icon: const Icon(Icons.file_download_outlined, size: 18),
+                label: const Text('Export CSV'),
+              ),
+            if (canCreate)
+              OutlinedButton.icon(
+                onPressed: () => importProductsCsv(context),
+                icon: const Icon(Icons.file_upload_outlined, size: 18),
+                label: const Text('Import CSV'),
+              ),
             if (canCreate)
               ElevatedButton.icon(
                 onPressed: () => _openForm(context, null, bizId),
