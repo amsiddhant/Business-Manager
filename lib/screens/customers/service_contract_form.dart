@@ -24,29 +24,24 @@ class ServiceContractFormDialog extends StatefulWidget {
     super.key,
     required this.customer,
     required this.repo,
-    required this.currency,
-    this.businesses = const [],
+    required this.business,
     this.isRenewal = false,
   });
 
   final Customer customer;
   final Repository repo;
 
-  /// Fallback display currency used when no contract business is chosen (or the
-  /// chosen one is not resolvable). The effective currency otherwise follows the
-  /// selected business.
-  final CurrencyCode currency;
+  /// The specific business this contract is sold under. A customer may be tagged
+  /// to several businesses and hold one contract each; the caller scopes the
+  /// form to a single business (there is no in-form picker). The invoice then
+  /// shows this business's details as the seller and prices use its currency.
+  final Business business;
 
-  /// The businesses this customer is tagged to (resolved to full [Business]
-  /// objects, already scoped to what the current user may see). The user picks
-  /// which one this contract is sold under; the invoice then shows that
-  /// business's details as the seller. When empty the picker is hidden.
-  final List<Business> businesses;
-
-  /// When true the current active contract is archived to history and a new
-  /// term is captured (a renewal), rather than editing the active term in
-  /// place. The form pre-fills the previous term's plan/price/add-ons for
-  /// convenience but starts a fresh purchase/expiry window.
+  /// When true the current active contract for [business] is archived to that
+  /// business's history and a new term is captured (a renewal), rather than
+  /// editing the active term in place. The form pre-fills the previous term's
+  /// plan/price/add-ons for convenience but starts a fresh purchase/expiry
+  /// window.
   final bool isRenewal;
 
   @override
@@ -81,32 +76,15 @@ class _ServiceContractFormDialogState
   DateTime? _purchaseDate;
   DateTime? _expiryDate;
 
-  /// The business this contract is sold under. Null until chosen; pre-selected
-  /// from the active contract (edit/renewal) or the sole tagged business.
-  Business? _business;
-
   bool _hasAddOns = false;
   final List<_AddOnRow> _addOns = [];
 
-  /// The active contract on the customer, if any.
-  ServiceContract? get _active => widget.customer.serviceContract;
+  /// The active contract for this business, if any.
+  ServiceContract? get _active =>
+      widget.customer.activeContractFor(widget.business.id);
 
-  /// Resolves a tagged business by id from the ones supplied to the dialog, or
-  /// null when the id is empty / no longer visible.
-  Business? _businessById(String? id) {
-    if (id == null || id.isEmpty) return null;
-    for (final b in widget.businesses) {
-      if (b.id == id) return b;
-    }
-    return null;
-  }
-
-  /// Whether the user must choose a business (more than one is tagged).
-  bool get _showBusinessPicker => widget.businesses.length > 1;
-
-  /// The currency prices are captured in: the selected business's currency when
-  /// one is chosen, else the fallback [ServiceContractFormDialog.currency].
-  CurrencyCode get _currency => _business?.currency ?? widget.currency;
+  /// The currency prices are captured in: the target business's currency.
+  CurrencyCode get _currency => widget.business.currency;
 
   /// Whether this is a first-time capture (no active contract to edit/renew).
   bool get _isNew => _active == null;
@@ -132,11 +110,6 @@ class _ServiceContractFormDialogState
     // A renewal starts a fresh term today; an edit keeps the stored dates.
     _purchaseDate = _isEdit ? (c?.purchaseDate ?? DateTime.now()) : DateTime.now();
     _expiryDate = _isEdit ? c?.expiryDate : null;
-    // Pre-select the contract business: the active contract's business if it is
-    // still tagged, else the sole tagged business (nothing to choose), else
-    // leave unset so the user must pick.
-    _business = _businessById(c?.businessId) ??
-        (widget.businesses.length == 1 ? widget.businesses.first : null);
     if (c != null && c.addOns.isNotEmpty) {
       _hasAddOns = true;
       for (final a in c.addOns) {
@@ -223,18 +196,8 @@ class _ServiceContractFormDialogState
               const _RenewalBanner(),
               const FormGap(),
             ],
-            if (_showBusinessPicker) ...[
-              AppDropdown<Business>(
-                label: 'Business',
-                value: _business,
-                isRequired: true,
-                helper: 'The invoice shows this business as the seller.',
-                items: widget.businesses,
-                itemLabel: (b) => b.name,
-                onChanged: (v) => setState(() => _business = v),
-              ),
-              const FormGap(),
-            ],
+            _BusinessContextBanner(business: widget.business),
+            const FormGap(),
             _BillingCycleToggle(
               value: _cycle,
               onChanged: (v) => setState(() => _cycle = v),
@@ -309,10 +272,6 @@ class _ServiceContractFormDialogState
 
   Future<bool> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
-    if (_showBusinessPicker && _business == null) {
-      showErrorSnack(context, 'Select the business this contract is sold under.');
-      return false;
-    }
     if (_purchaseDate == null) {
       showErrorSnack(context, 'Select the date of purchase.');
       return false;
@@ -331,15 +290,8 @@ class _ServiceContractFormDialogState
       }
     }
 
-    // The chosen business, else the sole tagged one, else the customer's first
-    // tagged id — so the invoice always resolves a seller.
-    final businessId = _business?.id ??
-        (widget.customer.businessIds.isNotEmpty
-            ? widget.customer.businessIds.first
-            : '');
-
     final contract = ServiceContract(
-      businessId: businessId,
+      businessId: widget.business.id,
       purchaseDate: _purchaseDate,
       expiryDate: _expiryDate,
       price: _basePrice,
@@ -350,14 +302,12 @@ class _ServiceContractFormDialogState
       comment: _comment.text.trim(),
     );
 
-    // A renewal archives the active term into history; an edit/first capture
-    // replaces the active term directly.
+    // A renewal archives this business's active term into its history; an
+    // edit/first capture replaces this business's active term directly. Both
+    // leave contracts for the customer's other businesses untouched.
     final updated = widget.isRenewal
         ? widget.customer.withRenewedContract(contract)
-        : widget.customer.copyWith(
-            dealStatus: DealStatus.successful,
-            serviceContract: contract,
-          );
+        : widget.customer.withContract(contract);
 
     try {
       await widget.repo.saveCustomer(
@@ -631,6 +581,53 @@ class _OneTimeToggle extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A read-only banner naming the business this contract is sold under, so the
+/// user always knows which of the customer's businesses they are contracting
+/// for (the invoice will show this business as the seller).
+class _BusinessContextBanner extends StatelessWidget {
+  const _BusinessContextBanner({required this.business});
+
+  final Business business;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.storefront_outlined,
+              size: 20, color: AppColors.textSecondary),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Business',
+                    style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary)),
+                Text(business.name,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+          Text('Seller on invoice',
+              style: TextStyle(
+                  fontSize: 11.5, color: AppColors.textTertiary)),
+        ],
       ),
     );
   }

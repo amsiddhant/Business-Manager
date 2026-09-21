@@ -159,6 +159,54 @@ class ServiceContract {
       );
 }
 
+/// A customer's contract relationship with a single business: the current
+/// [active] term plus the [history] of superseded terms (newest-first) from
+/// prior renewals. A customer tagged to several businesses holds one of these
+/// per business, keyed by business id in [Customer.contractsByBusiness], so each
+/// business's subscription, renewals and invoicing are tracked independently.
+class BusinessContract {
+  const BusinessContract({required this.active, this.history = const []});
+
+  /// The current term — the most recent contract captured for this business.
+  final ServiceContract active;
+
+  /// Superseded terms, newest-first: each was replaced by a later renewal.
+  final List<ServiceContract> history;
+
+  /// How many terms have been recorded for this business (active + superseded).
+  int get termCount => 1 + history.length;
+
+  /// The result of renewing [active] with [renewal]: the current term is pushed
+  /// to the front of [history] and [renewal] becomes the new active term.
+  BusinessContract renewedWith(ServiceContract renewal) =>
+      BusinessContract(active: renewal, history: [active, ...history]);
+
+  Map<String, dynamic> toMap() => {
+        'active': active.toMap(),
+        if (history.isNotEmpty)
+          'history': history.map((c) => c.toMap()).toList(),
+      };
+
+  factory BusinessContract.fromMap(Map<String, dynamic> map) =>
+      BusinessContract(
+        active: ServiceContract.fromMap(
+            Map<String, dynamic>.from(map['active'] as Map)),
+        history: [
+          for (final c in (map['history'] as List<dynamic>? ?? const []))
+            ServiceContract.fromMap(Map<String, dynamic>.from(c as Map)),
+        ],
+      );
+
+  BusinessContract copyWith({
+    ServiceContract? active,
+    List<ServiceContract>? history,
+  }) =>
+      BusinessContract(
+        active: active ?? this.active,
+        history: history ?? this.history,
+      );
+}
+
 /// A single comment on a customer's activity thread. Stored as an embedded list
 /// inside the customer document (no separate collection / rules needed).
 class CustomerComment {
@@ -215,8 +263,7 @@ class Customer {
     this.socialMedia = '',
     this.dealStatus = DealStatus.pending,
     this.description = '',
-    this.serviceContract,
-    this.contractHistory = const [],
+    this.contractsByBusiness = const {},
     this.comments = const [],
     this.audit = const AuditFields(),
   });
@@ -238,40 +285,84 @@ class Customer {
   final DealStatus dealStatus;
   final String description;
 
-  /// The current (most recent) service contract captured when the deal was won
-  /// or last renewed. Null until the deal is marked [DealStatus.successful] and
-  /// a contract is saved.
-  final ServiceContract? serviceContract;
-
-  /// Superseded contracts, newest-first: each entry is a previous term that was
-  /// replaced by a renewal. The active term lives in [serviceContract]; this is
-  /// the audit trail of past terms.
-  final List<ServiceContract> contractHistory;
+  /// The customer's service contracts, keyed by business id. A customer tagged
+  /// to several businesses can hold an independent contract (plus its own
+  /// renewal history) for each. Empty until the deal is marked
+  /// [DealStatus.successful] and a contract is captured for some business.
+  ///
+  /// Callers must scope to the business in view — see [activeContractFor] /
+  /// [contractInScope] — so Admin/User (and the business filter) only ever see
+  /// contracts for businesses they can access.
+  final Map<String, BusinessContract> contractsByBusiness;
   final List<CustomerComment> comments;
   final AuditFields audit;
 
-  /// True when a subscription contract has been recorded for this customer.
-  bool get hasServiceContract => serviceContract != null;
+  /// True when a subscription contract has been recorded for any business.
+  bool get hasServiceContract => contractsByBusiness.isNotEmpty;
 
-  /// True when this customer has at least one superseded (renewed-past) term.
-  bool get hasContractHistory => contractHistory.isNotEmpty;
+  /// True when a contract exists for the given [businessId].
+  bool hasContractFor(String businessId) =>
+      contractsByBusiness.containsKey(businessId);
 
-  /// The number of terms recorded (current + superseded), i.e. how many times
-  /// the contract has been established/renewed.
+  /// The active (current) contract for [businessId], or null if none.
+  ServiceContract? activeContractFor(String businessId) =>
+      contractsByBusiness[businessId]?.active;
+
+  /// The superseded terms for [businessId], newest-first (empty if none).
+  List<ServiceContract> historyFor(String businessId) =>
+      contractsByBusiness[businessId]?.history ?? const [];
+
+  /// The active contract in scope for the selected business: the contract for
+  /// [businessId], or null when [businessId] is null ("All Businesses" — the
+  /// caller should render per-business instead) or no contract exists there.
+  ServiceContract? contractInScope(String? businessId) =>
+      businessId == null ? null : activeContractFor(businessId);
+
+  /// Every active contract across all businesses (unordered).
+  Iterable<ServiceContract> get allActiveContracts =>
+      contractsByBusiness.values.map((c) => c.active);
+
+  /// True when any business's contract has at least one superseded term.
+  bool get hasContractHistory =>
+      contractsByBusiness.values.any((c) => c.history.isNotEmpty);
+
+  /// The total number of terms recorded across all businesses (active +
+  /// superseded), i.e. how many times contracts have been established/renewed.
   int get contractTermCount =>
-      (hasServiceContract ? 1 : 0) + contractHistory.length;
+      contractsByBusiness.values.fold(0, (sum, c) => sum + c.termCount);
 
-  /// Produces the customer that results from renewing the active contract with
-  /// [renewal]: the current active term is pushed to the front of
-  /// [contractHistory] and [renewal] becomes the new active [serviceContract].
-  /// If there is no active contract this simply sets it (first-time capture).
-  Customer withRenewedContract(ServiceContract renewal) => copyWith(
-        dealStatus: DealStatus.successful,
-        serviceContract: renewal,
-        contractHistory: serviceContract == null
-            ? contractHistory
-            : [serviceContract!, ...contractHistory],
-      );
+  /// Produces the customer that results from establishing or renewing the
+  /// contract for [renewal]'s business ([ServiceContract.businessId]): if that
+  /// business already has an active term it is pushed to the front of its
+  /// history and [renewal] becomes its new active term; otherwise this is a
+  /// first-time capture for that business. Contracts for other businesses are
+  /// left untouched.
+  Customer withRenewedContract(ServiceContract renewal) {
+    final businessId = renewal.businessId;
+    final existing = contractsByBusiness[businessId];
+    final updated = existing == null
+        ? BusinessContract(active: renewal)
+        : existing.renewedWith(renewal);
+    return copyWith(
+      dealStatus: DealStatus.successful,
+      contractsByBusiness: {...contractsByBusiness, businessId: updated},
+    );
+  }
+
+  /// Produces the customer with the contract for [contract]'s business replaced
+  /// in place (an edit, not a renewal — the history is preserved as-is). Used
+  /// when correcting the current term rather than starting a new one.
+  Customer withContract(ServiceContract contract) {
+    final businessId = contract.businessId;
+    final existing = contractsByBusiness[businessId];
+    final updated = existing == null
+        ? BusinessContract(active: contract)
+        : existing.copyWith(active: contract);
+    return copyWith(
+      dealStatus: DealStatus.successful,
+      contractsByBusiness: {...contractsByBusiness, businessId: updated},
+    );
+  }
 
   /// A single-line location summary (e.g. "Mumbai, Maharashtra, India").
   String get location => [city, state, country]
@@ -290,6 +381,44 @@ class Customer {
     }
     final legacy = map['businessId'] as String?;
     return (legacy != null && legacy.isNotEmpty) ? [legacy] : const [];
+  }
+
+  /// Reads the per-business contracts, tolerating the legacy single-contract
+  /// shape (`serviceContract` + `contractHistory`) written before customers
+  /// tracked contracts per business.
+  ///
+  /// The legacy pair is migrated under the business the contract was sold with
+  /// ([ServiceContract.businessId]); if that is blank it falls back to the
+  /// customer's first tagged business. A legacy contract that can be tied to no
+  /// business at all is dropped rather than filed under an empty key.
+  static Map<String, BusinessContract> _readContractsByBusiness(
+      Map<String, dynamic> map) {
+    final raw = map['contractsByBusiness'];
+    if (raw is Map) {
+      return {
+        for (final e in raw.entries)
+          e.key.toString():
+              BusinessContract.fromMap(Map<String, dynamic>.from(e.value as Map)),
+      };
+    }
+
+    // Legacy migration: a single embedded serviceContract (+ history).
+    final legacyActive = map['serviceContract'];
+    if (legacyActive is! Map) return const {};
+    final active =
+        ServiceContract.fromMap(Map<String, dynamic>.from(legacyActive));
+    final history = [
+      for (final c in (map['contractHistory'] as List<dynamic>? ?? const []))
+        ServiceContract.fromMap(Map<String, dynamic>.from(c as Map)),
+    ];
+
+    var businessId = active.businessId;
+    if (businessId.isEmpty) {
+      final tagged = _readBusinessIds(map);
+      if (tagged.isEmpty) return const {}; // untaggable — drop rather than orphan
+      businessId = tagged.first;
+    }
+    return {businessId: BusinessContract(active: active, history: history)};
   }
 
   /// The most recent activity date: newest comment, else last update/creation.
@@ -316,11 +445,11 @@ class Customer {
         'socialMedia': socialMedia,
         'dealStatus': dealStatus.wire,
         'description': description,
-        if (serviceContract != null)
-          'serviceContract': serviceContract!.toMap(),
-        if (contractHistory.isNotEmpty)
-          'contractHistory':
-              contractHistory.map((c) => c.toMap()).toList(),
+        if (contractsByBusiness.isNotEmpty)
+          'contractsByBusiness': {
+            for (final e in contractsByBusiness.entries)
+              e.key: e.value.toMap(),
+          },
         'comments': comments.map((c) => c.toMap()).toList(),
         ...audit.toMap(),
       };
@@ -339,15 +468,7 @@ class Customer {
         socialMedia: map['socialMedia'] as String? ?? '',
         dealStatus: DealStatus.fromWire(map['dealStatus'] as String?),
         description: map['description'] as String? ?? '',
-        serviceContract: map['serviceContract'] == null
-            ? null
-            : ServiceContract.fromMap(
-                Map<String, dynamic>.from(map['serviceContract'] as Map)),
-        contractHistory: [
-          for (final c
-              in (map['contractHistory'] as List<dynamic>? ?? const []))
-            ServiceContract.fromMap(Map<String, dynamic>.from(c as Map)),
-        ],
+        contractsByBusiness: _readContractsByBusiness(map),
         comments: [
           for (final c in (map['comments'] as List<dynamic>? ?? const []))
             CustomerComment.fromMap(Map<String, dynamic>.from(c as Map)),
@@ -368,8 +489,7 @@ class Customer {
     String? socialMedia,
     DealStatus? dealStatus,
     String? description,
-    ServiceContract? serviceContract,
-    List<ServiceContract>? contractHistory,
+    Map<String, BusinessContract>? contractsByBusiness,
     List<CustomerComment>? comments,
     AuditFields? audit,
   }) =>
@@ -387,8 +507,7 @@ class Customer {
         socialMedia: socialMedia ?? this.socialMedia,
         dealStatus: dealStatus ?? this.dealStatus,
         description: description ?? this.description,
-        serviceContract: serviceContract ?? this.serviceContract,
-        contractHistory: contractHistory ?? this.contractHistory,
+        contractsByBusiness: contractsByBusiness ?? this.contractsByBusiness,
         comments: comments ?? this.comments,
         audit: audit ?? this.audit,
       );

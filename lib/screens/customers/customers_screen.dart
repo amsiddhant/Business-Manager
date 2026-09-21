@@ -175,6 +175,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
               label: '',
               cell: (c) => _RowActions(
                 customer: c,
+                businessId: bizId,
                 canEdit: canEdit,
                 canDelete: canDelete,
               ),
@@ -312,13 +313,24 @@ class _DealStatusFilter extends StatelessWidget {
 class _RowActions extends StatelessWidget {
   const _RowActions({
     required this.customer,
+    required this.businessId,
     required this.canEdit,
     required this.canDelete,
   });
 
   final Customer customer;
+
+  /// The selected business (null == All Businesses). Scopes which contract the
+  /// invoice action bills: a specific business only offers the invoice when that
+  /// business has a contract; "All Businesses" offers it whenever any exists.
+  final String? businessId;
   final bool canEdit;
   final bool canDelete;
+
+  /// Whether an invoice can be generated for the current scope.
+  bool get _canInvoice => businessId == null
+      ? customer.hasServiceContract
+      : customer.hasContractFor(businessId!);
 
   @override
   Widget build(BuildContext context) {
@@ -332,11 +344,12 @@ class _RowActions extends StatelessWidget {
           onPressed: () =>
               context.go(Routes.customerDetailPath(customer.id)),
         ),
-        if (customer.hasServiceContract)
+        if (_canInvoice)
           IconButton(
             tooltip: 'Generate invoice',
             icon: const Icon(Icons.receipt_long_outlined, size: 18),
-            onPressed: () => generateCustomerInvoice(context, customer),
+            onPressed: () => generateCustomerInvoice(context, customer,
+                businessId: businessId),
           ),
         if (canEdit)
           IconButton(

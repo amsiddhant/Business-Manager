@@ -17,6 +17,7 @@ import '../../models/business.dart';
 import '../../models/customer.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../state/filter_controller.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/initials_avatar.dart';
@@ -87,9 +88,27 @@ class CustomerDetailScreen extends StatelessWidget {
     final canEdit = user?.can(Permission.editCustomer) ?? false;
     final isMobile = Responsive.isMobile(context);
     // A customer can span several businesses; use the first visible business's
-    // currency for the contract display (they are typically homogeneous).
+    // currency as a fallback (per-contract displays use their own business's).
     final currency =
         businesses.isNotEmpty ? businesses.first.currency : CurrencyCode.inr;
+
+    // The globally-selected business scopes which contracts show: a specific
+    // business shows only its contract; "All Businesses" (null) shows every
+    // visible business's contract. Non-owners only ever see businesses they are
+    // assigned to (businesses is already filtered to what they can resolve), so
+    // this never leaks a contract for an inaccessible business.
+    final filter = context.watch<FilterController>();
+    final scopedId = filter.selectedBusinessId;
+    final contractBusinesses = [
+      for (final b in businesses)
+        if ((scopedId == null || b.id == scopedId) &&
+            customer.hasContractFor(b.id))
+          b,
+    ];
+    // The Profile card's headline subscription figure is only unambiguous when
+    // exactly one contract is in scope.
+    final highlightBusiness =
+        contractBusinesses.length == 1 ? contractBusinesses.first : null;
 
     final left = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -97,15 +116,21 @@ class CustomerDetailScreen extends StatelessWidget {
         _ProfileCard(
           customer: customer,
           businesses: businesses,
-          currency: currency,
+          scopedBusinessId: scopedId,
+          highlightContract: highlightBusiness == null
+              ? null
+              : customer.activeContractFor(highlightBusiness.id),
+          highlightCurrency: highlightBusiness?.currency ?? currency,
           canEdit: canEdit,
         ),
-        if (customer.hasServiceContract) ...[
+        for (final b in contractBusinesses) ...[
           const SizedBox(height: AppSpacing.lg),
           _ServiceContractCard(
             customer: customer,
-            businesses: businesses,
-            currency: currency,
+            business: b,
+            active: customer.activeContractFor(b.id)!,
+            history: customer.historyFor(b.id),
+            showBusinessName: contractBusinesses.length > 1 || scopedId == null,
             canEdit: canEdit,
           ),
         ],
@@ -134,13 +159,15 @@ class CustomerDetailScreen extends StatelessWidget {
               icon: const Icon(Icons.arrow_back, size: 18),
               label: const Text('Back'),
             ),
-            if (customer.hasServiceContract)
+            if (contractBusinesses.isNotEmpty)
               OutlinedButton.icon(
                 onPressed: () => generateCustomerInvoice(
                   context,
                   customer,
-                  business: businesses.isNotEmpty ? businesses.first : null,
-                  currency: currency,
+                  businessId: scopedId,
+                  business: highlightBusiness ??
+                      (businesses.isNotEmpty ? businesses.first : null),
+                  currency: highlightBusiness?.currency ?? currency,
                 ),
                 icon: const Icon(Icons.receipt_long_outlined, size: 18),
                 label: const Text('Invoice'),
@@ -196,6 +223,40 @@ class CustomerDetailScreen extends StatelessWidget {
   }
 }
 
+/// Prompts the user to choose which of the customer's [businesses] a contract
+/// should be captured under, for the ambiguous "All Businesses" case where the
+/// customer spans several. Returns the chosen business, or null if dismissed.
+Future<Business?> _pickBusiness(
+    BuildContext context, List<Business> businesses) {
+  return showDialog<Business>(
+    context: context,
+    builder: (dialogContext) => SimpleDialog(
+      title: const Text('Which business is this contract for?'),
+      children: [
+        for (final b in businesses)
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(dialogContext).pop(b),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  const Icon(Icons.storefront_outlined,
+                      size: 20, color: AppColors.textSecondary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(b.name,
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
 /// Left column: avatar + contact and company details. Every field shows a small
 /// copy icon; the social-media value renders as a link button opening in a new
 /// tab. The header carries a colour-coded deal-status changer, and — once a
@@ -204,13 +265,23 @@ class _ProfileCard extends StatelessWidget {
   const _ProfileCard({
     required this.customer,
     required this.businesses,
-    required this.currency,
+    required this.scopedBusinessId,
+    required this.highlightContract,
+    required this.highlightCurrency,
     required this.canEdit,
   });
 
   final Customer customer;
   final List<Business> businesses;
-  final CurrencyCode currency;
+
+  /// The globally-selected business (null == All Businesses), used to scope the
+  /// deal-status changer's contract capture.
+  final String? scopedBusinessId;
+
+  /// The single in-scope contract to feature in the headline band, or null when
+  /// zero or several are in scope (then no single figure is unambiguous).
+  final ServiceContract? highlightContract;
+  final CurrencyCode highlightCurrency;
   final bool canEdit;
 
   @override
@@ -231,7 +302,7 @@ class _ProfileCard extends StatelessWidget {
       trailing: _DealStatusChanger(
         customer: customer,
         businesses: businesses,
-        currency: currency,
+        scopedBusinessId: scopedBusinessId,
         enabled: canEdit,
       ),
       child: Column(
@@ -269,11 +340,11 @@ class _ProfileCard extends StatelessWidget {
               ),
             ],
           ),
-          if (customer.hasServiceContract) ...[
+          if (highlightContract != null) ...[
             const SizedBox(height: AppSpacing.lg),
             _SubscriptionHighlight(
-              contract: customer.serviceContract!,
-              currency: currency,
+              contract: highlightContract!,
+              currency: highlightCurrency,
             ),
           ],
           const SizedBox(height: AppSpacing.lg),
@@ -327,13 +398,17 @@ class _DealStatusChanger extends StatefulWidget {
   const _DealStatusChanger({
     required this.customer,
     required this.businesses,
-    required this.currency,
+    required this.scopedBusinessId,
     required this.enabled,
   });
 
   final Customer customer;
   final List<Business> businesses;
-  final CurrencyCode currency;
+
+  /// The globally-selected business (null == All Businesses). When set, a
+  /// "won" deal captures that business's contract directly; when null the user
+  /// is asked which of their businesses the contract is for.
+  final String? scopedBusinessId;
   final bool enabled;
 
   @override
@@ -365,9 +440,16 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
     await _persistStatus(status);
   }
 
-  /// Marks the deal won by capturing a service contract. The status only moves
-  /// to Successful when the contract is actually saved.
+  /// Marks the deal won by capturing a service contract for a specific business.
+  /// The status only moves to Successful when the contract is actually saved.
+  ///
+  /// The target business is the globally-selected one when set; under "All
+  /// Businesses" the user is asked which of the customer's businesses the
+  /// contract is for (skipped when only one is tagged).
   Future<void> _openContractForm() async {
+    final business = await _resolveTargetBusiness();
+    if (business == null || !mounted) return;
+
     final repo = context.read<AppState>().repository;
     final data = context.read<DataController>();
     final saved = await showDialog<bool>(
@@ -375,8 +457,7 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
       builder: (_) => ServiceContractFormDialog(
         customer: widget.customer,
         repo: repo,
-        currency: widget.currency,
-        businesses: widget.businesses,
+        business: business,
       ),
     );
     if (saved == true) {
@@ -385,6 +466,24 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
         showSuccessSnack(context, 'Deal won — service contract saved');
       }
     }
+  }
+
+  /// Resolves which business the contract is captured under: the selected
+  /// business when one is in scope, else the sole tagged business, else a
+  /// picker. Returns null when the user cancels or no business is available.
+  Future<Business?> _resolveTargetBusiness() async {
+    final scopedId = widget.scopedBusinessId;
+    if (scopedId != null) {
+      for (final b in widget.businesses) {
+        if (b.id == scopedId) return b;
+      }
+    }
+    if (widget.businesses.isEmpty) {
+      showErrorSnack(context, 'No business available to attach this contract.');
+      return null;
+    }
+    if (widget.businesses.length == 1) return widget.businesses.first;
+    return _pickBusiness(context, widget.businesses);
   }
 
   Future<void> _persistStatus(DealStatus status) async {
@@ -648,15 +747,27 @@ class _RemainingPill extends StatelessWidget {
 class _ServiceContractCard extends StatelessWidget {
   const _ServiceContractCard({
     required this.customer,
-    required this.businesses,
-    required this.currency,
+    required this.business,
+    required this.active,
+    required this.history,
+    required this.showBusinessName,
     required this.canEdit,
   });
 
   final Customer customer;
-  final List<Business> businesses;
-  final CurrencyCode currency;
+
+  /// The business this contract is for; its currency governs the display and it
+  /// is the target the edit/renew form writes back to.
+  final Business business;
+  final ServiceContract active;
+  final List<ServiceContract> history;
+
+  /// Whether to show the business name in the card title, so several cards for
+  /// a multi-business customer (or the "All Businesses" view) are distinguished.
+  final bool showBusinessName;
   final bool canEdit;
+
+  CurrencyCode get currency => business.currency;
 
   Future<void> _openForm(BuildContext context, {required bool isRenewal}) async {
     final repo = context.read<AppState>().repository;
@@ -666,8 +777,7 @@ class _ServiceContractCard extends StatelessWidget {
       builder: (_) => ServiceContractFormDialog(
         customer: customer,
         repo: repo,
-        currency: currency,
-        businesses: businesses,
+        business: business,
         isRenewal: isRenewal,
       ),
     );
@@ -684,15 +794,17 @@ class _ServiceContractCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final contract = customer.serviceContract!;
+    final contract = active;
     final now = DateTime.now();
     final expired = contract.isExpiredAsOf(now);
     final remaining = contract.timeRemainingAsOf(now);
 
     return SectionCard(
-      title: 'Service Contract',
-      subtitle: customer.hasContractHistory
-          ? 'Active term · renewed ${customer.contractHistory.length}×'
+      title: showBusinessName
+          ? 'Service Contract · ${business.name}'
+          : 'Service Contract',
+      subtitle: history.isNotEmpty
+          ? 'Active term · renewed ${history.length}×'
           : 'Subscription captured when the deal was won',
       trailing: canEdit
           ? Row(
@@ -848,10 +960,10 @@ class _ServiceContractCard extends StatelessWidget {
               ),
             ),
           ],
-          if (customer.hasContractHistory) ...[
+          if (history.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
             _RenewalHistory(
-              history: customer.contractHistory,
+              history: history,
               currency: currency,
             ),
           ],

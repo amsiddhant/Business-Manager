@@ -114,7 +114,7 @@ void main() {
   });
 
   group('Customer service-contract embedding', () {
-    test('a customer with no contract omits it from the map and reads null',
+    test('a customer with no contract omits it from the map and reads empty',
         () {
       const customer = Customer(
         id: 'CUST-00001',
@@ -122,28 +122,145 @@ void main() {
         name: 'Acme',
       );
       expect(customer.hasServiceContract, isFalse);
-      expect(customer.toMap().containsKey('serviceContract'), isFalse);
-      expect(Customer.fromMap(customer.toMap()).serviceContract, isNull);
+      expect(customer.toMap().containsKey('contractsByBusiness'), isFalse);
+      final restored = Customer.fromMap(customer.toMap());
+      expect(restored.hasServiceContract, isFalse);
+      expect(restored.activeContractFor('BIZ-1'), isNull);
     });
 
-    test('a customer round-trips its embedded contract', () {
+    test('a customer round-trips its per-business contract', () {
       const customer = Customer(
         id: 'CUST-00001',
         businessIds: ['BIZ-1'],
         name: 'Acme',
         dealStatus: DealStatus.successful,
-        serviceContract: ServiceContract(
-          price: Money(500000),
-          plan: SubscriptionPlan.pro,
-          billingCycle: BillingCycle.monthly,
-          addOns: [ServiceAddOn(name: 'SLA', price: Money(100000))],
-        ),
+        contractsByBusiness: {
+          'BIZ-1': BusinessContract(
+            active: ServiceContract(
+              businessId: 'BIZ-1',
+              price: Money(500000),
+              plan: SubscriptionPlan.pro,
+              billingCycle: BillingCycle.monthly,
+              addOns: [ServiceAddOn(name: 'SLA', price: Money(100000))],
+            ),
+          ),
+        },
       );
       final restored = Customer.fromMap(customer.toMap());
       expect(restored.hasServiceContract, isTrue);
-      expect(restored.serviceContract!.plan, SubscriptionPlan.pro);
-      expect(restored.serviceContract!.total, const Money(600000));
+      expect(restored.hasContractFor('BIZ-1'), isTrue);
+      expect(restored.activeContractFor('BIZ-1')!.plan, SubscriptionPlan.pro);
+      expect(restored.activeContractFor('BIZ-1')!.total, const Money(600000));
       expect(restored.dealStatus, DealStatus.successful);
+    });
+
+    test('contracts are kept independent per business', () {
+      const customer = Customer(
+        id: 'CUST-00002',
+        businessIds: ['BIZ-1', 'BIZ-2'],
+        name: 'Globex',
+        contractsByBusiness: {
+          'BIZ-1': BusinessContract(
+              active: ServiceContract(
+                  businessId: 'BIZ-1', price: Money(500000))),
+          'BIZ-2': BusinessContract(
+              active: ServiceContract(
+                  businessId: 'BIZ-2',
+                  price: Money(900000),
+                  plan: SubscriptionPlan.legend)),
+        },
+      );
+      final restored = Customer.fromMap(customer.toMap());
+      expect(restored.activeContractFor('BIZ-1')!.price, const Money(500000));
+      expect(restored.activeContractFor('BIZ-2')!.price, const Money(900000));
+      expect(restored.activeContractFor('BIZ-2')!.plan, SubscriptionPlan.legend);
+      expect(restored.allActiveContracts.length, 2);
+    });
+
+    test('scoping an edit to one business leaves the other untouched', () {
+      const customer = Customer(
+        id: 'CUST-00003',
+        businessIds: ['BIZ-1', 'BIZ-2'],
+        name: 'Initech',
+        contractsByBusiness: {
+          'BIZ-1': BusinessContract(
+              active: ServiceContract(
+                  businessId: 'BIZ-1', price: Money(500000))),
+          'BIZ-2': BusinessContract(
+              active: ServiceContract(
+                  businessId: 'BIZ-2', price: Money(900000))),
+        },
+      );
+      final edited = customer.withContract(const ServiceContract(
+          businessId: 'BIZ-1',
+          price: Money(600000),
+          plan: SubscriptionPlan.pro));
+      expect(edited.activeContractFor('BIZ-1')!.price, const Money(600000));
+      expect(edited.activeContractFor('BIZ-1')!.plan, SubscriptionPlan.pro);
+      // BIZ-2 is left exactly as it was.
+      expect(edited.activeContractFor('BIZ-2')!.price, const Money(900000));
+    });
+
+    group('legacy single-contract migration', () {
+      test('migrates a legacy serviceContract under its own businessId', () {
+        const legacyContract = ServiceContract(
+          businessId: 'BIZ-2',
+          price: Money(500000),
+          plan: SubscriptionPlan.pro,
+        );
+        final legacyMap = <String, dynamic>{
+          'id': 'CUST-1',
+          'businessIds': ['BIZ-1', 'BIZ-2'],
+          'name': 'Acme',
+          'serviceContract': legacyContract.toMap(),
+        };
+        final restored = Customer.fromMap(legacyMap);
+        expect(restored.hasContractFor('BIZ-2'), isTrue);
+        expect(restored.hasContractFor('BIZ-1'), isFalse);
+        expect(restored.activeContractFor('BIZ-2')!.plan, SubscriptionPlan.pro);
+      });
+
+      test('falls back to the first tagged business for a blank businessId', () {
+        const legacyContract = ServiceContract(price: Money(500000));
+        final legacyMap = <String, dynamic>{
+          'id': 'CUST-1',
+          'businessIds': ['BIZ-9', 'BIZ-2'],
+          'name': 'Acme',
+          'serviceContract': legacyContract.toMap(),
+        };
+        final restored = Customer.fromMap(legacyMap);
+        expect(restored.hasContractFor('BIZ-9'), isTrue);
+        expect(restored.activeContractFor('BIZ-9')!.price, const Money(500000));
+      });
+
+      test('carries the legacy contractHistory into the migrated entry', () {
+        const active = ServiceContract(businessId: 'BIZ-1', price: Money(700000));
+        const prior = ServiceContract(businessId: 'BIZ-1', price: Money(500000));
+        final legacyMap = <String, dynamic>{
+          'id': 'CUST-1',
+          'businessIds': ['BIZ-1'],
+          'name': 'Acme',
+          'serviceContract': active.toMap(),
+          'contractHistory': [prior.toMap()],
+        };
+        final restored = Customer.fromMap(legacyMap);
+        expect(restored.activeContractFor('BIZ-1')!.price, const Money(700000));
+        expect(restored.historyFor('BIZ-1').length, 1);
+        expect(restored.historyFor('BIZ-1').first.price, const Money(500000));
+        expect(restored.contractTermCount, 2);
+      });
+
+      test('drops a legacy contract that can be tied to no business', () {
+        const legacyContract = ServiceContract(price: Money(500000));
+        final legacyMap = <String, dynamic>{
+          'id': 'CUST-1',
+          'businessIds': <String>[],
+          'name': 'Orphan',
+          'serviceContract': legacyContract.toMap(),
+        };
+        final restored = Customer.fromMap(legacyMap);
+        expect(restored.hasServiceContract, isFalse);
+      });
     });
   });
 
@@ -271,11 +388,13 @@ void main() {
 
   group('Customer contract renewal', () {
     const original = ServiceContract(
+      businessId: 'BIZ-1',
       price: Money(500000),
       plan: SubscriptionPlan.basic,
       billingCycle: BillingCycle.yearly,
     );
     const renewal = ServiceContract(
+      businessId: 'BIZ-1',
       price: Money(700000),
       plan: SubscriptionPlan.pro,
       billingCycle: BillingCycle.yearly,
@@ -288,19 +407,20 @@ void main() {
         businessIds: ['BIZ-1'],
         name: 'Acme',
         dealStatus: DealStatus.successful,
-        serviceContract: original,
+        contractsByBusiness: {'BIZ-1': BusinessContract(active: original)},
       );
       final renewed = customer.withRenewedContract(renewal);
 
-      expect(renewed.serviceContract!.plan, SubscriptionPlan.pro);
-      expect(renewed.contractHistory.length, 1);
-      expect(renewed.contractHistory.first.plan, SubscriptionPlan.basic);
+      expect(renewed.activeContractFor('BIZ-1')!.plan, SubscriptionPlan.pro);
+      expect(renewed.historyFor('BIZ-1').length, 1);
+      expect(renewed.historyFor('BIZ-1').first.plan, SubscriptionPlan.basic);
       expect(renewed.contractTermCount, 2);
       expect(renewed.dealStatus, DealStatus.successful);
     });
 
     test('renewing again pushes the previous active term to the front', () {
       const secondRenewal = ServiceContract(
+        businessId: 'BIZ-1',
         price: Money(900000),
         plan: SubscriptionPlan.legend,
       );
@@ -308,14 +428,14 @@ void main() {
         id: 'CUST-1',
         businessIds: ['BIZ-1'],
         name: 'Acme',
-        serviceContract: original,
+        contractsByBusiness: {'BIZ-1': BusinessContract(active: original)},
       );
       final renewed = customer
           .withRenewedContract(renewal)
           .withRenewedContract(secondRenewal);
 
-      expect(renewed.serviceContract!.plan, SubscriptionPlan.legend);
-      expect(renewed.contractHistory.map((c) => c.plan).toList(),
+      expect(renewed.activeContractFor('BIZ-1')!.plan, SubscriptionPlan.legend);
+      expect(renewed.historyFor('BIZ-1').map((c) => c.plan).toList(),
           [SubscriptionPlan.pro, SubscriptionPlan.basic]);
       expect(renewed.contractTermCount, 3);
     });
@@ -324,9 +444,29 @@ void main() {
       const customer =
           Customer(id: 'CUST-1', businessIds: ['BIZ-1'], name: 'Acme');
       final renewed = customer.withRenewedContract(renewal);
-      expect(renewed.serviceContract!.plan, SubscriptionPlan.pro);
+      expect(renewed.activeContractFor('BIZ-1')!.plan, SubscriptionPlan.pro);
       expect(renewed.hasContractHistory, isFalse);
       expect(renewed.contractTermCount, 1);
+    });
+
+    test('renewing one business does not disturb another business term', () {
+      const customer = Customer(
+        id: 'CUST-1',
+        businessIds: ['BIZ-1', 'BIZ-2'],
+        name: 'Acme',
+        contractsByBusiness: {
+          'BIZ-1': BusinessContract(active: original),
+          'BIZ-2': BusinessContract(
+              active: ServiceContract(
+                  businessId: 'BIZ-2', price: Money(300000))),
+        },
+      );
+      final renewed = customer.withRenewedContract(renewal);
+      // BIZ-1 renewed with history; BIZ-2 unchanged and history-free.
+      expect(renewed.activeContractFor('BIZ-1')!.plan, SubscriptionPlan.pro);
+      expect(renewed.historyFor('BIZ-1').length, 1);
+      expect(renewed.activeContractFor('BIZ-2')!.price, const Money(300000));
+      expect(renewed.historyFor('BIZ-2'), isEmpty);
     });
 
     test('contract history round-trips through the customer map', () {
@@ -334,14 +474,15 @@ void main() {
         id: 'CUST-1',
         businessIds: ['BIZ-1'],
         name: 'Acme',
-        serviceContract: renewal,
-        contractHistory: [original],
+        contractsByBusiness: {
+          'BIZ-1': BusinessContract(active: renewal, history: [original]),
+        },
       );
       final restored = Customer.fromMap(customer.toMap());
       expect(restored.hasContractHistory, isTrue);
-      expect(restored.contractHistory.length, 1);
-      expect(restored.contractHistory.first.plan, SubscriptionPlan.basic);
-      expect(restored.serviceContract!.plan, SubscriptionPlan.pro);
+      expect(restored.historyFor('BIZ-1').length, 1);
+      expect(restored.historyFor('BIZ-1').first.plan, SubscriptionPlan.basic);
+      expect(restored.activeContractFor('BIZ-1')!.plan, SubscriptionPlan.pro);
       expect(restored.contractTermCount, 2);
     });
 
@@ -350,9 +491,12 @@ void main() {
         id: 'CUST-1',
         businessIds: ['BIZ-1'],
         name: 'Acme',
-        serviceContract: original,
+        contractsByBusiness: {'BIZ-1': BusinessContract(active: original)},
       );
-      expect(customer.toMap().containsKey('contractHistory'), isFalse);
+      final map = customer.toMap();
+      final byBiz = map['contractsByBusiness'] as Map<String, dynamic>;
+      final biz1 = byBiz['BIZ-1'] as Map<String, dynamic>;
+      expect(biz1.containsKey('history'), isFalse);
     });
   });
 }

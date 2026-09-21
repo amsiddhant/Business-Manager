@@ -20,6 +20,15 @@ void main() {
     country: 'India',
   );
 
+  final contract = ServiceContract(
+    businessId: 'BIZ-1',
+    price: const Money(500000),
+    plan: SubscriptionPlan.pro,
+    billingCycle: BillingCycle.monthly,
+    purchaseDate: DateTime(2026, 4, 1),
+    expiryDate: DateTime(2027, 3, 31),
+  );
+
   final invoice = Invoice.forCustomer(
     customer: Customer(
       id: 'CUST-00042',
@@ -28,15 +37,9 @@ void main() {
       contactNo: '+91 90000 00000',
       email: 'ap@globex.example',
       city: 'Mumbai',
-      serviceContract: ServiceContract(
-        businessId: 'BIZ-1',
-        price: const Money(500000),
-        plan: SubscriptionPlan.pro,
-        billingCycle: BillingCycle.monthly,
-        purchaseDate: DateTime(2026, 4, 1),
-        expiryDate: DateTime(2027, 3, 31),
-      ),
+      contractsByBusiness: {'BIZ-1': BusinessContract(active: contract)},
     ),
+    contract: contract,
     business: business,
     currency: CurrencyCode.inr,
     issuerName: 'Jane Owner',

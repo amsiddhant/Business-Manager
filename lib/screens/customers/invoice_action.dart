@@ -32,10 +32,10 @@ Future<Uint8List?> _loadSignatureBytes() async {
 }
 
 /// Resolves the business whose details should appear as the invoice seller,
-/// given a [lookup] from business id to [Business] (typically
-/// `DataController.businessById`). Precedence:
+/// given the [contract] being invoiced and a [lookup] from business id to
+/// [Business] (typically `DataController.businessById`). Precedence:
 ///
-///   1. the business the contract was sold under
+///   1. the business the [contract] was sold under
 ///      ([ServiceContract.businessId]), when resolvable;
 ///   2. an explicitly supplied [fallback] (e.g. the surface's default business);
 ///   3. the first of the customer's tagged businesses that resolves.
@@ -45,9 +45,10 @@ Future<Uint8List?> _loadSignatureBytes() async {
 Business? resolveContractSeller(
   Customer customer,
   Business? Function(String id) lookup, {
+  ServiceContract? contract,
   Business? fallback,
 }) {
-  final contractBusinessId = customer.serviceContract?.businessId ?? '';
+  final contractBusinessId = contract?.businessId ?? '';
   if (contractBusinessId.isNotEmpty) {
     final chosen = lookup(contractBusinessId);
     if (chosen != null) return chosen;
@@ -67,14 +68,22 @@ Business? resolveContractSeller(
 /// snackbars. Kept out of the widgets themselves so both call sites share one
 /// code path and the business logic stays in [Invoice.forCustomer].
 ///
-/// The seller shown on the invoice is the business the *contract* was sold
-/// under ([ServiceContract.businessId]) — not the customer's first tagged
-/// business — so a customer spanning several businesses invoices correctly.
-/// An explicitly supplied [business] only acts as a fallback when the contract
+/// [businessId] scopes which of the customer's per-business contracts is billed:
+///   * a specific id invoices that business's contract;
+///   * null ("All Businesses") invoices the customer's sole contract when there
+///     is exactly one, and otherwise asks the caller to pick a business (a
+///     customer with contracts under several businesses can't be invoiced
+///     ambiguously).
+///
+/// The seller shown on the invoice is the business the scoped *contract* was
+/// sold under ([ServiceContract.businessId]) — not the customer's first tagged
+/// business — so a customer spanning several businesses invoices correctly. An
+/// explicitly supplied [business] only acts as a fallback when the contract
 /// carries no (or an unresolvable) business id.
 Future<void> generateCustomerInvoice(
   BuildContext context,
   Customer customer, {
+  String? businessId,
   Business? business,
   CurrencyCode? currency,
 }) async {
@@ -82,16 +91,38 @@ Future<void> generateCustomerInvoice(
   final data = context.read<DataController>();
   final user = appState.currentUser;
 
+  // Scope to the contract in view. With a specific business selected we bill
+  // that business's contract; under "All Businesses" we can only bill a lone
+  // contract unambiguously.
+  final ServiceContract? contract;
+  if (businessId != null) {
+    contract = customer.activeContractFor(businessId);
+  } else if (customer.contractsByBusiness.length == 1) {
+    contract = customer.contractsByBusiness.values.single.active;
+  } else if (customer.contractsByBusiness.isEmpty) {
+    contract = null;
+  } else {
+    if (context.mounted) {
+      showErrorSnack(
+          context,
+          'This customer has contracts under multiple businesses. Select a '
+          'business from the filter to invoice its contract.');
+    }
+    return;
+  }
+
   // Resolve the seller business: the contract's chosen business first, then any
   // explicitly supplied fallback, then the first tagged business in scope.
   final seller = resolveContractSeller(
     customer,
     data.businessById,
-    fallback: business,
+    contract: contract,
+    fallback: business ?? (businessId != null ? data.businessById(businessId) : null),
   );
 
   final invoice = Invoice.forCustomer(
     customer: customer,
+    contract: contract,
     business: seller,
     currency: currency ?? seller?.currency ?? CurrencyCode.inr,
     issuerName: (user?.name.trim().isNotEmpty ?? false)

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:salesforce_business_manager/core/app_exception.dart';
 import 'package:salesforce_business_manager/core/enums.dart';
+import 'package:salesforce_business_manager/core/utils/money.dart';
 import 'package:salesforce_business_manager/data/backend.dart';
 import 'package:salesforce_business_manager/data/repository.dart';
 import 'package:salesforce_business_manager/models/app_user.dart';
@@ -341,6 +342,141 @@ void main() {
       );
       expect(first.id, isNot(second.id));
       expect(backend.store['customers']!.length, 2);
+    });
+  });
+
+  group('Repository saveCustomer (per-business contract authorization)', () {
+    late _FakeBackend backend;
+
+    setUp(() {
+      backend = _FakeBackend();
+    });
+
+    test('a contract keyed under an untagged business is rejected on create',
+        () async {
+      final repo = Repository(backend: backend, currentUser: _owner());
+      expect(
+        () => repo.saveCustomer(
+          const Customer(
+            id: '',
+            businessIds: ['BIZ-1'],
+            name: 'Acme',
+            contractsByBusiness: {
+              'BIZ-2': BusinessContract(
+                  active: ServiceContract(businessId: 'BIZ-2')),
+            },
+          ),
+          isNew: true,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+    });
+
+    test('an editing non-owner cannot drop a contract for a hidden business',
+        () async {
+      // Stored: contracts under BIZ-1 (visible) and BIZ-2 (hidden).
+      backend.store['customers'] = {
+        'CUST-00001': const Customer(
+          id: 'CUST-00001',
+          businessIds: ['BIZ-1', 'BIZ-2'],
+          name: 'Shared',
+          contractsByBusiness: {
+            'BIZ-1': BusinessContract(
+                active: ServiceContract(businessId: 'BIZ-1')),
+            'BIZ-2': BusinessContract(
+                active: ServiceContract(businessId: 'BIZ-2')),
+          },
+        ).toMap(),
+      };
+      final repo =
+          Repository(backend: backend, currentUser: _admin(['BIZ-1']));
+
+      // The admin edits from a BIZ-1-scoped view, submitting only BIZ-1's
+      // contract. The hidden BIZ-2 contract must be merged back, not dropped.
+      await repo.saveCustomer(
+        const Customer(
+          id: 'CUST-00001',
+          businessIds: ['BIZ-1'],
+          name: 'Shared Renamed',
+          contractsByBusiness: {
+            'BIZ-1': BusinessContract(
+                active: ServiceContract(businessId: 'BIZ-1')),
+          },
+        ),
+        isNew: false,
+      );
+
+      final saved =
+          Customer.fromMap(backend.store['customers']!['CUST-00001']!);
+      expect(saved.name, 'Shared Renamed');
+      expect(saved.hasContractFor('BIZ-1'), isTrue);
+      expect(saved.hasContractFor('BIZ-2'), isTrue);
+    });
+
+    test('a non-owner cannot forge or overwrite a hidden business contract',
+        () async {
+      // Stored: only BIZ-1 (visible) has a contract; BIZ-2 (hidden) has none.
+      backend.store['customers'] = {
+        'CUST-00001': const Customer(
+          id: 'CUST-00001',
+          businessIds: ['BIZ-1', 'BIZ-2'],
+          name: 'Shared',
+          contractsByBusiness: {
+            'BIZ-1': BusinessContract(
+                active: ServiceContract(businessId: 'BIZ-1', price: Money(100))),
+          },
+        ).toMap(),
+      };
+      final repo =
+          Repository(backend: backend, currentUser: _admin(['BIZ-1']));
+
+      // The admin tries to smuggle in a contract for the hidden BIZ-2 — it must
+      // be stripped, leaving BIZ-2 without a contract.
+      await repo.saveCustomer(
+        const Customer(
+          id: 'CUST-00001',
+          businessIds: ['BIZ-1'],
+          name: 'Shared',
+          contractsByBusiness: {
+            'BIZ-1': BusinessContract(
+                active: ServiceContract(businessId: 'BIZ-1', price: Money(100))),
+            'BIZ-2': BusinessContract(
+                active: ServiceContract(
+                    businessId: 'BIZ-2', price: Money(999999))),
+          },
+        ),
+        isNew: false,
+      );
+
+      final saved =
+          Customer.fromMap(backend.store['customers']!['CUST-00001']!);
+      expect(saved.hasContractFor('BIZ-2'), isFalse);
+      expect(saved.activeContractFor('BIZ-1')!.price, const Money(100));
+    });
+
+    test('owner may record independent contracts per tagged business',
+        () async {
+      final repo = Repository(backend: backend, currentUser: _owner());
+      final saved = await repo.saveCustomer(
+        const Customer(
+          id: '',
+          businessIds: ['BIZ-1', 'BIZ-2'],
+          name: 'Global',
+          contractsByBusiness: {
+            'BIZ-1': BusinessContract(
+                active: ServiceContract(businessId: 'BIZ-1', price: Money(500))),
+            'BIZ-2': BusinessContract(
+                active: ServiceContract(businessId: 'BIZ-2', price: Money(900))),
+          },
+        ),
+        isNew: true,
+      );
+      expect(saved.activeContractFor('BIZ-1')!.price, const Money(500));
+      expect(saved.activeContractFor('BIZ-2')!.price, const Money(900));
+
+      final restored =
+          Customer.fromMap(backend.store['customers']![saved.id]!);
+      expect(restored.allActiveContracts.length, 2);
     });
   });
 }

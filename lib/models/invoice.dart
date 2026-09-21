@@ -133,23 +133,26 @@ class Invoice {
     return hash.toRadixString(16).padLeft(8, '0').toUpperCase();
   }
 
-  /// Builds an invoice for [customer]'s active service contract. Line items are
-  /// the recurring plan (unless it is a one-time charge) and each add-on at the
-  /// billing cadence, plus any one-time plan charge as a separate flagged line.
+  /// Builds an invoice for the given service [contract] — the specific contract
+  /// in scope for the business being invoiced (a customer may hold one contract
+  /// per business, so the caller scopes it rather than this reading a single
+  /// contract off the customer). Line items are the recurring plan (unless it is
+  /// a one-time charge) and each add-on at the billing cadence, plus any
+  /// one-time plan charge as a separate flagged line.
   ///
   /// [business] (when resolvable) is the seller; [currency] governs formatting;
-  /// [issuerName]/[issuerTitle] and [now] populate the signature block. When the
-  /// customer has no contract the result is [isEmpty] (no lines) and callers
-  /// should decline to render it.
+  /// [issuerName]/[issuerTitle] and [now] populate the signature block. When
+  /// [contract] is null the result is [isEmpty] (no lines) and callers should
+  /// decline to render it.
   factory Invoice.forCustomer({
     required Customer customer,
+    required ServiceContract? contract,
     required Business? business,
     required CurrencyCode currency,
     required String issuerName,
     required String issuerTitle,
     required DateTime now,
   }) {
-    final contract = customer.serviceContract;
     final lines = <InvoiceLine>[];
 
     if (contract != null) {

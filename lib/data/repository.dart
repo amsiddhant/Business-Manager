@@ -629,6 +629,15 @@ class Repository {
             'You can only tag customers to businesses assigned to you.');
       }
       _requireAnyBusinessAccess(customer.businessIds);
+      // A contract can only be recorded for a business the customer is tagged
+      // to (and, since every tag is accessible for a non-owner above, only for
+      // a business the caller can access).
+      if (customer.contractsByBusiness.keys
+          .any((id) => !customer.businessIds.contains(id))) {
+        throw const PermissionDeniedException(
+            'A service contract can only be recorded for a business the '
+            'customer is tagged to.');
+      }
       final id = await _nextScopedId(
           IdGenerator.customerPrefix, Collections.customers,
           arrayScoped: true);
@@ -652,12 +661,32 @@ class Repository {
         // union the hidden prior tags back in.
         final visibleSubmitted = customer.businessIds
             .where((id) => user?.canAccessBusiness(id) ?? false);
-        next = customer
-            .copyWith(businessIds: {...visibleSubmitted, ...hidden}.toList());
+        // A non-owner can neither see nor overwrite contracts for businesses
+        // outside their scope: strip any submitted contract under a hidden
+        // business, then restore the record's *stored* hidden contracts so an
+        // edit made from a scoped view never drops (or forges) them.
+        final mergedContracts = <String, BusinessContract>{
+          for (final e in customer.contractsByBusiness.entries)
+            if (user?.canAccessBusiness(e.key) ?? false) e.key: e.value,
+          for (final id in hidden)
+            if (existing.contractsByBusiness.containsKey(id))
+              id: existing.contractsByBusiness[id]!,
+        };
+        next = customer.copyWith(
+          businessIds: {...visibleSubmitted, ...hidden}.toList(),
+          contractsByBusiness: mergedContracts,
+        );
       }
       if (next.businessIds.isEmpty) {
         throw const PermissionDeniedException(
             'A customer must remain tagged to at least one business.');
+      }
+      // A contract must be filed under a business the customer is tagged to.
+      if (next.contractsByBusiness.keys
+          .any((id) => !next.businessIds.contains(id))) {
+        throw const PermissionDeniedException(
+            'A service contract can only be recorded for a business the '
+            'customer is tagged to.');
       }
       toSave = next.copyWith(audit: _stampUpdate(next.audit));
     }
@@ -683,6 +712,7 @@ class Repository {
         socialMedia: c.socialMedia,
         dealStatus: c.dealStatus,
         description: c.description,
+        contractsByBusiness: c.contractsByBusiness,
         comments: c.comments,
         audit: c.audit,
       );

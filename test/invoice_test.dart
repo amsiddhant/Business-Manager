@@ -16,7 +16,7 @@ Business _business({CurrencyCode currency = CurrencyCode.inr}) => Business(
       currency: currency,
     );
 
-/// A customer carrying [contract] as its active service contract.
+/// A customer carrying [contract] as its active service contract for BIZ-1.
 Customer _customerWith(ServiceContract? contract) => Customer(
       id: 'CUST-00042',
       businessIds: const ['BIZ-1'],
@@ -25,7 +25,9 @@ Customer _customerWith(ServiceContract? contract) => Customer(
       contactNo: '+91 90000 00000',
       email: 'ap@globex.example',
       city: 'Mumbai',
-      serviceContract: contract,
+      contractsByBusiness: contract == null
+          ? const {}
+          : {'BIZ-1': BusinessContract(active: contract)},
     );
 
 final _now = DateTime(2026, 9, 21, 10, 30);
@@ -33,6 +35,7 @@ final _now = DateTime(2026, 9, 21, 10, 30);
 Invoice _invoiceFor(ServiceContract? contract, {Business? business}) =>
     Invoice.forCustomer(
       customer: _customerWith(contract),
+      contract: contract,
       business: business ?? _business(),
       currency: business?.currency ?? CurrencyCode.inr,
       issuerName: 'Jane Owner',
@@ -228,6 +231,7 @@ void main() {
     test('with no resolvable business the seller falls back to the app name', () {
       final invoice = Invoice.forCustomer(
         customer: _customerWith(contract),
+        contract: contract,
         business: null,
         currency: CurrencyCode.inr,
         issuerName: 'Jane Owner',
@@ -271,49 +275,59 @@ void main() {
     const bizB = Business(id: 'BIZ-B', name: 'Beta Exports');
     Business? lookup(String id) => {'BIZ-A': bizA, 'BIZ-B': bizB}[id];
 
+    // A customer tagged to both businesses; the contract (passed explicitly to
+    // resolveContractSeller) decides the seller.
     Customer multiBiz(ServiceContract? contract) => Customer(
           id: 'CUST-1',
           businessIds: const ['BIZ-A', 'BIZ-B'],
           name: 'Globex',
-          serviceContract: contract,
+          contractsByBusiness: contract == null || contract.businessId.isEmpty
+              ? const {}
+              : {contract.businessId: BusinessContract(active: contract)},
         );
 
     test("uses the contract's chosen business, not the first tagged one", () {
-      final customer = multiBiz(
-          const ServiceContract(businessId: 'BIZ-B', price: Money(500000)));
-      expect(resolveContractSeller(customer, lookup)?.id, 'BIZ-B');
+      const contract = ServiceContract(businessId: 'BIZ-B', price: Money(500000));
+      final customer = multiBiz(contract);
+      expect(resolveContractSeller(customer, lookup, contract: contract)?.id,
+          'BIZ-B');
     });
 
     test('falls back to the first tagged business when the contract has none',
         () {
-      final customer =
-          multiBiz(const ServiceContract(price: Money(500000)));
-      expect(resolveContractSeller(customer, lookup)?.id, 'BIZ-A');
+      const contract = ServiceContract(price: Money(500000));
+      final customer = multiBiz(contract);
+      expect(resolveContractSeller(customer, lookup, contract: contract)?.id,
+          'BIZ-A');
     });
 
     test('an explicit fallback is used before the first tagged business', () {
-      final customer =
-          multiBiz(const ServiceContract(price: Money(500000)));
+      const contract = ServiceContract(price: Money(500000));
+      final customer = multiBiz(contract);
       expect(
-        resolveContractSeller(customer, lookup, fallback: bizB)?.id,
+        resolveContractSeller(customer, lookup, contract: contract, fallback: bizB)
+            ?.id,
         'BIZ-B',
       );
     });
 
     test("the contract's business wins over an explicit fallback", () {
-      final customer = multiBiz(
-          const ServiceContract(businessId: 'BIZ-A', price: Money(500000)));
+      const contract = ServiceContract(businessId: 'BIZ-A', price: Money(500000));
+      final customer = multiBiz(contract);
       expect(
-        resolveContractSeller(customer, lookup, fallback: bizB)?.id,
+        resolveContractSeller(customer, lookup, contract: contract, fallback: bizB)
+            ?.id,
         'BIZ-A',
       );
     });
 
     test('an unresolvable contract business falls through to the fallback', () {
-      final customer = multiBiz(
-          const ServiceContract(businessId: 'BIZ-GONE', price: Money(500000)));
+      const contract =
+          ServiceContract(businessId: 'BIZ-GONE', price: Money(500000));
+      final customer = multiBiz(contract);
       expect(
-        resolveContractSeller(customer, lookup, fallback: bizB)?.id,
+        resolveContractSeller(customer, lookup, contract: contract, fallback: bizB)
+            ?.id,
         'BIZ-B',
       );
     });
