@@ -8,6 +8,7 @@ import '../models/audit_fields.dart';
 import '../models/audit_log.dart';
 import '../models/business.dart';
 import '../models/campaign.dart';
+import '../models/customer.dart';
 import '../models/dealer.dart';
 import '../models/expense.dart';
 import '../models/order.dart';
@@ -535,6 +536,61 @@ class Repository {
     await _backend.deleteDoc(Collections.expenses, 'EXP-DLR-$id');
     await _log(AuditAction.delete, 'Dealer', id,
         businessId: dealer.businessId, summary: dealer.name);
+  }
+
+  // ---- Customers ------------------------------------------------------------
+
+  Future<List<Customer>> fetchCustomers({String? businessId}) => _fetchScoped(
+        Collections.customers,
+        Customer.fromMap,
+        businessId: businessId,
+      );
+
+  Future<Customer> saveCustomer(Customer customer,
+      {required bool isNew}) async {
+    _require(isNew ? Permission.createCustomer : Permission.editCustomer);
+    _requireBusinessAccess(customer.businessId);
+    var toSave = customer;
+    if (isNew) {
+      final id = await _nextScopedId(
+          IdGenerator.customerPrefix, Collections.customers);
+      toSave = _withCustomerId(customer.copyWith(audit: _stampCreate()), id);
+    } else {
+      toSave = customer.copyWith(audit: _stampUpdate(customer.audit));
+    }
+    await _backend.setDoc(Collections.customers, toSave.id, toSave.toMap());
+    await _log(isNew ? AuditAction.create : AuditAction.update, 'Customer',
+        toSave.id, businessId: toSave.businessId, summary: toSave.name);
+    return toSave;
+  }
+
+  Customer _withCustomerId(Customer c, String id) => Customer(
+        id: id,
+        businessId: c.businessId,
+        name: c.name,
+        businessType: c.businessType,
+        size: c.size,
+        contactNo: c.contactNo,
+        email: c.email,
+        city: c.city,
+        state: c.state,
+        country: c.country,
+        socialMedia: c.socialMedia,
+        dealStatus: c.dealStatus,
+        description: c.description,
+        comments: c.comments,
+        audit: c.audit,
+      );
+
+  Future<void> deleteCustomer(String id) async {
+    _require(Permission.deleteCustomer);
+    final doc = await _backend.fetchDoc(Collections.customers, id);
+    if (doc == null) throw const NotFoundException();
+    final customer = Customer.fromMap(doc);
+    _requireBusinessAccess(customer.businessId);
+    await _backend.deleteDoc(Collections.customers, id);
+    await _log(AuditAction.delete, 'Customer', id,
+        businessId: customer.businessId, summary: customer.name);
   }
 
   // ---- Users ----------------------------------------------------------------

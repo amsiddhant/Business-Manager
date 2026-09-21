@@ -207,6 +207,45 @@ enum ExpenseCategory {
   }
 }
 
+/// Sales/relationship stage for a customer record (CRM deal pipeline).
+enum DealStatus {
+  pending('PENDING', 'Pending'),
+  inProgress('IN_PROGRESS', 'In Progress'),
+  successful('SUCCESSFUL', 'Successful'),
+  cancelled('CANCELLED', 'Cancelled');
+
+  const DealStatus(this.wire, this.label);
+  final String wire;
+  final String label;
+
+  static DealStatus fromWire(String? value) {
+    return DealStatus.values.firstWhere(
+      (e) => e.wire == value,
+      orElse: () => DealStatus.pending,
+    );
+  }
+}
+
+/// Rough headcount band describing the size of a customer's organisation.
+enum CompanySize {
+  micro('MICRO', 'Micro (1–10)'),
+  small('SMALL', 'Small (11–50)'),
+  medium('MEDIUM', 'Medium (51–250)'),
+  large('LARGE', 'Large (251–1000)'),
+  enterprise('ENTERPRISE', 'Enterprise (1000+)');
+
+  const CompanySize(this.wire, this.label);
+  final String wire;
+  final String label;
+
+  static CompanySize fromWire(String? value) {
+    return CompanySize.values.firstWhere(
+      (e) => e.wire == value,
+      orElse: () => CompanySize.small,
+    );
+  }
+}
+
 /// Kind of audit action, for the audit trail.
 enum AuditAction {
   create('CREATE', 'Created'),

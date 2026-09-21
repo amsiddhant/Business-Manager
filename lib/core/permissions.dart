@@ -27,6 +27,10 @@ enum Permission {
   createDealer,
   editDealer,
   deleteDealer,
+  viewCustomer,
+  createCustomer,
+  editCustomer,
+  deleteCustomer,
   viewReports,
   exportData,
   manageUsers,
@@ -54,6 +58,10 @@ class Permissions {
     Permission.viewExpense,
     Permission.createExpense,
     Permission.viewDealer,
+    // Customers: a user may view, add and edit but never delete.
+    Permission.viewCustomer,
+    Permission.createCustomer,
+    Permission.editCustomer,
     Permission.viewReports,
   };
 
@@ -82,6 +90,10 @@ class Permissions {
     Permission.createDealer,
     Permission.editDealer,
     Permission.deleteDealer,
+    Permission.viewCustomer,
+    Permission.createCustomer,
+    Permission.editCustomer,
+    Permission.deleteCustomer,
     Permission.viewReports,
     Permission.exportData,
   };

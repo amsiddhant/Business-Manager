@@ -10,6 +10,7 @@ class IdGenerator {
   static const String dealerPrefix = 'DLR';
   static const String businessPrefix = 'BIZ';
   static const String userPrefix = 'USR';
+  static const String customerPrefix = 'CUST';
 
   /// Formats a sequential [number] with a [prefix] and fixed [width].
   static String format(String prefix, int number, {int width = 5}) =>

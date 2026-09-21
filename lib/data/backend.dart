@@ -88,6 +88,7 @@ class Collections {
   static const orders = 'orders';
   static const expenses = 'expenses';
   static const dealers = 'dealers';
+  static const customers = 'customers';
   static const auditLogs = 'auditLogs';
 
   /// Pending access requests raised when a signed-in identity (e.g. Google)

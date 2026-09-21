@@ -68,6 +68,9 @@ class AppSidebar extends StatelessWidget {
     if (route == Routes.products) {
       return currentRoute == route || currentRoute.startsWith('/products');
     }
+    if (route == Routes.customers) {
+      return currentRoute == route || currentRoute.startsWith('/customers');
+    }
     return currentRoute == route;
   }
 

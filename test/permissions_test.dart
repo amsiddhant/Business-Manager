@@ -38,6 +38,11 @@ void main() {
       expect(admin.contains(Permission.configureFirebase), isFalse);
       expect(admin.contains(Permission.manageSettings), isFalse);
       expect(admin.contains(Permission.createBusiness), isFalse);
+      // Admin has full CRUD over customer records.
+      expect(admin.contains(Permission.viewCustomer), isTrue);
+      expect(admin.contains(Permission.createCustomer), isTrue);
+      expect(admin.contains(Permission.editCustomer), isTrue);
+      expect(admin.contains(Permission.deleteCustomer), isTrue);
     });
 
     test('user has view + add only, no deletes or administration', () {
@@ -56,6 +61,11 @@ void main() {
       expect(user.contains(Permission.deleteOrder), isFalse);
       expect(user.contains(Permission.manageUsers), isFalse);
       expect(user.contains(Permission.exportData), isFalse);
+      // A user may view, add and edit customers but never delete them.
+      expect(user.contains(Permission.viewCustomer), isTrue);
+      expect(user.contains(Permission.createCustomer), isTrue);
+      expect(user.contains(Permission.editCustomer), isTrue);
+      expect(user.contains(Permission.deleteCustomer), isFalse);
     });
   });
 

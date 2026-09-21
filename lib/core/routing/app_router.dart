@@ -5,6 +5,8 @@ import '../../screens/auth/forgot_password_screen.dart';
 import '../../screens/auth/login_screen.dart';
 import '../../screens/businesses/businesses_screen.dart';
 import '../../screens/campaigns/campaigns_screen.dart';
+import '../../screens/customers/customer_detail_screen.dart';
+import '../../screens/customers/customers_screen.dart';
 import '../../screens/dashboard/dashboard_screen.dart';
 import '../../screens/dealers/dealers_screen.dart';
 import '../../screens/expenses/expenses_screen.dart';
@@ -91,6 +93,15 @@ GoRouter buildRouter(AppState appState) {
           GoRoute(
             path: Routes.dealers,
             builder: (_, _) => const DealersScreen(),
+          ),
+          GoRoute(
+            path: Routes.customers,
+            builder: (_, _) => const CustomersScreen(),
+          ),
+          GoRoute(
+            path: Routes.customerDetail,
+            builder: (_, state) =>
+                CustomerDetailScreen(customerId: state.pathParameters['id']!),
           ),
           GoRoute(
             path: Routes.reports,

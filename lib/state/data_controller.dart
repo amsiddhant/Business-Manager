@@ -4,6 +4,7 @@ import '../core/app_exception.dart';
 import '../data/repository.dart';
 import '../models/business.dart';
 import '../models/campaign.dart';
+import '../models/customer.dart';
 import '../models/dealer.dart';
 import '../models/expense.dart';
 import '../models/order.dart';
@@ -41,6 +42,7 @@ class DataController extends ChangeNotifier {
   List<Order> orders = [];
   List<Expense> expenses = [];
   List<Dealer> dealers = [];
+  List<Customer> customers = [];
 
   /// Loads everything the current user can access.
   Future<void> load() async {
@@ -55,6 +57,7 @@ class DataController extends ChangeNotifier {
         _repository.fetchOrders(),
         _repository.fetchExpenses(),
         _repository.fetchDealers(),
+        _repository.fetchCustomers(),
       ]);
       businesses = results[0] as List<Business>;
       products = results[1] as List<Product>;
@@ -62,6 +65,7 @@ class DataController extends ChangeNotifier {
       orders = results[3] as List<Order>;
       expenses = results[4] as List<Expense>;
       dealers = results[5] as List<Dealer>;
+      customers = results[6] as List<Customer>;
       _loaded = true;
     } catch (e) {
       _error = ErrorMapper.friendly(e);
@@ -82,6 +86,7 @@ class DataController extends ChangeNotifier {
     orders = [];
     expenses = [];
     dealers = [];
+    customers = [];
     _loaded = false;
     _error = null;
     notifyListeners();
@@ -126,6 +131,17 @@ class DataController extends ChangeNotifier {
   List<Dealer> dealersFor(String? businessId) => businessId == null
       ? dealers
       : dealers.where((d) => d.businessId == businessId).toList();
+
+  List<Customer> customersFor(String? businessId) => businessId == null
+      ? customers
+      : customers.where((c) => c.businessId == businessId).toList();
+
+  Customer? customerById(String id) {
+    for (final c in customers) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
 
   List<Campaign> campaignsForProduct(String productId) =>
       campaigns.where((c) => c.productId == productId).toList();

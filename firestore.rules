@@ -188,6 +188,19 @@ service cloud.firestore {
         (isOwner() || isAdmin() || hasGrant('deleteDealer'));
     }
 
+    // Customers (CRM): create allowed for owner/admin/user; edit for
+    // owner/admin or a user (users may add and edit but never delete); delete
+    // for owner/admin only (or an explicit grant).
+    match /customers/{id} {
+      allow read: if canAccessBusiness(resource.data.businessId);
+      allow create: if canAccessBusiness(request.resource.data.businessId) &&
+        (isOwner() || isAdmin() || isUser());
+      allow update: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || isUser());
+      allow delete: if canAccessBusiness(resource.data.businessId) &&
+        (isOwner() || isAdmin() || hasGrant('deleteCustomer'));
+    }
+
     // ---- Audit logs ---------------------------------------------------------
     // Append-only trail. Any signed-in, active user may append a log entry;
     // only the owner may read the trail. Logs are never updated or deleted.

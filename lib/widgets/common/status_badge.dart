@@ -63,6 +63,19 @@ class StatusBadge extends StatelessWidget {
     }
   }
 
+  factory StatusBadge.deal(DealStatus status) {
+    switch (status) {
+      case DealStatus.successful:
+        return StatusBadge(label: status.label, tone: BadgeTone.success);
+      case DealStatus.inProgress:
+        return StatusBadge(label: status.label, tone: BadgeTone.info);
+      case DealStatus.pending:
+        return StatusBadge(label: status.label, tone: BadgeTone.warning);
+      case DealStatus.cancelled:
+        return StatusBadge(label: status.label, tone: BadgeTone.error);
+    }
+  }
+
   factory StatusBadge.role(UserRole role) => StatusBadge(
         label: role.label,
         tone: switch (role) {

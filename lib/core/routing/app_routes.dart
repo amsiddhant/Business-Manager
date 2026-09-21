@@ -15,11 +15,14 @@ class Routes {
   static const orders = '/orders';
   static const expenses = '/expenses';
   static const dealers = '/dealers';
+  static const customers = '/customers';
+  static const customerDetail = '/customers/:id';
   static const reports = '/reports';
   static const users = '/users';
   static const settings = '/settings';
 
   static String productDetailPath(String id) => '/products/$id';
+  static String customerDetailPath(String id) => '/customers/$id';
 }
 
 /// A primary navigation destination shown in the sidebar / drawer.
@@ -95,6 +98,13 @@ const List<NavDestination> kNavDestinations = [
     selectedIcon: Icons.handshake,
     route: Routes.dealers,
     permission: Permission.viewDealer,
+  ),
+  NavDestination(
+    label: 'Customers',
+    icon: Icons.people_outline,
+    selectedIcon: Icons.people,
+    route: Routes.customers,
+    permission: Permission.viewCustomer,
   ),
   NavDestination(
     label: 'Reports',
