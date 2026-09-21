@@ -25,6 +25,7 @@ import '../../widgets/common/responsive.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import 'customers_screen.dart';
+import 'invoice_action.dart';
 import 'service_contract_form.dart';
 
 /// A full-screen customer profile: contact & company details on the left, and a
@@ -103,6 +104,7 @@ class CustomerDetailScreen extends StatelessWidget {
           const SizedBox(height: AppSpacing.lg),
           _ServiceContractCard(
             customer: customer,
+            businesses: businesses,
             currency: currency,
             canEdit: canEdit,
           ),
@@ -132,6 +134,17 @@ class CustomerDetailScreen extends StatelessWidget {
               icon: const Icon(Icons.arrow_back, size: 18),
               label: const Text('Back'),
             ),
+            if (customer.hasServiceContract)
+              OutlinedButton.icon(
+                onPressed: () => generateCustomerInvoice(
+                  context,
+                  customer,
+                  business: businesses.isNotEmpty ? businesses.first : null,
+                  currency: currency,
+                ),
+                icon: const Icon(Icons.receipt_long_outlined, size: 18),
+                label: const Text('Invoice'),
+              ),
             if (canEdit)
               ElevatedButton.icon(
                 onPressed: () => _edit(context, customer, data),
@@ -217,6 +230,7 @@ class _ProfileCard extends StatelessWidget {
       title: 'Profile',
       trailing: _DealStatusChanger(
         customer: customer,
+        businesses: businesses,
         currency: currency,
         enabled: canEdit,
       ),
@@ -312,11 +326,13 @@ class _ProfileCard extends StatelessWidget {
 class _DealStatusChanger extends StatefulWidget {
   const _DealStatusChanger({
     required this.customer,
+    required this.businesses,
     required this.currency,
     required this.enabled,
   });
 
   final Customer customer;
+  final List<Business> businesses;
   final CurrencyCode currency;
   final bool enabled;
 
@@ -360,6 +376,7 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
         customer: widget.customer,
         repo: repo,
         currency: widget.currency,
+        businesses: widget.businesses,
       ),
     );
     if (saved == true) {
@@ -631,11 +648,13 @@ class _RemainingPill extends StatelessWidget {
 class _ServiceContractCard extends StatelessWidget {
   const _ServiceContractCard({
     required this.customer,
+    required this.businesses,
     required this.currency,
     required this.canEdit,
   });
 
   final Customer customer;
+  final List<Business> businesses;
   final CurrencyCode currency;
   final bool canEdit;
 
@@ -648,6 +667,7 @@ class _ServiceContractCard extends StatelessWidget {
         customer: customer,
         repo: repo,
         currency: currency,
+        businesses: businesses,
         isRenewal: isRenewal,
       ),
     );

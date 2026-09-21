@@ -54,6 +54,7 @@ void main() {
   group('ServiceContract serialization', () {
     test('round-trips through toMap/fromMap', () {
       final contract = ServiceContract(
+        businessId: 'BIZ-7',
         purchaseDate: DateTime(2026, 4, 1),
         expiryDate: DateTime(2027, 3, 31),
         price: Money.fromMajor(9999),
@@ -67,6 +68,7 @@ void main() {
       );
       final restored = ServiceContract.fromMap(contract.toMap());
 
+      expect(restored.businessId, 'BIZ-7');
       expect(restored.purchaseDate, DateTime(2026, 4, 1));
       expect(restored.expiryDate, DateTime(2027, 3, 31));
       expect(restored.price, contract.price);
@@ -77,6 +79,18 @@ void main() {
       expect(restored.addOns.first.price, const Money(120000));
       expect(restored.comment, 'Signed by the CFO.');
       expect(restored.total, contract.total);
+    });
+
+    test('a blank businessId is omitted from the map and reads back empty', () {
+      const contract = ServiceContract(price: Money(500000));
+      expect(contract.toMap().containsKey('businessId'), isFalse);
+      expect(ServiceContract.fromMap(contract.toMap()).businessId, '');
+    });
+
+    test('copyWith overrides the businessId', () {
+      const contract = ServiceContract(businessId: 'BIZ-1', price: Money(500000));
+      expect(contract.copyWith(businessId: 'BIZ-2').businessId, 'BIZ-2');
+      expect(contract.copyWith().businessId, 'BIZ-1');
     });
 
     test('missing/unknown wire values degrade gracefully', () {

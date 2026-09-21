@@ -41,6 +41,7 @@ class ServiceAddOn {
 /// so monthly and yearly contracts compare on the same footing.
 class ServiceContract {
   const ServiceContract({
+    this.businessId = '',
     this.purchaseDate,
     this.expiryDate,
     this.price = Money.zero,
@@ -50,6 +51,12 @@ class ServiceContract {
     this.addOns = const [],
     this.comment = '',
   });
+
+  /// The specific business this contract is sold under. A customer may be tagged
+  /// to several businesses; the invoice shows this business's details as the
+  /// seller. Empty for legacy contracts written before per-contract business
+  /// selection — callers fall back to the customer's first tagged business.
+  final String businessId;
 
   final DateTime? purchaseDate;
   final DateTime? expiryDate;
@@ -101,6 +108,7 @@ class ServiceContract {
       : TimeRemaining.between(now, expiryDate!);
 
   Map<String, dynamic> toMap() => {
+        if (businessId.isNotEmpty) 'businessId': businessId,
         if (purchaseDate != null)
           'purchaseDate': purchaseDate!.toIso8601String(),
         if (expiryDate != null) 'expiryDate': expiryDate!.toIso8601String(),
@@ -113,6 +121,7 @@ class ServiceContract {
       };
 
   factory ServiceContract.fromMap(Map<String, dynamic> map) => ServiceContract(
+        businessId: map['businessId'] as String? ?? '',
         purchaseDate: parseDate(map['purchaseDate']),
         expiryDate: parseDate(map['expiryDate']),
         price: Money((map['priceMinor'] as num?)?.toInt() ?? 0),
@@ -127,6 +136,7 @@ class ServiceContract {
       );
 
   ServiceContract copyWith({
+    String? businessId,
     DateTime? purchaseDate,
     DateTime? expiryDate,
     Money? price,
@@ -137,6 +147,7 @@ class ServiceContract {
     String? comment,
   }) =>
       ServiceContract(
+        businessId: businessId ?? this.businessId,
         purchaseDate: purchaseDate ?? this.purchaseDate,
         expiryDate: expiryDate ?? this.expiryDate,
         price: price ?? this.price,

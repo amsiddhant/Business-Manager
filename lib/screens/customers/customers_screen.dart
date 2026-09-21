@@ -24,6 +24,7 @@ import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
+import 'invoice_action.dart';
 
 /// Lists customers (CRM contacts) for the selected scope with a live search
 /// bar, deal-status filter and permission-gated create / edit / delete.
@@ -331,6 +332,12 @@ class _RowActions extends StatelessWidget {
           onPressed: () =>
               context.go(Routes.customerDetailPath(customer.id)),
         ),
+        if (customer.hasServiceContract)
+          IconButton(
+            tooltip: 'Generate invoice',
+            icon: const Icon(Icons.receipt_long_outlined, size: 18),
+            onPressed: () => generateCustomerInvoice(context, customer),
+          ),
         if (canEdit)
           IconButton(
             tooltip: 'Edit',

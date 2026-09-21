@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
+import '../../models/business.dart';
 import '../../models/customer.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/forms/form_dialog.dart';
@@ -24,12 +25,23 @@ class ServiceContractFormDialog extends StatefulWidget {
     required this.customer,
     required this.repo,
     required this.currency,
+    this.businesses = const [],
     this.isRenewal = false,
   });
 
   final Customer customer;
   final Repository repo;
+
+  /// Fallback display currency used when no contract business is chosen (or the
+  /// chosen one is not resolvable). The effective currency otherwise follows the
+  /// selected business.
   final CurrencyCode currency;
+
+  /// The businesses this customer is tagged to (resolved to full [Business]
+  /// objects, already scoped to what the current user may see). The user picks
+  /// which one this contract is sold under; the invoice then shows that
+  /// business's details as the seller. When empty the picker is hidden.
+  final List<Business> businesses;
 
   /// When true the current active contract is archived to history and a new
   /// term is captured (a renewal), rather than editing the active term in
@@ -69,11 +81,32 @@ class _ServiceContractFormDialogState
   DateTime? _purchaseDate;
   DateTime? _expiryDate;
 
+  /// The business this contract is sold under. Null until chosen; pre-selected
+  /// from the active contract (edit/renewal) or the sole tagged business.
+  Business? _business;
+
   bool _hasAddOns = false;
   final List<_AddOnRow> _addOns = [];
 
   /// The active contract on the customer, if any.
   ServiceContract? get _active => widget.customer.serviceContract;
+
+  /// Resolves a tagged business by id from the ones supplied to the dialog, or
+  /// null when the id is empty / no longer visible.
+  Business? _businessById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final b in widget.businesses) {
+      if (b.id == id) return b;
+    }
+    return null;
+  }
+
+  /// Whether the user must choose a business (more than one is tagged).
+  bool get _showBusinessPicker => widget.businesses.length > 1;
+
+  /// The currency prices are captured in: the selected business's currency when
+  /// one is chosen, else the fallback [ServiceContractFormDialog.currency].
+  CurrencyCode get _currency => _business?.currency ?? widget.currency;
 
   /// Whether this is a first-time capture (no active contract to edit/renew).
   bool get _isNew => _active == null;
@@ -99,6 +132,11 @@ class _ServiceContractFormDialogState
     // A renewal starts a fresh term today; an edit keeps the stored dates.
     _purchaseDate = _isEdit ? (c?.purchaseDate ?? DateTime.now()) : DateTime.now();
     _expiryDate = _isEdit ? c?.expiryDate : null;
+    // Pre-select the contract business: the active contract's business if it is
+    // still tagged, else the sole tagged business (nothing to choose), else
+    // leave unset so the user must pick.
+    _business = _businessById(c?.businessId) ??
+        (widget.businesses.length == 1 ? widget.businesses.first : null);
     if (c != null && c.addOns.isNotEmpty) {
       _hasAddOns = true;
       for (final a in c.addOns) {
@@ -185,6 +223,18 @@ class _ServiceContractFormDialogState
               const _RenewalBanner(),
               const FormGap(),
             ],
+            if (_showBusinessPicker) ...[
+              AppDropdown<Business>(
+                label: 'Business',
+                value: _business,
+                isRequired: true,
+                helper: 'The invoice shows this business as the seller.',
+                items: widget.businesses,
+                itemLabel: (b) => b.name,
+                onChanged: (v) => setState(() => _business = v),
+              ),
+              const FormGap(),
+            ],
             _BillingCycleToggle(
               value: _cycle,
               onChanged: (v) => setState(() => _cycle = v),
@@ -203,7 +253,7 @@ class _ServiceContractFormDialogState
                 label: priceLabel,
                 controller: _price,
                 isRequired: true,
-                symbol: widget.currency.symbol,
+                symbol: _currency.symbol,
                 validator: (v) => Validators.nonNegativeNumber(v, field: 'Price'),
               ),
             ]),
@@ -233,7 +283,7 @@ class _ServiceContractFormDialogState
               enabled: _hasAddOns,
               onToggle: _toggleAddOns,
               rows: _addOns,
-              currency: widget.currency,
+              currency: _currency,
               onAdd: _addAddOn,
               onRemove: _removeAddOn,
             ),
@@ -249,7 +299,7 @@ class _ServiceContractFormDialogState
               recurringTotal: _recurringTotal,
               oneTimeTotal: _oneTimeTotal,
               cycle: _cycle,
-              currency: widget.currency,
+              currency: _currency,
             ),
           ],
         ),
@@ -259,6 +309,10 @@ class _ServiceContractFormDialogState
 
   Future<bool> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
+    if (_showBusinessPicker && _business == null) {
+      showErrorSnack(context, 'Select the business this contract is sold under.');
+      return false;
+    }
     if (_purchaseDate == null) {
       showErrorSnack(context, 'Select the date of purchase.');
       return false;
@@ -277,7 +331,15 @@ class _ServiceContractFormDialogState
       }
     }
 
+    // The chosen business, else the sole tagged one, else the customer's first
+    // tagged id — so the invoice always resolves a seller.
+    final businessId = _business?.id ??
+        (widget.customer.businessIds.isNotEmpty
+            ? widget.customer.businessIds.first
+            : '');
+
     final contract = ServiceContract(
+      businessId: businessId,
       purchaseDate: _purchaseDate,
       expiryDate: _expiryDate,
       price: _basePrice,
