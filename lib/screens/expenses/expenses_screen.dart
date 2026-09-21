@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
@@ -62,7 +64,7 @@ class ExpensesScreen extends StatelessWidget {
           actions: [
             if (canManage)
               ElevatedButton.icon(
-                onPressed: () => _openForm(context, null, bizId),
+                onPressed: () => openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Expense'),
               ),
@@ -71,6 +73,7 @@ class ExpensesScreen extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         AppDataTable<Expense>(
           rows: expenses,
+          onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
           searchableText: (e) =>
               '${e.id} ${e.name} ${e.category.label} ${e.vendor}',
           emptyTitle: 'No expenses found',
@@ -79,7 +82,7 @@ class ExpensesScreen extends StatelessWidget {
               : 'Expenses will appear here once added.',
           emptyAction: canManage
               ? ElevatedButton.icon(
-                  onPressed: () => _openForm(context, null, bizId),
+                  onPressed: () => openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Expense'),
                 )
@@ -152,7 +155,7 @@ class ExpensesScreen extends StatelessWidget {
   static CurrencyCode _currencyFor(DataController data, String businessId) =>
       data.businessById(businessId)?.currency ?? CurrencyCode.inr;
 
-  static Future<void> _openForm(
+  static Future<void> openForm(
       BuildContext context, Expense? existing, String? selectedBizId) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
@@ -227,7 +230,7 @@ class _RowActions extends StatelessWidget {
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
             onPressed: () =>
-                ExpensesScreen._openForm(context, expense, expense.businessId),
+                ExpensesScreen.openForm(context, expense, expense.businessId),
           ),
         if (canDelete)
           IconButton(
@@ -337,13 +340,14 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (isNew && widget.businesses.length > 1) ...[
-              AppDropdown<String>(
+              AppSearchableDropdown<String>(
                 label: 'Business',
                 isRequired: true,
                 value: _businessId,
                 items: [for (final b in widget.businesses) b.id],
                 itemLabel: (id) =>
                     widget.businesses.firstWhere((b) => b.id == id).name,
+                hintText: 'Search businesses…',
                 onChanged: (v) => setState(() => _businessId = v),
               ),
               const FormGap(),

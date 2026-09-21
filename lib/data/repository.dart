@@ -147,18 +147,7 @@ class Repository {
           ? IdGenerator.next(IdGenerator.businessPrefix,
               existing.map((e) => e['id'] as String? ?? ''))
           : business.id;
-      toSave = business.copyWith(audit: _stampCreate());
-      toSave = Business(
-        id: id,
-        name: toSave.name,
-        description: toSave.description,
-        type: toSave.type,
-        website: toSave.website,
-        currency: toSave.currency,
-        country: toSave.country,
-        status: toSave.status,
-        audit: toSave.audit,
-      );
+      toSave = business.copyWith(id: id, audit: _stampCreate());
     } else {
       _requireBusinessAccess(business.id);
       toSave = business.copyWith(audit: _stampUpdate(business.audit));
@@ -275,19 +264,7 @@ class Repository {
     if (isNew) {
       final id = await _nextScopedId(
           IdGenerator.productPrefix, Collections.products);
-      toSave = Product(
-        id: id,
-        businessId: product.businessId,
-        name: product.name,
-        description: product.description,
-        buyingPrice: product.buyingPrice,
-        sellingPrice: product.sellingPrice,
-        url: product.url,
-        sku: product.sku,
-        category: product.category,
-        status: product.status,
-        audit: _stampCreate(),
-      );
+      toSave = product.copyWith(id: id, audit: _stampCreate());
     } else {
       toSave = product.copyWith(audit: _stampUpdate(product.audit));
     }
@@ -323,8 +300,7 @@ class Repository {
     if (isNew) {
       final id = await _nextScopedId(
           IdGenerator.campaignPrefix, Collections.campaigns);
-      toSave = campaign.copyWith(audit: _stampCreate());
-      toSave = _withCampaignId(toSave, id);
+      toSave = campaign.copyWith(id: id, audit: _stampCreate());
     } else {
       toSave = campaign.copyWith(audit: _stampUpdate(campaign.audit));
     }
@@ -333,26 +309,6 @@ class Repository {
         toSave.id, businessId: toSave.businessId, summary: toSave.name);
     return toSave;
   }
-
-  Campaign _withCampaignId(Campaign c, String id) => Campaign(
-        id: id,
-        businessId: c.businessId,
-        productId: c.productId,
-        name: c.name,
-        platform: c.platform,
-        type: c.type,
-        startDate: c.startDate,
-        endDate: c.endDate,
-        budget: c.budget,
-        amountInvested: c.amountInvested,
-        impressions: c.impressions,
-        clicks: c.clicks,
-        conversions: c.conversions,
-        status: c.status,
-        url: c.url,
-        notes: c.notes,
-        audit: c.audit,
-      );
 
   Future<void> deleteCampaign(String id) async {
     _require(Permission.deleteCampaign);
@@ -381,8 +337,7 @@ class Repository {
       final id = await _nextScopedId(
           IdGenerator.orderPrefix, Collections.orders,
           width: 6);
-      toSave = order.copyWith(audit: _stampCreate());
-      toSave = _withOrderId(toSave, id);
+      toSave = order.copyWith(id: id, audit: _stampCreate());
     } else {
       toSave = order.copyWith(audit: _stampUpdate(order.audit));
     }
@@ -391,25 +346,6 @@ class Repository {
         toSave.id, businessId: toSave.businessId, summary: toSave.productName);
     return toSave;
   }
-
-  Order _withOrderId(Order o, String id) => Order(
-        id: id,
-        businessId: o.businessId,
-        productId: o.productId,
-        productName: o.productName,
-        orderDate: o.orderDate,
-        quantity: o.quantity,
-        sellingCost: o.sellingCost,
-        discount: o.discount,
-        shippingRevenue: o.shippingRevenue,
-        otherRevenue: o.otherRevenue,
-        buyingCost: o.buyingCost,
-        marketingAllocation: o.marketingAllocation,
-        status: o.status,
-        customerReference: o.customerReference,
-        notes: o.notes,
-        audit: o.audit,
-      );
 
   Future<void> deleteOrder(String id) async {
     _require(Permission.deleteOrder);
@@ -437,8 +373,7 @@ class Repository {
     if (isNew) {
       final id = await _nextScopedId(
           IdGenerator.expensePrefix, Collections.expenses);
-      toSave = expense.copyWith(audit: _stampCreate());
-      toSave = _withExpenseId(toSave, id);
+      toSave = expense.copyWith(id: id, audit: _stampCreate());
     } else {
       toSave = expense.copyWith(audit: _stampUpdate(expense.audit));
     }
@@ -447,23 +382,6 @@ class Repository {
         toSave.id, businessId: toSave.businessId, summary: toSave.name);
     return toSave;
   }
-
-  Expense _withExpenseId(Expense e, String id) => Expense(
-        id: id,
-        businessId: e.businessId,
-        name: e.name,
-        category: e.category,
-        description: e.description,
-        amount: e.amount,
-        frequency: e.frequency,
-        startDate: e.startDate,
-        endDate: e.endDate,
-        vendor: e.vendor,
-        status: e.status,
-        notes: e.notes,
-        sourceDealerId: e.sourceDealerId,
-        audit: e.audit,
-      );
 
   Future<void> deleteExpense(String id) async {
     _require(Permission.deleteExpense);
@@ -495,8 +413,7 @@ class Repository {
     if (isNew) {
       final id = await _nextScopedId(
           IdGenerator.dealerPrefix, Collections.dealers);
-      toSave = dealer.copyWith(audit: _stampCreate());
-      toSave = _withDealerId(toSave, id);
+      toSave = dealer.copyWith(id: id, audit: _stampCreate());
     } else {
       toSave = dealer.copyWith(audit: _stampUpdate(dealer.audit));
     }
@@ -507,23 +424,6 @@ class Repository {
         toSave.id, businessId: toSave.businessId, summary: toSave.name);
     return toSave;
   }
-
-  Dealer _withDealerId(Dealer d, String id) => Dealer(
-        id: id,
-        businessId: d.businessId,
-        name: d.name,
-        url: d.url,
-        description: d.description,
-        cost: d.cost,
-        costFrequency: d.costFrequency,
-        startDate: d.startDate,
-        endDate: d.endDate,
-        status: d.status,
-        contactName: d.contactName,
-        contactInfo: d.contactInfo,
-        notes: d.notes,
-        audit: d.audit,
-      );
 
   /// Keeps a Business Expense (category = Dealer) in sync with the dealer's cost
   /// so dealer spend automatically flows into operating expenses.

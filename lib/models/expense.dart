@@ -1,6 +1,7 @@
 import '../core/enums.dart';
 import '../core/utils/money.dart';
 import 'audit_fields.dart';
+import 'entity_comment.dart';
 
 /// A business operating expense. May be one-time or recurring; recurring
 /// expenses are prorated to reporting periods by the profit engine.
@@ -19,6 +20,7 @@ class Expense {
     this.status = EntityStatus.active,
     this.notes = '',
     this.sourceDealerId,
+    this.comments = const [],
     this.audit = const AuditFields(),
   });
 
@@ -43,6 +45,9 @@ class Expense {
   /// expenses are managed via the dealer, not edited directly.
   final String? sourceDealerId;
 
+  /// Discussion thread embedded on the expense document.
+  final List<EntityComment> comments;
+
   final AuditFields audit;
 
   bool get isActive => status == EntityStatus.active;
@@ -53,6 +58,17 @@ class Expense {
   Money get annualisedAmount {
     if (frequency == RecurrenceFrequency.oneTime) return amount;
     return amount * frequency.occurrencesPerYear;
+  }
+
+  /// Newest signal of activity: latest comment, else the updated/created audit
+  /// timestamp. Powers detail views' "Last Activity" card.
+  DateTime? get lastActivityAt {
+    DateTime? newest;
+    for (final c in comments) {
+      final d = c.createdAt;
+      if (d != null && (newest == null || d.isAfter(newest))) newest = d;
+    }
+    return newest ?? audit.updatedAt ?? audit.createdAt;
   }
 
   Map<String, dynamic> toMap() => {
@@ -69,6 +85,7 @@ class Expense {
         'status': status.wire,
         'notes': notes,
         if (sourceDealerId != null) 'sourceDealerId': sourceDealerId,
+        'comments': comments.map((c) => c.toMap()).toList(),
         ...audit.toMap(),
       };
 
@@ -86,10 +103,12 @@ class Expense {
         status: EntityStatus.fromWire(map['status'] as String?),
         notes: map['notes'] as String? ?? '',
         sourceDealerId: map['sourceDealerId'] as String?,
+        comments: EntityComment.listFrom(map['comments']),
         audit: AuditFields.fromMap(map),
       );
 
   Expense copyWith({
+    String? id,
     String? name,
     ExpenseCategory? category,
     String? description,
@@ -101,10 +120,11 @@ class Expense {
     EntityStatus? status,
     String? notes,
     String? sourceDealerId,
+    List<EntityComment>? comments,
     AuditFields? audit,
   }) =>
       Expense(
-        id: id,
+        id: id ?? this.id,
         businessId: businessId,
         name: name ?? this.name,
         category: category ?? this.category,
@@ -117,6 +137,7 @@ class Expense {
         status: status ?? this.status,
         notes: notes ?? this.notes,
         sourceDealerId: sourceDealerId ?? this.sourceDealerId,
+        comments: comments ?? this.comments,
         audit: audit ?? this.audit,
       );
 }

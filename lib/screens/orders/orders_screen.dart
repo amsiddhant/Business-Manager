@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
+import '../../models/customer.dart';
 import '../../models/order.dart';
 import '../../models/product.dart';
 import '../../state/app_state.dart';
@@ -68,7 +71,7 @@ class OrdersScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => _openForm(context, null, bizId),
+                onPressed: () => openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Order'),
               ),
@@ -77,6 +80,7 @@ class OrdersScreen extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         AppDataTable<Order>(
           rows: orders,
+          onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
           searchableText: (o) =>
               '${o.id} ${o.productName} ${o.customerReference}',
           emptyTitle: 'No orders found',
@@ -85,7 +89,7 @@ class OrdersScreen extends StatelessWidget {
               : 'Orders will appear here once added.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => _openForm(context, null, bizId),
+                  onPressed: () => openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Order'),
                 )
@@ -156,7 +160,7 @@ class OrdersScreen extends StatelessWidget {
   static CurrencyCode _currencyFor(DataController data, String businessId) =>
       data.businessById(businessId)?.currency ?? CurrencyCode.inr;
 
-  static Future<void> _openForm(
+  static Future<void> openForm(
       BuildContext context, Order? existing, String? selectedBizId) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
@@ -170,6 +174,7 @@ class OrdersScreen extends StatelessWidget {
         existing: existing,
         repo: repo,
         allProducts: data.products,
+        allCustomers: data.customers,
         preselectBusinessId: selectedBizId,
       ),
     );
@@ -227,7 +232,7 @@ class _RowActions extends StatelessWidget {
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
             onPressed: () =>
-                OrdersScreen._openForm(context, order, order.businessId),
+                OrdersScreen.openForm(context, order, order.businessId),
           ),
         if (hasMenu)
           PopupMenuButton<_OrderAction>(
@@ -586,12 +591,14 @@ class _OrderFormDialog extends StatefulWidget {
     required this.existing,
     required this.repo,
     required this.allProducts,
+    required this.allCustomers,
     this.preselectBusinessId,
   });
 
   final Order? existing;
   final Repository repo;
   final List<Product> allProducts;
+  final List<Customer> allCustomers;
   final String? preselectBusinessId;
 
   @override
@@ -606,11 +613,15 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
   late final TextEditingController _shipping;
   late final TextEditingController _other;
   late final TextEditingController _buying;
-  late final TextEditingController _customer;
   late final TextEditingController _notes;
   late OrderStatus _status;
   DateTime? _orderDate;
   String? _productId;
+  // The picked customer's id (stored into Order.customerReference). Legacy
+  // free-text references that don't resolve to a known customer are preserved
+  // in [_rawCustomerRef] so editing an order never silently wipes them.
+  String? _customerId;
+  String _rawCustomerRef = '';
 
   Order? get _existing => widget.existing;
 
@@ -639,16 +650,62 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
         text: o == null || o.buyingCost.isZero
             ? ''
             : o.buyingCost.major.toString());
-    _customer = TextEditingController(text: o?.customerReference ?? '');
     _notes = TextEditingController(text: o?.notes ?? '');
     _status = o?.status ?? OrderStatus.confirmed;
     _orderDate = o?.orderDate ?? _existing?.audit.createdAt;
     _productId = o?.productId ?? _initialProductId();
+    // Resolve the stored customer reference against known customers. If it
+    // matches a customer id, preselect it; otherwise keep it as raw text so a
+    // legacy free-text reference survives an edit round-trip.
+    final ref = o?.customerReference.trim() ?? '';
+    if (ref.isNotEmpty &&
+        widget.allCustomers.any((c) => c.id == ref)) {
+      _customerId = ref;
+    } else {
+      _rawCustomerRef = ref;
+    }
     // Prefill prices from the selected product for a new order.
     if (o == null && _productId != null) {
       _applyProductDefaults(_productId!);
     }
   }
+
+  /// The business of the currently selected product (drives customer scoping).
+  String? get _selectedBusinessId =>
+      widget.allProducts.where((p) => p.id == _productId).firstOrNull?.businessId;
+
+  /// Customers tagged to the selected product's business, for the picker.
+  List<Customer> get _scopedCustomers {
+    final bizId = _selectedBusinessId;
+    if (bizId == null) return const [];
+    return widget.allCustomers
+        .where((c) => c.businessIds.contains(bizId))
+        .toList();
+  }
+
+  /// Label for a customer picker entry. Empty id is the "no customer" option.
+  String _customerLabel(String id) {
+    if (id.isEmpty) return 'No customer';
+    return widget.allCustomers.where((c) => c.id == id).firstOrNull?.name ?? id;
+  }
+
+  /// Contextual helper text under the customer picker.
+  String? _customerHelper() {
+    if (_selectedBusinessId == null) {
+      return 'Select a product first to choose a customer.';
+    }
+    if (_scopedCustomers.isEmpty) {
+      return 'No customers for this business yet. Optional.';
+    }
+    if (_rawCustomerRef.isNotEmpty && _customerId == null) {
+      return 'Existing reference "$_rawCustomerRef" will be kept unless changed.';
+    }
+    return 'Optional — links this order to a customer.';
+  }
+
+  /// The value written to Order.customerReference: the picked customer id, or
+  /// the preserved legacy free-text reference, or empty.
+  String get _customerReference => _customerId ?? _rawCustomerRef;
 
   String? _initialProductId() {
     final scoped = _scopedProducts();
@@ -682,7 +739,6 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
     _shipping.dispose();
     _other.dispose();
     _buying.dispose();
-    _customer.dispose();
     _notes.dispose();
     super.dispose();
   }
@@ -698,17 +754,25 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AppDropdown<String>(
+            AppSearchableDropdown<String>(
               label: 'Product',
               isRequired: true,
               value: _productId,
-              items: [for (final p in widget.allProducts) p.id],
+              items: [for (final p in _scopedProducts()) p.id],
               itemLabel: (id) => widget.allProducts
                   .firstWhere((p) => p.id == id)
                   .name,
               onChanged: (v) {
                 setState(() {
+                  final prevBiz = _selectedBusinessId;
                   _productId = v;
+                  // The product's business drives customer scoping — if it
+                  // changed, a previously picked customer may no longer belong.
+                  if (_selectedBusinessId != prevBiz &&
+                      _customerId != null &&
+                      !_scopedCustomers.any((c) => c.id == _customerId)) {
+                    _customerId = null;
+                  }
                   if (isNew && v != null) {
                     // Reset prefilled prices, then apply the new product's.
                     _selling.clear();
@@ -776,9 +840,15 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
                 itemLabel: (s) => s.label,
                 onChanged: (v) => setState(() => _status = v ?? _status),
               ),
-              AppTextField(
+              AppSearchableDropdown<String>(
                 label: 'Customer Reference',
-                controller: _customer,
+                // Optional — empty sentinel maps to "no customer".
+                value: _customerId ?? '',
+                items: ['', for (final c in _scopedCustomers) c.id],
+                itemLabel: _customerLabel,
+                onChanged: (v) => setState(
+                    () => _customerId = (v == null || v.isEmpty) ? null : v),
+                helper: _customerHelper(),
               ),
             ]),
             const FormGap(),
@@ -816,7 +886,7 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
       otherRevenue: Money.parse(_other.text),
       buyingCost: Money.parse(_buying.text),
       status: _status,
-      customerReference: _customer.text.trim(),
+      customerReference: _customerReference,
       notes: _notes.text.trim(),
     );
     try {

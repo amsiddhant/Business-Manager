@@ -189,6 +189,90 @@ class AppDropdown<T> extends StatelessWidget {
   }
 }
 
+/// A labelled, type-to-filter dropdown built on Material's [DropdownMenu].
+///
+/// Use this wherever a select has more than a handful of options or is scoped
+/// to a linked entity (products of a business, customers of a business, …).
+/// The caller is responsible for passing only the items the user is allowed to
+/// see — filtering here is purely a UX convenience over that scoped list.
+class AppSearchableDropdown<T> extends StatefulWidget {
+  const AppSearchableDropdown({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.itemLabel,
+    required this.onChanged,
+    this.isRequired = false,
+    this.helper,
+    this.hintText,
+    this.enabled = true,
+  });
+
+  final String label;
+  final T? value;
+  final List<T> items;
+  final String Function(T) itemLabel;
+  final ValueChanged<T?> onChanged;
+  final bool isRequired;
+  final String? helper;
+  final String? hintText;
+  final bool enabled;
+
+  @override
+  State<AppSearchableDropdown<T>> createState() =>
+      _AppSearchableDropdownState<T>();
+}
+
+class _AppSearchableDropdownState<T> extends State<AppSearchableDropdown<T>> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.value == null ? '' : widget.itemLabel(widget.value as T),
+  );
+
+  @override
+  void didUpdateWidget(covariant AppSearchableDropdown<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Keep the visible text in sync when the selection is changed externally
+    // (e.g. the product's business changed and the customer ref was reset).
+    if (widget.value != oldWidget.value) {
+      final text =
+          widget.value == null ? '' : widget.itemLabel(widget.value as T);
+      if (_controller.text != text) _controller.text = text;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LabeledField(
+      label: widget.label,
+      isRequired: widget.isRequired,
+      helper: widget.helper,
+      child: DropdownMenu<T>(
+        controller: _controller,
+        enableFilter: true,
+        requestFocusOnTap: true,
+        enabled: widget.enabled,
+        expandedInsets: EdgeInsets.zero,
+        initialSelection: widget.value,
+        hintText: widget.hintText,
+        menuHeight: 320,
+        inputDecorationTheme: Theme.of(context).inputDecorationTheme,
+        onSelected: widget.onChanged,
+        dropdownMenuEntries: [
+          for (final item in widget.items)
+            DropdownMenuEntry<T>(value: item, label: widget.itemLabel(item)),
+        ],
+      ),
+    );
+  }
+}
+
 /// A labelled date picker field.
 class AppDateField extends StatelessWidget {
   const AppDateField({

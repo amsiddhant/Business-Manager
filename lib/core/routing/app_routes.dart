@@ -9,19 +9,29 @@ class Routes {
   static const forgotPassword = '/forgot-password';
   static const dashboard = '/dashboard';
   static const businesses = '/businesses';
+  static const businessDetail = '/businesses/:id';
   static const products = '/products';
   static const productDetail = '/products/:id';
   static const campaigns = '/campaigns';
+  static const campaignDetail = '/campaigns/:id';
   static const orders = '/orders';
+  static const orderDetail = '/orders/:id';
   static const expenses = '/expenses';
+  static const expenseDetail = '/expenses/:id';
   static const dealers = '/dealers';
+  static const dealerDetail = '/dealers/:id';
   static const customers = '/customers';
   static const customerDetail = '/customers/:id';
   static const reports = '/reports';
   static const users = '/users';
   static const settings = '/settings';
 
+  static String businessDetailPath(String id) => '/businesses/$id';
   static String productDetailPath(String id) => '/products/$id';
+  static String campaignDetailPath(String id) => '/campaigns/$id';
+  static String orderDetailPath(String id) => '/orders/$id';
+  static String expenseDetailPath(String id) => '/expenses/$id';
+  static String dealerDetailPath(String id) => '/dealers/$id';
   static String customerDetailPath(String id) => '/customers/$id';
 }
 

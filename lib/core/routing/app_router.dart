@@ -3,13 +3,18 @@ import 'package:go_router/go_router.dart';
 
 import '../../screens/auth/forgot_password_screen.dart';
 import '../../screens/auth/login_screen.dart';
+import '../../screens/businesses/business_detail_screen.dart';
 import '../../screens/businesses/businesses_screen.dart';
+import '../../screens/campaigns/campaign_detail_screen.dart';
 import '../../screens/campaigns/campaigns_screen.dart';
 import '../../screens/customers/customer_detail_screen.dart';
 import '../../screens/customers/customers_screen.dart';
 import '../../screens/dashboard/dashboard_screen.dart';
+import '../../screens/dealers/dealer_detail_screen.dart';
 import '../../screens/dealers/dealers_screen.dart';
+import '../../screens/expenses/expense_detail_screen.dart';
 import '../../screens/expenses/expenses_screen.dart';
+import '../../screens/orders/order_detail_screen.dart';
 import '../../screens/orders/orders_screen.dart';
 import '../../screens/products/product_detail_screen.dart';
 import '../../screens/products/products_screen.dart';
@@ -70,6 +75,11 @@ GoRouter buildRouter(AppState appState) {
             builder: (_, _) => const BusinessesScreen(),
           ),
           GoRoute(
+            path: Routes.businessDetail,
+            builder: (_, state) =>
+                BusinessDetailScreen(businessId: state.pathParameters['id']!),
+          ),
+          GoRoute(
             path: Routes.products,
             builder: (_, _) => const ProductsScreen(),
           ),
@@ -83,16 +93,36 @@ GoRouter buildRouter(AppState appState) {
             builder: (_, _) => const CampaignsScreen(),
           ),
           GoRoute(
+            path: Routes.campaignDetail,
+            builder: (_, state) =>
+                CampaignDetailScreen(campaignId: state.pathParameters['id']!),
+          ),
+          GoRoute(
             path: Routes.orders,
             builder: (_, _) => const OrdersScreen(),
+          ),
+          GoRoute(
+            path: Routes.orderDetail,
+            builder: (_, state) =>
+                OrderDetailScreen(orderId: state.pathParameters['id']!),
           ),
           GoRoute(
             path: Routes.expenses,
             builder: (_, _) => const ExpensesScreen(),
           ),
           GoRoute(
+            path: Routes.expenseDetail,
+            builder: (_, state) =>
+                ExpenseDetailScreen(expenseId: state.pathParameters['id']!),
+          ),
+          GoRoute(
             path: Routes.dealers,
             builder: (_, _) => const DealersScreen(),
+          ),
+          GoRoute(
+            path: Routes.dealerDetail,
+            builder: (_, state) =>
+                DealerDetailScreen(dealerId: state.pathParameters['id']!),
           ),
           GoRoute(
             path: Routes.customers,

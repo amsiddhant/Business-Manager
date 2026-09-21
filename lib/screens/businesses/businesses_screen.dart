@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
@@ -57,7 +59,7 @@ class BusinessesScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => _openForm(context, null),
+                onPressed: () => openForm(context, null),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Business'),
               ),
@@ -66,6 +68,7 @@ class BusinessesScreen extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         AppDataTable<Business>(
           rows: businesses,
+          onRowTap: (b) => context.go(Routes.businessDetailPath(b.id)),
           searchableText: (b) => '${b.name} ${b.type} ${b.country}',
           emptyTitle: 'No businesses yet',
           emptyMessage: canCreate
@@ -73,7 +76,7 @@ class BusinessesScreen extends StatelessWidget {
               : 'No businesses have been assigned to you.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => _openForm(context, null),
+                  onPressed: () => openForm(context, null),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Business'),
                 )
@@ -124,7 +127,7 @@ class BusinessesScreen extends StatelessWidget {
     );
   }
 
-  static Future<void> _openForm(BuildContext context, Business? existing) async {
+  static Future<void> openForm(BuildContext context, Business? existing) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final saved = await showDialog<bool>(
@@ -179,7 +182,7 @@ class _RowActions extends StatelessWidget {
           IconButton(
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
-            onPressed: () => BusinessesScreen._openForm(context, business),
+            onPressed: () => BusinessesScreen.openForm(context, business),
           ),
         if (canArchive && business.status != EntityStatus.archived)
           IconButton(
@@ -229,11 +232,22 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _name;
   late final TextEditingController _description;
-  late final TextEditingController _type;
   late final TextEditingController _website;
   late final TextEditingController _country;
+  late final TextEditingController _facebook;
+  late final TextEditingController _instagram;
+  late final TextEditingController _x;
+  late final TextEditingController _pinterest;
+  late final TextEditingController _linkedin;
+  late final TextEditingController _reddit;
+  late final TextEditingController _otherSocial;
   late CurrencyCode _currency;
   late EntityStatus _status;
+  late CompanySize _size;
+  // Business Type is a free-form string with searchable suggestions; the
+  // selected/typed value is held here so imported values outside the preset
+  // list are preserved.
+  String _type = '';
 
   Business? get _existing => widget.existing;
 
@@ -243,21 +257,43 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
     final b = _existing;
     _name = TextEditingController(text: b?.name ?? '');
     _description = TextEditingController(text: b?.description ?? '');
-    _type = TextEditingController(text: b?.type ?? '');
     _website = TextEditingController(text: b?.website ?? '');
     _country = TextEditingController(text: b?.country ?? 'India');
+    _facebook = TextEditingController(text: b?.facebookUrl ?? '');
+    _instagram = TextEditingController(text: b?.instagramUrl ?? '');
+    _x = TextEditingController(text: b?.xUrl ?? '');
+    _pinterest = TextEditingController(text: b?.pinterestUrl ?? '');
+    _linkedin = TextEditingController(text: b?.linkedinUrl ?? '');
+    _reddit = TextEditingController(text: b?.redditUrl ?? '');
+    _otherSocial = TextEditingController(text: b?.otherSocialUrl ?? '');
     _currency = b?.currency ?? CurrencyCode.inr;
     _status = b?.status ?? EntityStatus.active;
+    _size = b?.size ?? CompanySize.small;
+    _type = b?.type ?? '';
   }
 
   @override
   void dispose() {
     _name.dispose();
     _description.dispose();
-    _type.dispose();
     _website.dispose();
     _country.dispose();
+    _facebook.dispose();
+    _instagram.dispose();
+    _x.dispose();
+    _pinterest.dispose();
+    _linkedin.dispose();
+    _reddit.dispose();
+    _otherSocial.dispose();
     super.dispose();
+  }
+
+  /// Preset business-type suggestions plus any imported value not already in
+  /// the list (so an existing off-list type stays selectable).
+  List<String> get _typeItems {
+    final items = [...kBusinessTypes];
+    if (_type.isNotEmpty && !items.contains(_type)) items.insert(0, _type);
+    return items;
   }
 
   @override
@@ -278,11 +314,25 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
             ),
             const FormGap(),
             FormRow([
-              AppTextField(label: 'Business Type', controller: _type),
+              AppSearchableDropdown<String>(
+                label: 'Business Type',
+                value: _type.isEmpty ? null : _type,
+                items: _typeItems,
+                itemLabel: (t) => t,
+                hintText: 'Search or select…',
+                onChanged: (v) => setState(() => _type = v ?? ''),
+              ),
               AppTextField(label: 'Country', controller: _country),
             ]),
             const FormGap(),
             FormRow([
+              AppDropdown<CompanySize>(
+                label: 'Company Size',
+                value: _size,
+                items: CompanySize.values,
+                itemLabel: (s) => s.label,
+                onChanged: (v) => setState(() => _size = v ?? _size),
+              ),
               AppDropdown<CurrencyCode>(
                 label: 'Currency',
                 value: _currency,
@@ -311,6 +361,60 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
               controller: _description,
               maxLines: 3,
             ),
+            const FormGap(),
+            const _SectionLabel('Social Media'),
+            const FormGap(),
+            FormRow([
+              AppTextField(
+                label: 'Facebook',
+                controller: _facebook,
+                hintText: 'https://facebook.com/…',
+                validator: (v) => Validators.url(v),
+              ),
+              AppTextField(
+                label: 'Instagram',
+                controller: _instagram,
+                hintText: 'https://instagram.com/…',
+                validator: (v) => Validators.url(v),
+              ),
+            ]),
+            const FormGap(),
+            FormRow([
+              AppTextField(
+                label: 'X (Twitter)',
+                controller: _x,
+                hintText: 'https://x.com/…',
+                validator: (v) => Validators.url(v),
+              ),
+              AppTextField(
+                label: 'Pinterest',
+                controller: _pinterest,
+                hintText: 'https://pinterest.com/…',
+                validator: (v) => Validators.url(v),
+              ),
+            ]),
+            const FormGap(),
+            FormRow([
+              AppTextField(
+                label: 'LinkedIn',
+                controller: _linkedin,
+                hintText: 'https://linkedin.com/…',
+                validator: (v) => Validators.url(v),
+              ),
+              AppTextField(
+                label: 'Reddit',
+                controller: _reddit,
+                hintText: 'https://reddit.com/…',
+                validator: (v) => Validators.url(v),
+              ),
+            ]),
+            const FormGap(),
+            AppTextField(
+              label: 'Other',
+              controller: _otherSocial,
+              hintText: 'https://…',
+              validator: (v) => Validators.url(v),
+            ),
           ],
         ),
       ),
@@ -325,11 +429,19 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
         .copyWith(
       name: _name.text.trim(),
       description: _description.text.trim(),
-      type: _type.text.trim(),
+      type: _type.trim(),
       website: _website.text.trim(),
       country: _country.text.trim(),
       currency: _currency,
+      size: _size,
       status: _status,
+      facebookUrl: _facebook.text.trim(),
+      instagramUrl: _instagram.text.trim(),
+      xUrl: _x.text.trim(),
+      pinterestUrl: _pinterest.text.trim(),
+      linkedinUrl: _linkedin.text.trim(),
+      redditUrl: _reddit.text.trim(),
+      otherSocialUrl: _otherSocial.text.trim(),
     );
     try {
       await widget.repo.saveBusiness(business, isNew: isNew);
@@ -338,5 +450,28 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
       if (mounted) showErrorSnack(context, e);
       return false;
     }
+  }
+}
+
+/// A small left-aligned section heading used to group related form fields.
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF6B7280),
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
   }
 }

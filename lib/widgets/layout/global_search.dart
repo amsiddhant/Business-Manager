@@ -23,8 +23,10 @@ class _Result {
   final String route;
 }
 
-/// Global search across products, orders, campaigns, dealers, expenses and
-/// businesses (spec §48). Results show the entity type and jump to the module.
+/// Global search across products, orders, campaigns, dealers, expenses,
+/// customers and businesses (spec §48). Results show the entity type and jump
+/// straight to that record's detail view. Only data the current user can
+/// access is searched — [DataController] holds an already access-scoped set.
 class GlobalSearchDelegate extends SearchDelegate<void> {
   GlobalSearchDelegate(this.data, {this.businessName});
 
@@ -85,7 +87,7 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
           title: '${o.id} · ${o.productName}',
           subtitle: _bizLabel(o.businessId),
           icon: Icons.receipt_long_outlined,
-          route: Routes.orders,
+          route: Routes.orderDetailPath(o.id),
         ));
       }
     }
@@ -97,7 +99,25 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
           title: c.name,
           subtitle: '${c.platform.label} · ${_bizLabel(c.businessId)}',
           icon: Icons.campaign_outlined,
-          route: Routes.campaigns,
+          route: Routes.campaignDetailPath(c.id),
+        ));
+      }
+    }
+    for (final cust in data.customers) {
+      if (m(cust.name) ||
+          m(cust.id) ||
+          m(cust.email) ||
+          m(cust.contactNo)) {
+        final biz = cust.businessIds.isNotEmpty
+            ? _bizLabel(cust.businessIds.first)
+            : '—';
+        results.add(_Result(
+          type: 'Customer',
+          id: cust.id,
+          title: cust.name,
+          subtitle: '${cust.id} · $biz',
+          icon: Icons.person_outline,
+          route: Routes.customerDetailPath(cust.id),
         ));
       }
     }
@@ -109,7 +129,7 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
           title: d.name,
           subtitle: _bizLabel(d.businessId),
           icon: Icons.handshake_outlined,
-          route: Routes.dealers,
+          route: Routes.dealerDetailPath(d.id),
         ));
       }
     }
@@ -121,7 +141,7 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
           title: e.name,
           subtitle: '${e.category.label} · ${_bizLabel(e.businessId)}',
           icon: Icons.account_balance_wallet_outlined,
-          route: Routes.expenses,
+          route: Routes.expenseDetailPath(e.id),
         ));
       }
     }
@@ -133,7 +153,7 @@ class GlobalSearchDelegate extends SearchDelegate<void> {
           title: b.name,
           subtitle: b.id,
           icon: Icons.business_outlined,
-          route: Routes.businesses,
+          route: Routes.businessDetailPath(b.id),
         ));
       }
     }

@@ -1,6 +1,7 @@
 import '../core/enums.dart';
 import '../core/utils/money.dart';
 import 'audit_fields.dart';
+import 'entity_comment.dart';
 
 /// A marketing campaign for a product.
 class Campaign {
@@ -21,6 +22,7 @@ class Campaign {
     this.status = CampaignStatus.draft,
     this.url = '',
     this.notes = '',
+    this.comments = const [],
     this.audit = const AuditFields(),
   });
 
@@ -43,6 +45,10 @@ class Campaign {
   final CampaignStatus status;
   final String url;
   final String notes;
+
+  /// Discussion thread embedded on the campaign document.
+  final List<EntityComment> comments;
+
   final AuditFields audit;
 
   /// The date used to attribute this campaign's spend to a reporting period.
@@ -53,6 +59,17 @@ class Campaign {
 
   /// Conversion rate as a percentage.
   double get conversionRate => clicks == 0 ? 0 : conversions / clicks * 100;
+
+  /// Newest signal of activity: latest comment, else the updated/created audit
+  /// timestamp. Powers detail views' "Last Activity" card.
+  DateTime? get lastActivityAt {
+    DateTime? newest;
+    for (final c in comments) {
+      final d = c.createdAt;
+      if (d != null && (newest == null || d.isAfter(newest))) newest = d;
+    }
+    return newest ?? audit.updatedAt ?? audit.createdAt;
+  }
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -71,6 +88,7 @@ class Campaign {
         'status': status.wire,
         'url': url,
         'notes': notes,
+        'comments': comments.map((c) => c.toMap()).toList(),
         ...audit.toMap(),
       };
 
@@ -92,10 +110,12 @@ class Campaign {
         status: CampaignStatus.fromWire(map['status'] as String?),
         url: map['url'] as String? ?? '',
         notes: map['notes'] as String? ?? '',
+        comments: EntityComment.listFrom(map['comments']),
         audit: AuditFields.fromMap(map),
       );
 
   Campaign copyWith({
+    String? id,
     String? productId,
     String? name,
     CampaignPlatform? platform,
@@ -110,10 +130,11 @@ class Campaign {
     CampaignStatus? status,
     String? url,
     String? notes,
+    List<EntityComment>? comments,
     AuditFields? audit,
   }) =>
       Campaign(
-        id: id,
+        id: id ?? this.id,
         businessId: businessId,
         productId: productId ?? this.productId,
         name: name ?? this.name,
@@ -129,6 +150,7 @@ class Campaign {
         status: status ?? this.status,
         url: url ?? this.url,
         notes: notes ?? this.notes,
+        comments: comments ?? this.comments,
         audit: audit ?? this.audit,
       );
 }

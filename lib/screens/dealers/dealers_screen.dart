@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:universal_html/html.dart' as html;
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/money.dart';
@@ -64,7 +66,7 @@ class DealersScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => _openForm(context, null, bizId),
+                onPressed: () => openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Dealer'),
               ),
@@ -73,6 +75,7 @@ class DealersScreen extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         AppDataTable<Dealer>(
           rows: dealers,
+          onRowTap: (d) => context.go(Routes.dealerDetailPath(d.id)),
           searchableText: (d) => '${d.id} ${d.name} ${d.contactName}',
           emptyTitle: 'No dealers found',
           emptyMessage: canCreate
@@ -80,7 +83,7 @@ class DealersScreen extends StatelessWidget {
               : 'Dealers will appear here once added.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => _openForm(context, null, bizId),
+                  onPressed: () => openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Dealer'),
                 )
@@ -141,7 +144,7 @@ class DealersScreen extends StatelessWidget {
   static CurrencyCode _currencyFor(DataController data, String businessId) =>
       data.businessById(businessId)?.currency ?? CurrencyCode.inr;
 
-  static Future<void> _openForm(
+  static Future<void> openForm(
       BuildContext context, Dealer? existing, String? selectedBizId) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
@@ -213,7 +216,7 @@ class _RowActions extends StatelessWidget {
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
             onPressed: () =>
-                DealersScreen._openForm(context, dealer, dealer.businessId),
+                DealersScreen.openForm(context, dealer, dealer.businessId),
           ),
         if (canDelete)
           IconButton(
@@ -331,13 +334,14 @@ class _DealerFormDialogState extends State<_DealerFormDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (isNew && widget.businesses.length > 1) ...[
-              AppDropdown<String>(
+              AppSearchableDropdown<String>(
                 label: 'Business',
                 isRequired: true,
                 value: _businessId,
                 items: [for (final b in widget.businesses) b.id],
                 itemLabel: (id) =>
                     widget.businesses.firstWhere((b) => b.id == id).name,
+                hintText: 'Search businesses…',
                 onChanged: (v) => setState(() => _businessId = v),
               ),
               const FormGap(),

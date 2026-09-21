@@ -364,13 +364,14 @@ class _ProductFormDialogState extends State<_ProductFormDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (isNew && widget.businesses.length > 1) ...[
-              AppDropdown<String>(
+              AppSearchableDropdown<String>(
                 label: 'Business',
                 isRequired: true,
                 value: _businessId,
                 items: [for (final b in widget.businesses) b.id],
                 itemLabel: (id) =>
                     widget.businesses.firstWhere((b) => b.id == id).name,
+                hintText: 'Search businesses…',
                 onChanged: (v) => setState(() => _businessId = v),
               ),
               const FormGap(),

@@ -1,6 +1,7 @@
 import '../core/enums.dart';
 import '../core/utils/money.dart';
 import 'audit_fields.dart';
+import 'entity_comment.dart';
 
 /// A product belonging to a business.
 class Product {
@@ -15,6 +16,7 @@ class Product {
     this.sku = '',
     this.category = '',
     this.status = EntityStatus.active,
+    this.comments = const [],
     this.audit = const AuditFields(),
   });
 
@@ -33,9 +35,24 @@ class Product {
   final String sku;
   final String category;
   final EntityStatus status;
+
+  /// Discussion thread embedded on the product document.
+  final List<EntityComment> comments;
+
   final AuditFields audit;
 
   bool get isActive => status == EntityStatus.active;
+
+  /// Newest signal of activity: latest comment, else the updated/created audit
+  /// timestamp. Powers detail views' "Last Activity" card.
+  DateTime? get lastActivityAt {
+    DateTime? newest;
+    for (final c in comments) {
+      final d = c.createdAt;
+      if (d != null && (newest == null || d.isAfter(newest))) newest = d;
+    }
+    return newest ?? audit.updatedAt ?? audit.createdAt;
+  }
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -48,6 +65,7 @@ class Product {
         'sku': sku,
         'category': category,
         'status': status.wire,
+        'comments': comments.map((c) => c.toMap()).toList(),
         ...audit.toMap(),
       };
 
@@ -62,10 +80,12 @@ class Product {
         sku: map['sku'] as String? ?? '',
         category: map['category'] as String? ?? '',
         status: EntityStatus.fromWire(map['status'] as String?),
+        comments: EntityComment.listFrom(map['comments']),
         audit: AuditFields.fromMap(map),
       );
 
   Product copyWith({
+    String? id,
     String? name,
     String? description,
     Money? buyingPrice,
@@ -74,10 +94,11 @@ class Product {
     String? sku,
     String? category,
     EntityStatus? status,
+    List<EntityComment>? comments,
     AuditFields? audit,
   }) =>
       Product(
-        id: id,
+        id: id ?? this.id,
         businessId: businessId,
         name: name ?? this.name,
         description: description ?? this.description,
@@ -87,6 +108,7 @@ class Product {
         sku: sku ?? this.sku,
         category: category ?? this.category,
         status: status ?? this.status,
+        comments: comments ?? this.comments,
         audit: audit ?? this.audit,
       );
 }

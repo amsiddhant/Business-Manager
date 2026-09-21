@@ -175,11 +175,49 @@ class DataController extends ChangeNotifier {
     return null;
   }
 
+  Campaign? campaignById(String id) {
+    for (final c in campaigns) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  Order? orderById(String id) {
+    for (final o in orders) {
+      if (o.id == id) return o;
+    }
+    return null;
+  }
+
+  Expense? expenseById(String id) {
+    for (final e in expenses) {
+      if (e.id == id) return e;
+    }
+    return null;
+  }
+
+  Dealer? dealerById(String id) {
+    for (final d in dealers) {
+      if (d.id == id) return d;
+    }
+    return null;
+  }
+
   List<Campaign> campaignsForProduct(String productId) =>
       campaigns.where((c) => c.productId == productId).toList();
 
   List<Order> ordersForProduct(String productId) =>
       orders.where((o) => o.productId == productId).toList();
+
+  /// Orders that reference [customerId] via their `customerReference`.
+  List<Order> ordersForCustomer(String customerId) =>
+      orders.where((o) => o.customerReference == customerId).toList();
+
+  /// Dealers linked to a mirrored expense (expense id `EXP-DLR-<dealerId>`).
+  Dealer? dealerForExpense(String expenseId) {
+    if (!expenseId.startsWith('EXP-DLR-')) return null;
+    return dealerById(expenseId.substring('EXP-DLR-'.length));
+  }
 
   /// All meaningful activity dates across orders, campaigns and expenses,
   /// optionally scoped to a business. Powers the data-derived period selector

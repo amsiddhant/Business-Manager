@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
@@ -63,7 +65,7 @@ class CampaignsScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => _openForm(context, null, bizId),
+                onPressed: () => openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Campaign'),
               ),
@@ -72,6 +74,7 @@ class CampaignsScreen extends StatelessWidget {
         const SizedBox(height: AppSpacing.lg),
         AppDataTable<Campaign>(
           rows: campaigns,
+          onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
           searchableText: (c) => '${c.id} ${c.name} ${c.platform.label}',
           emptyTitle: 'No campaigns found',
           emptyMessage: canCreate
@@ -79,7 +82,7 @@ class CampaignsScreen extends StatelessWidget {
               : 'Campaigns will appear here once added.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => _openForm(context, null, bizId),
+                  onPressed: () => openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Campaign'),
                 )
@@ -150,7 +153,7 @@ class CampaignsScreen extends StatelessWidget {
   static CurrencyCode _currencyFor(DataController data, String businessId) =>
       data.businessById(businessId)?.currency ?? CurrencyCode.inr;
 
-  static Future<void> _openForm(
+  static Future<void> openForm(
       BuildContext context, Campaign? existing, String? selectedBizId) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
@@ -217,7 +220,7 @@ class _RowActions extends StatelessWidget {
           IconButton(
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
-            onPressed: () => CampaignsScreen._openForm(
+            onPressed: () => CampaignsScreen.openForm(
                 context, campaign, campaign.businessId),
           ),
         if (canDelete)
@@ -343,9 +346,10 @@ class _CampaignFormDialogState extends State<_CampaignFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isNew = _existing == null;
-    // Products selectable in this dialog: for a new campaign, scope by the
-    // product's business follows the chosen product itself.
-    final products = widget.allProducts;
+    // Products selectable in this dialog are scoped to the active business
+    // (the campaign's business follows the chosen product). When no business
+    // is pinned, every accessible product is offered — still searchable.
+    final products = _scopedProducts(widget.preselectBusinessId);
     return FormDialog(
       title: isNew ? 'Add Campaign' : 'Edit Campaign',
       onSubmit: _submit,
@@ -361,12 +365,13 @@ class _CampaignFormDialogState extends State<_CampaignFormDialog> {
               validator: (v) => Validators.required(v, field: 'Campaign name'),
             ),
             const FormGap(),
-            AppDropdown<String>(
+            AppSearchableDropdown<String>(
               label: 'Product',
               isRequired: true,
               value: _productId,
               items: [for (final p in products) p.id],
               itemLabel: (id) => _labelForProduct(products, id),
+              hintText: 'Search products…',
               onChanged: (v) => setState(() => _productId = v),
             ),
             const FormGap(),
@@ -449,7 +454,9 @@ class _CampaignFormDialogState extends State<_CampaignFormDialog> {
   }
 
   String _labelForProduct(List<Product> products, String id) {
-    final product = products.firstWhere((p) => p.id == id);
+    final product = products.where((p) => p.id == id).firstOrNull ??
+        widget.allProducts.where((p) => p.id == id).firstOrNull;
+    if (product == null) return id;
     final biz = widget.businesses.where((b) => b.id == product.businessId);
     final suffix = biz.isNotEmpty && widget.businesses.length > 1
         ? ' · ${biz.first.name}'

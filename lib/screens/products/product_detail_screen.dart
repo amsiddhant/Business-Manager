@@ -18,9 +18,11 @@ import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
 import '../../widgets/common/app_card.dart';
+import '../../widgets/common/comment_thread.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
+import '../../widgets/common/detail_widgets.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/responsive.dart';
 import '../../widgets/common/state_views.dart';
@@ -95,6 +97,36 @@ class ProductDetailScreen extends StatelessWidget {
 
     final canEdit = user?.can(Permission.editProduct) ?? false;
 
+    final left = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SummaryCard(
+          product: product,
+          profit: profit,
+          currency: currency,
+          period: filter.periodLabel,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        _CampaignsCard(campaigns: campaigns, currency: currency),
+        const SizedBox(height: AppSpacing.lg),
+        _OrdersCard(orders: orders, currency: currency),
+      ],
+    );
+
+    final repo = appState.repository;
+    final right = DetailActivityColumn(
+      activityAt: product.lastActivityAt,
+      comments: product.comments,
+      canComment: canEdit,
+      onPost: (comment) async {
+        await repo.saveProduct(
+          product.copyWith(comments: [...product.comments, comment]),
+          isNew: false,
+        );
+        await data.refresh();
+      },
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -117,16 +149,7 @@ class ProductDetailScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
-        _SummaryCard(
-          product: product,
-          profit: profit,
-          currency: currency,
-          period: filter.periodLabel,
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _CampaignsCard(campaigns: campaigns, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _OrdersCard(orders: orders, currency: currency),
+        DetailTwoColumn(left: left, right: right),
       ],
     );
   }
@@ -310,6 +333,7 @@ class _CampaignsCard extends StatelessWidget {
       child: AppDataTable<Campaign>(
         rows: campaigns,
         rowsPerPage: 5,
+        onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
         emptyTitle: 'No campaigns',
         emptyMessage: 'Campaigns for this product will appear here.',
         columns: [
@@ -375,6 +399,7 @@ class _OrdersCard extends StatelessWidget {
       child: AppDataTable<Order>(
         rows: sorted,
         rowsPerPage: 10,
+        onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
         emptyTitle: 'No orders',
         emptyMessage: 'Orders for this product will appear here.',
         columns: [

@@ -1,6 +1,7 @@
 import '../core/enums.dart';
 import '../core/utils/money.dart';
 import 'audit_fields.dart';
+import 'entity_comment.dart';
 
 /// A product order / sale.
 ///
@@ -27,6 +28,7 @@ class Order {
     this.refundDate,
     this.customerReference = '',
     this.notes = '',
+    this.comments = const [],
     this.audit = const AuditFields(),
   });
 
@@ -61,6 +63,10 @@ class Order {
 
   final String customerReference;
   final String notes;
+
+  /// Discussion thread embedded on the order document.
+  final List<EntityComment> comments;
+
   final AuditFields audit;
 
   /// Product revenue = selling cost × quantity.
@@ -127,6 +133,17 @@ class Order {
   Money get recognisedGrossProfit =>
       recognisedRevenue - recognisedProductCost;
 
+  /// Newest signal of activity: latest comment, else the updated/created audit
+  /// timestamp. Powers detail views' "Last Activity" card.
+  DateTime? get lastActivityAt {
+    DateTime? newest;
+    for (final c in comments) {
+      final d = c.createdAt;
+      if (d != null && (newest == null || d.isAfter(newest))) newest = d;
+    }
+    return newest ?? audit.updatedAt ?? audit.createdAt;
+  }
+
   Map<String, dynamic> toMap() => {
         'id': id,
         'businessId': businessId,
@@ -145,6 +162,7 @@ class Order {
         if (refundDate != null) 'refundDate': refundDate!.toIso8601String(),
         'customerReference': customerReference,
         'notes': notes,
+        'comments': comments.map((c) => c.toMap()).toList(),
         ...audit.toMap(),
       };
 
@@ -168,10 +186,12 @@ class Order {
         refundDate: parseDate(map['refundDate']),
         customerReference: map['customerReference'] as String? ?? '',
         notes: map['notes'] as String? ?? '',
+        comments: EntityComment.listFrom(map['comments']),
         audit: AuditFields.fromMap(map),
       );
 
   Order copyWith({
+    String? id,
     String? productId,
     String? productName,
     DateTime? orderDate,
@@ -187,10 +207,11 @@ class Order {
     DateTime? refundDate,
     String? customerReference,
     String? notes,
+    List<EntityComment>? comments,
     AuditFields? audit,
   }) =>
       Order(
-        id: id,
+        id: id ?? this.id,
         businessId: businessId,
         productId: productId ?? this.productId,
         productName: productName ?? this.productName,
@@ -207,6 +228,7 @@ class Order {
         refundDate: refundDate ?? this.refundDate,
         customerReference: customerReference ?? this.customerReference,
         notes: notes ?? this.notes,
+        comments: comments ?? this.comments,
         audit: audit ?? this.audit,
       );
 }
