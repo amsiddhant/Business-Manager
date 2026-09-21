@@ -15,11 +15,14 @@ import '../../core/utils/money.dart';
 import '../../models/app_user.dart';
 import '../../models/business.dart';
 import '../../models/customer.dart';
+import '../../models/order.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/confirm_dialog.dart';
+import '../../widgets/common/currency_display.dart';
+import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/initials_avatar.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/responsive.dart';
@@ -87,6 +90,11 @@ class CustomerDetailScreen extends StatelessWidget {
     ];
     final canEdit = user?.can(Permission.editCustomer) ?? false;
     final isMobile = Responsive.isMobile(context);
+
+    // Orders placed by this customer. `ordersForCustomer` matches on the order's
+    // customerReference over the already access-scoped order set, so a non-owner
+    // only ever sees orders for businesses they can access.
+    final orders = data.ordersForCustomer(customer.id);
     // A customer can span several businesses; use the first visible business's
     // currency as a fallback (per-contract displays use their own business's).
     final currency =
@@ -134,6 +142,8 @@ class CustomerDetailScreen extends StatelessWidget {
             canEdit: canEdit,
           ),
         ],
+        const SizedBox(height: AppSpacing.lg),
+        _OrdersCard(orders: orders, businesses: businesses),
         const SizedBox(height: AppSpacing.lg),
         _TeamAccessCard(customer: customer),
       ],
@@ -1652,6 +1662,112 @@ class _PersonTile extends StatelessWidget {
             ),
           ),
           StatusBadge.role(person.role),
+        ],
+      ),
+    );
+  }
+}
+
+/// Lists the orders placed by this customer, newest-first, with a row tap
+/// through to each order's detail view.
+///
+/// A customer may be tagged to several businesses, so each row resolves its own
+/// business currency rather than assuming one; a Business column is shown only
+/// when the customer spans more than one business. The [orders] passed in are
+/// already access-scoped (see [DataController.ordersForCustomer]).
+class _OrdersCard extends StatelessWidget {
+  const _OrdersCard({required this.orders, required this.businesses});
+
+  final List<Order> orders;
+  final List<Business> businesses;
+
+  static final _epoch = DateTime.fromMillisecondsSinceEpoch(0);
+  static DateTime _dateOf(Order o) =>
+      o.orderDate ?? o.audit.createdAt ?? _epoch;
+
+  CurrencyCode _currencyOf(Order o) {
+    for (final b in businesses) {
+      if (b.id == o.businessId) return b.currency;
+    }
+    return CurrencyCode.inr;
+  }
+
+  String _businessName(String id) {
+    for (final b in businesses) {
+      if (b.id == id) return b.name;
+    }
+    return id;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final multiBusiness = businesses.length > 1;
+    final sorted = [...orders]
+      ..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
+    return SectionCard(
+      title: 'Orders',
+      subtitle: '${orders.length} '
+          '${orders.length == 1 ? 'order' : 'orders'} placed',
+      padding: EdgeInsets.zero,
+      child: AppDataTable<Order>(
+        rows: sorted,
+        rowsPerPage: 10,
+        onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
+        searchableText: (o) => '${o.id} ${o.productName}',
+        emptyTitle: 'No orders',
+        emptyMessage: 'Orders placed by this customer will appear here.',
+        columns: [
+          AppColumn(
+            label: 'Order ID',
+            cell: (o) => Text(o.id,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            sortValue: (o) => o.id,
+          ),
+          AppColumn(
+            label: 'Product',
+            cell: (o) => Text(
+              o.productName.isEmpty ? '—' : o.productName,
+              overflow: TextOverflow.ellipsis,
+            ),
+            sortValue: (o) => o.productName.toLowerCase(),
+          ),
+          if (multiBusiness)
+            AppColumn(
+              label: 'Business',
+              cell: (o) => Text(_businessName(o.businessId),
+                  overflow: TextOverflow.ellipsis),
+              sortValue: (o) => _businessName(o.businessId).toLowerCase(),
+            ),
+          AppColumn(
+            label: 'Date',
+            cell: (o) => Text(AppDate.short(_dateOf(o))),
+            sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
+          ),
+          AppColumn(
+            label: 'Qty',
+            numeric: true,
+            cell: (o) => Text('${o.quantity}'),
+            sortValue: (o) => o.quantity,
+          ),
+          AppColumn(
+            label: 'Revenue',
+            numeric: true,
+            cell: (o) =>
+                CurrencyText(o.recognisedRevenue, currency: _currencyOf(o)),
+            sortValue: (o) => o.recognisedRevenue.minor,
+          ),
+          AppColumn(
+            label: 'Profit',
+            numeric: true,
+            cell: (o) => CurrencyText(o.recognisedGrossProfit,
+                currency: _currencyOf(o)),
+            sortValue: (o) => o.recognisedGrossProfit.minor,
+          ),
+          AppColumn(
+            label: 'Status',
+            cell: (o) => StatusBadge.order(o.status),
+            sortValue: (o) => o.status.label,
+          ),
         ],
       ),
     );
