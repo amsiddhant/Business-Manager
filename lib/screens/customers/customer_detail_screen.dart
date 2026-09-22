@@ -13,6 +13,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
+import '../../data/repository.dart';
 import '../../models/app_user.dart';
 import '../../models/business.dart';
 import '../../models/contact.dart';
@@ -28,7 +29,9 @@ import '../../widgets/common/app_card.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
+import '../../widgets/common/detail_widgets.dart';
 import '../../widgets/common/initials_avatar.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/responsive.dart';
 import '../../widgets/common/state_views.dart';
@@ -1684,42 +1687,59 @@ class _PersonTile extends StatelessWidget {
 ///
 /// Add/edit/delete affordances are shown only when [canEdit]
 /// ([Permission.editCustomer]); the underlying repository re-checks on save.
-class _ContactsCard extends StatelessWidget {
+class _ContactsCard extends StatefulWidget {
   const _ContactsCard({required this.customer, required this.canEdit});
 
   final Customer customer;
   final bool canEdit;
 
-  CustomerContactsViewModel _vm(BuildContext context) =>
-      CustomerContactsViewModel(context.read<AppState>().repository);
+  @override
+  State<_ContactsCard> createState() => _ContactsCardState();
+}
 
-  Future<void> _add(BuildContext context) async {
-    final contact = await showDialog<Contact>(
-      context: context,
-      builder: (_) => const ContactFormDialog(),
-    );
-    if (contact == null || !context.mounted) return;
-    await _run(
-      context,
-      () => _vm(context).add(customer, contact),
-      'Contact added',
-    );
+class _ContactsCardState extends State<_ContactsCard> {
+  /// Live search query. Matched (case-insensitively) against name, designation,
+  /// email and number. Debounced by [SearchField].
+  String _query = '';
+
+  Customer get _customer => widget.customer;
+  bool get _canEdit => widget.canEdit;
+
+  /// Contacts matching the current [_query]. Empty query returns all.
+  List<Contact> get _filtered {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return _customer.contacts;
+    return _customer.contacts.where((c) {
+      return c.name.toLowerCase().contains(q) ||
+          c.designation.toLowerCase().contains(q) ||
+          c.email.toLowerCase().contains(q) ||
+          c.number.toLowerCase().contains(q);
+    }).toList();
   }
 
-  Future<void> _edit(BuildContext context, Contact existing) async {
-    final contact = await showDialog<Contact>(
+  /// Opens the add/edit form. Persistence happens inside [ContactFormDialog]
+  /// (the canonical [FormDialog] pattern), so the dialog resolves to `true` on a
+  /// successful save; we then refresh and confirm. [existing] null means add.
+  Future<void> _openForm({Contact? existing}) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (_) => ContactFormDialog(existing: existing),
+      builder: (_) => ContactFormDialog(
+          customer: _customer, repo: repo, existing: existing),
     );
-    if (contact == null || !context.mounted) return;
-    await _run(
-      context,
-      () => _vm(context).update(customer, contact),
-      'Contact updated',
-    );
+    if (saved == true) {
+      await data.refresh();
+      if (mounted) {
+        showSuccessSnack(
+            context, existing == null ? 'Contact added' : 'Contact updated');
+      }
+    }
   }
 
-  Future<void> _delete(BuildContext context, Contact contact) async {
+  Future<void> _delete(Contact contact) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
     final label = contact.name.trim().isEmpty ? 'this contact' : contact.name;
     final confirmed = await showConfirmDialog(
       context,
@@ -1728,49 +1748,53 @@ class _ContactsCard extends StatelessWidget {
           'This action cannot be easily undone.',
       confirmLabel: 'Delete',
     );
-    if (!confirmed || !context.mounted) return;
-    await _run(
-      context,
-      () => _vm(context).remove(customer, contact.id),
-      'Contact deleted',
-    );
+    if (!confirmed) return;
+    try {
+      await CustomerContactsViewModel(repo).remove(_customer, contact.id);
+      await data.refresh();
+      if (mounted) showSuccessSnack(context, 'Contact deleted');
+    } catch (e) {
+      if (mounted) showErrorSnack(context, e);
+    }
   }
 
-  /// Runs a mutation, refreshes the shared data and surfaces success/failure.
-  Future<void> _run(
-    BuildContext context,
-    Future<void> Function() action,
-    String successMessage,
-  ) async {
-    final data = context.read<DataController>();
-    try {
-      await action();
-      await data.refresh();
-      if (context.mounted) showSuccessSnack(context, successMessage);
-    } catch (e) {
-      if (context.mounted) showErrorSnack(context, e);
+  /// Opens the read-only view modal and routes any edit/delete action it emits.
+  Future<void> _view(Contact contact) async {
+    final action = await showDialog<_ContactAction>(
+      context: context,
+      builder: (_) => ContactViewDialog(contact: contact, canEdit: _canEdit),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case _ContactAction.edit:
+        await _openForm(existing: contact);
+      case _ContactAction.delete:
+        await _delete(contact);
+      case null:
+        break;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final contacts = customer.contacts;
+    final total = _customer.contacts.length;
+    final filtered = _filtered;
     return SectionCard(
       title: 'Contacts',
-      subtitle: '${contacts.length} '
-          '${contacts.length == 1 ? 'contact' : 'contacts'} on the customer side',
-      trailing: canEdit
+      subtitle: '$total ${total == 1 ? 'contact' : 'contacts'} '
+          'on the customer side',
+      trailing: _canEdit
           ? TextButton.icon(
-              onPressed: () => _add(context),
+              onPressed: () => _openForm(),
               icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
               label: const Text('Add Contact'),
             )
           : null,
-      child: contacts.isEmpty
+      child: total == 0
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Text(
-                canEdit
+                _canEdit
                     ? 'No contacts yet. Add the people on the customer side '
                         '(e.g. CEO, Tech Lead, CSM).'
                     : 'No contacts recorded for this customer.',
@@ -1780,158 +1804,251 @@ class _ContactsCard extends StatelessWidget {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (var i = 0; i < contacts.length; i++) ...[
-                  if (i > 0) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    const Divider(height: 1),
-                    const SizedBox(height: AppSpacing.md),
-                  ],
-                  _ContactTile(
-                    contact: contacts[i],
-                    canEdit: canEdit,
-                    onEdit: () => _edit(context, contacts[i]),
-                    onDelete: () => _delete(context, contacts[i]),
+                // Live searchbar — shown once there is more than one contact to
+                // sift through.
+                if (total > 1) ...[
+                  SearchField(
+                    hintText: 'Search name, designation, email or number…',
+                    onChanged: (v) => setState(() => _query = v),
                   ),
+                  const SizedBox(height: AppSpacing.md),
                 ],
+                if (filtered.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                    child: Text('No contacts match “${_query.trim()}”.',
+                        style:
+                            const TextStyle(color: AppColors.textSecondary)),
+                  )
+                else
+                  for (var i = 0; i < filtered.length; i++) ...[
+                    if (i > 0) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      const Divider(height: 1),
+                      const SizedBox(height: AppSpacing.xs),
+                    ],
+                    _ContactTile(
+                      contact: filtered[i],
+                      onTap: () => _view(filtered[i]),
+                    ),
+                  ],
               ],
             ),
     );
   }
 }
 
-/// One contact row: an auto-generated initials avatar, the name + designation,
-/// the email/number details, an optional description, and (when permitted) an
-/// overflow menu to edit or delete.
+/// The action a [ContactViewDialog] resolves to when dismissed.
+enum _ContactAction { edit, delete }
+
+/// One contact row in the list: an auto-generated initials avatar, the name and
+/// designation only. Tapping opens the read-only [ContactViewDialog] where the
+/// full details (with copy buttons) and edit/delete actions live.
 class _ContactTile extends StatelessWidget {
-  const _ContactTile({
-    required this.contact,
-    required this.canEdit,
-    required this.onEdit,
-    required this.onDelete,
-  });
+  const _ContactTile({required this.contact, required this.onTap});
 
   final Contact contact;
-  final bool canEdit;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final name = contact.name.trim().isEmpty ? 'Unnamed contact' : contact.name;
     final designation = contact.designation.trim();
-    final email = contact.email.trim();
-    final number = contact.number.trim();
-    final description = contact.description.trim();
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        InitialsAvatar(name: name, size: 44),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(name,
-                  style: const TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w700)),
-              if (designation.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(designation,
-                    style: const TextStyle(
-                        fontSize: 12.5,
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600)),
-              ],
-              if (email.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                _ContactLineItem(icon: Icons.mail_outline, value: email),
-              ],
-              if (number.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                _ContactLineItem(icon: Icons.phone_outlined, value: number),
-              ],
-              if (description.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Text(description,
-                    style: const TextStyle(
-                        fontSize: 12.5,
-                        height: 1.4,
-                        color: AppColors.textSecondary)),
-              ],
-            ],
-          ),
-        ),
-        if (canEdit)
-          PopupMenuButton<String>(
-            tooltip: 'Contact actions',
-            icon: const Icon(Icons.more_vert,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+            vertical: AppSpacing.sm, horizontal: AppSpacing.xs),
+        child: Row(
+          children: [
+            InitialsAvatar(name: name, size: 44),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700)),
+                  if (designation.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(designation,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right,
                 size: 20, color: AppColors.textTertiary),
-            onSelected: (v) {
-              if (v == 'edit') onEdit();
-              if (v == 'delete') onDelete();
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem<String>(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit_outlined, size: 18),
-                    SizedBox(width: AppSpacing.sm),
-                    Text('Edit'),
-                  ],
-                ),
-              ),
-              PopupMenuItem<String>(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete_outline,
-                        size: 18, color: AppColors.error),
-                    SizedBox(width: AppSpacing.sm),
-                    Text('Delete', style: TextStyle(color: AppColors.error)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 }
 
-/// A single icon + value line within a contact tile (email / number).
-class _ContactLineItem extends StatelessWidget {
-  const _ContactLineItem({required this.icon, required this.value});
+/// A read-only modal showing every field of a [Contact], each with a copy
+/// button (reusing [DetailFieldTile]), headed by the auto-generated avatar. When
+/// [canEdit] is true it offers Edit / Delete in the footer; selecting one pops
+/// the corresponding [_ContactAction] for the caller to handle (it does not
+/// mutate anything itself, keeping persistence in one place).
+class ContactViewDialog extends StatelessWidget {
+  const ContactViewDialog({
+    super.key,
+    required this.contact,
+    required this.canEdit,
+  });
 
-  final IconData icon;
-  final String value;
+  final Contact contact;
+  final bool canEdit;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final name = contact.name.trim().isEmpty ? 'Unnamed contact' : contact.name;
+    final designation = contact.designation.trim();
+    final fields = <DetailField>[
+      DetailField('Name', contact.name, Icons.person_outline),
+      DetailField('Designation', contact.designation, Icons.badge_outlined),
+      DetailField('Email', contact.email, Icons.mail_outline),
+      DetailField('Number', contact.number, Icons.phone_outlined),
+      DetailField('Description', contact.description, Icons.notes_outlined),
+    ];
+
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(icon, size: 15, color: AppColors.textTertiary),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(value,
-              style: const TextStyle(fontSize: 13, height: 1.3)),
+        // Header: avatar + name/designation + close.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.xl, AppSpacing.lg, AppSpacing.md, AppSpacing.lg),
+          child: Row(
+            children: [
+              InitialsAvatar(name: name, size: 52),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(name,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    if (designation.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(designation,
+                          style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w600)),
+                    ],
+                  ],
+                ),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close, color: AppColors.textSecondary),
+              ),
+            ],
+          ),
         ),
+        const Divider(height: 1),
+        // Body: all fields, each with a copy button.
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < fields.length; i++) ...[
+                  if (i > 0) const SizedBox(height: AppSpacing.lg),
+                  DetailFieldTile(field: fields[i]),
+                ],
+                if (contact.createdAt != null) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  DetailFieldTile(
+                    field: DetailField('Added',
+                        AppDate.format(contact.createdAt), Icons.schedule),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        if (canEdit) ...[
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: () =>
+                      Navigator.of(context).pop(_ContactAction.delete),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Delete'),
+                  style:
+                      TextButton.styleFrom(foregroundColor: AppColors.error),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                ElevatedButton.icon(
+                  onPressed: () =>
+                      Navigator.of(context).pop(_ContactAction.edit),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Edit'),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
+    );
+
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 520,
+          maxHeight: MediaQuery.sizeOf(context).height * 0.9,
+        ),
+        child: content,
+      ),
     );
   }
 }
 
 /// Add/edit form for a customer-side [Contact]. Captures the five fields — Name
-/// (required), Email (optional, validated), Designation, Number and Description
-/// — and pops the built [Contact] on save (or null on cancel). Persistence is
-/// the caller's responsibility (via [CustomerContactsViewModel]); this dialog is
-/// purely the input surface, so it holds no repository reference.
+/// (required), Email (optional, validated), Designation, Number and Description.
+///
+/// Follows the canonical [FormDialog] contract used across the app (see
+/// [CustomerFormDialog]): it persists the change itself in [_submit] via
+/// [CustomerContactsViewModel] and returns `true`/`false`, letting [FormDialog]
+/// perform the single dialog pop. It must NOT call [Navigator.pop] itself — doing
+/// so plus returning `true` would pop twice and tear down the page beneath.
+/// The caller refreshes the [DataController] and shows the success snackbar when
+/// the dialog resolves to `true`.
 class ContactFormDialog extends StatefulWidget {
-  const ContactFormDialog({super.key, this.existing});
+  const ContactFormDialog({
+    super.key,
+    required this.customer,
+    required this.repo,
+    this.existing,
+  });
 
+  /// The customer the contact belongs to (the save target).
+  final Customer customer;
+  final Repository repo;
+
+  /// The contact being edited, or null when adding a new one.
   final Contact? existing;
 
   @override
@@ -2023,19 +2140,36 @@ class _ContactFormDialogState extends State<ContactFormDialog> {
 
   Future<bool> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
-    // Preserve the id/createdAt on edit; mint them on add.
-    final base = _existing ??
-        Contact(id: 'ct${DateTime.now().microsecondsSinceEpoch}',
-            createdAt: DateTime.now());
-    final contact = base.copyWith(
-      name: _name.text.trim(),
-      email: _email.text.trim(),
-      designation: _designation.text.trim(),
-      number: _number.text.trim(),
-      description: _description.text.trim(),
-    );
-    Navigator.of(context).pop(contact);
-    return true;
+    final vm = CustomerContactsViewModel(widget.repo);
+    try {
+      final existing = _existing;
+      if (existing == null) {
+        // Add: buildDraft mints the id/createdAt and trims the fields.
+        final draft = vm.buildDraft(
+          name: _name.text,
+          email: _email.text,
+          designation: _designation.text,
+          number: _number.text,
+          description: _description.text,
+        );
+        await vm.add(widget.customer, draft);
+      } else {
+        // Edit: keep the id/createdAt, apply the (trimmed) field values.
+        final updated = existing.copyWith(
+          name: _name.text.trim(),
+          email: _email.text.trim(),
+          designation: _designation.text.trim(),
+          number: _number.text.trim(),
+          description: _description.text.trim(),
+        );
+        await vm.update(widget.customer, updated);
+      }
+      // Return true so FormDialog performs the single pop; do NOT pop here.
+      return true;
+    } catch (e) {
+      if (mounted) showErrorSnack(context, e);
+      return false;
+    }
   }
 }
 

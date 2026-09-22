@@ -581,8 +581,11 @@ class _RefundDialogState extends State<_RefundDialog> {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
     var amount = _entered;
     if (amount > _total) amount = _total;
+    // This dialog returns a payload (not a bool), so it pops itself with the
+    // result. Return false so FormDialog does NOT pop a second time — a double
+    // pop would tear down the page beneath and leave a blank screen.
     Navigator.of(context).pop(_RefundResult(amount, _date));
-    return true;
+    return false;
   }
 }
 
