@@ -613,6 +613,7 @@ class Repository {
         dealStatus: c.dealStatus,
         description: c.description,
         contractsByBusiness: c.contractsByBusiness,
+        contacts: c.contacts,
         comments: c.comments,
         audit: c.audit,
       );

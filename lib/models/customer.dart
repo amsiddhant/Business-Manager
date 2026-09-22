@@ -2,6 +2,7 @@ import '../core/enums.dart';
 import '../core/utils/date_utils.dart';
 import '../core/utils/money.dart';
 import 'audit_fields.dart';
+import 'contact.dart';
 
 /// A single add-on line item within a [ServiceContract] (e.g. "Priority
 /// Support", "Extra Seats"). Priced at the contract's billing cycle. Stored as
@@ -264,6 +265,7 @@ class Customer {
     this.dealStatus = DealStatus.pending,
     this.description = '',
     this.contractsByBusiness = const {},
+    this.contacts = const [],
     this.comments = const [],
     this.audit = const AuditFields(),
   });
@@ -294,6 +296,11 @@ class Customer {
   /// [contractInScope] — so Admin/User (and the business filter) only ever see
   /// contracts for businesses they can access.
   final Map<String, BusinessContract> contractsByBusiness;
+
+  /// The customer-side people (e.g. their CEO, Tech Lead, CSM). Embedded on the
+  /// customer document, so they inherit the customer's read/write authorization.
+  final List<Contact> contacts;
+
   final List<CustomerComment> comments;
   final AuditFields audit;
 
@@ -450,6 +457,7 @@ class Customer {
             for (final e in contractsByBusiness.entries)
               e.key: e.value.toMap(),
           },
+        'contacts': contacts.map((c) => c.toMap()).toList(),
         'comments': comments.map((c) => c.toMap()).toList(),
         ...audit.toMap(),
       };
@@ -469,6 +477,7 @@ class Customer {
         dealStatus: DealStatus.fromWire(map['dealStatus'] as String?),
         description: map['description'] as String? ?? '',
         contractsByBusiness: _readContractsByBusiness(map),
+        contacts: Contact.listFrom(map['contacts']),
         comments: [
           for (final c in (map['comments'] as List<dynamic>? ?? const []))
             CustomerComment.fromMap(Map<String, dynamic>.from(c as Map)),
@@ -490,6 +499,7 @@ class Customer {
     DealStatus? dealStatus,
     String? description,
     Map<String, BusinessContract>? contractsByBusiness,
+    List<Contact>? contacts,
     List<CustomerComment>? comments,
     AuditFields? audit,
   }) =>
@@ -508,6 +518,7 @@ class Customer {
         dealStatus: dealStatus ?? this.dealStatus,
         description: description ?? this.description,
         contractsByBusiness: contractsByBusiness ?? this.contractsByBusiness,
+        contacts: contacts ?? this.contacts,
         comments: comments ?? this.comments,
         audit: audit ?? this.audit,
       );

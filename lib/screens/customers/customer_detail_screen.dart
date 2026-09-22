@@ -12,13 +12,18 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
+import '../../core/validators.dart';
 import '../../models/app_user.dart';
 import '../../models/business.dart';
+import '../../models/contact.dart';
 import '../../models/customer.dart';
 import '../../models/order.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../view_models/customer_contacts_view_model.dart';
+import '../../widgets/forms/form_dialog.dart';
+import '../../widgets/forms/form_fields.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
@@ -142,6 +147,8 @@ class CustomerDetailScreen extends StatelessWidget {
             canEdit: canEdit,
           ),
         ],
+        const SizedBox(height: AppSpacing.lg),
+        _ContactsCard(customer: customer, canEdit: canEdit),
         const SizedBox(height: AppSpacing.lg),
         _OrdersCard(orders: orders, businesses: businesses),
         const SizedBox(height: AppSpacing.lg),
@@ -1665,6 +1672,370 @@ class _PersonTile extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// The customer-side Contacts section: the people on the customer's side (CEO,
+/// Tech Lead, CSM, …) with add / edit / delete. Sits directly above the Orders
+/// card. Each contact's display picture is auto-generated from their name via
+/// [InitialsAvatar]. Mutations route through [CustomerContactsViewModel], which
+/// persists the change as a customer-document save (reusing the customer's
+/// permission gate and audit trail) and then refreshes the [DataController].
+///
+/// Add/edit/delete affordances are shown only when [canEdit]
+/// ([Permission.editCustomer]); the underlying repository re-checks on save.
+class _ContactsCard extends StatelessWidget {
+  const _ContactsCard({required this.customer, required this.canEdit});
+
+  final Customer customer;
+  final bool canEdit;
+
+  CustomerContactsViewModel _vm(BuildContext context) =>
+      CustomerContactsViewModel(context.read<AppState>().repository);
+
+  Future<void> _add(BuildContext context) async {
+    final contact = await showDialog<Contact>(
+      context: context,
+      builder: (_) => const ContactFormDialog(),
+    );
+    if (contact == null || !context.mounted) return;
+    await _run(
+      context,
+      () => _vm(context).add(customer, contact),
+      'Contact added',
+    );
+  }
+
+  Future<void> _edit(BuildContext context, Contact existing) async {
+    final contact = await showDialog<Contact>(
+      context: context,
+      builder: (_) => ContactFormDialog(existing: existing),
+    );
+    if (contact == null || !context.mounted) return;
+    await _run(
+      context,
+      () => _vm(context).update(customer, contact),
+      'Contact updated',
+    );
+  }
+
+  Future<void> _delete(BuildContext context, Contact contact) async {
+    final label = contact.name.trim().isEmpty ? 'this contact' : contact.name;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Delete contact?',
+      message: 'Remove $label from this customer? '
+          'This action cannot be easily undone.',
+      confirmLabel: 'Delete',
+    );
+    if (!confirmed || !context.mounted) return;
+    await _run(
+      context,
+      () => _vm(context).remove(customer, contact.id),
+      'Contact deleted',
+    );
+  }
+
+  /// Runs a mutation, refreshes the shared data and surfaces success/failure.
+  Future<void> _run(
+    BuildContext context,
+    Future<void> Function() action,
+    String successMessage,
+  ) async {
+    final data = context.read<DataController>();
+    try {
+      await action();
+      await data.refresh();
+      if (context.mounted) showSuccessSnack(context, successMessage);
+    } catch (e) {
+      if (context.mounted) showErrorSnack(context, e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final contacts = customer.contacts;
+    return SectionCard(
+      title: 'Contacts',
+      subtitle: '${contacts.length} '
+          '${contacts.length == 1 ? 'contact' : 'contacts'} on the customer side',
+      trailing: canEdit
+          ? TextButton.icon(
+              onPressed: () => _add(context),
+              icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
+              label: const Text('Add Contact'),
+            )
+          : null,
+      child: contacts.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: Text(
+                canEdit
+                    ? 'No contacts yet. Add the people on the customer side '
+                        '(e.g. CEO, Tech Lead, CSM).'
+                    : 'No contacts recorded for this customer.',
+                style: const TextStyle(color: AppColors.textSecondary),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < contacts.length; i++) ...[
+                  if (i > 0) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    const Divider(height: 1),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
+                  _ContactTile(
+                    contact: contacts[i],
+                    canEdit: canEdit,
+                    onEdit: () => _edit(context, contacts[i]),
+                    onDelete: () => _delete(context, contacts[i]),
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+/// One contact row: an auto-generated initials avatar, the name + designation,
+/// the email/number details, an optional description, and (when permitted) an
+/// overflow menu to edit or delete.
+class _ContactTile extends StatelessWidget {
+  const _ContactTile({
+    required this.contact,
+    required this.canEdit,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final Contact contact;
+  final bool canEdit;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = contact.name.trim().isEmpty ? 'Unnamed contact' : contact.name;
+    final designation = contact.designation.trim();
+    final email = contact.email.trim();
+    final number = contact.number.trim();
+    final description = contact.description.trim();
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InitialsAvatar(name: name, size: 44),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(name,
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w700)),
+              if (designation.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(designation,
+                    style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w600)),
+              ],
+              if (email.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                _ContactLineItem(icon: Icons.mail_outline, value: email),
+              ],
+              if (number.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                _ContactLineItem(icon: Icons.phone_outlined, value: number),
+              ],
+              if (description.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(description,
+                    style: const TextStyle(
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: AppColors.textSecondary)),
+              ],
+            ],
+          ),
+        ),
+        if (canEdit)
+          PopupMenuButton<String>(
+            tooltip: 'Contact actions',
+            icon: const Icon(Icons.more_vert,
+                size: 20, color: AppColors.textTertiary),
+            onSelected: (v) {
+              if (v == 'edit') onEdit();
+              if (v == 'delete') onDelete();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit_outlined, size: 18),
+                    SizedBox(width: AppSpacing.sm),
+                    Text('Edit'),
+                  ],
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete_outline,
+                        size: 18, color: AppColors.error),
+                    SizedBox(width: AppSpacing.sm),
+                    Text('Delete', style: TextStyle(color: AppColors.error)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+/// A single icon + value line within a contact tile (email / number).
+class _ContactLineItem extends StatelessWidget {
+  const _ContactLineItem({required this.icon, required this.value});
+
+  final IconData icon;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: AppColors.textTertiary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(value,
+              style: const TextStyle(fontSize: 13, height: 1.3)),
+        ),
+      ],
+    );
+  }
+}
+
+/// Add/edit form for a customer-side [Contact]. Captures the five fields — Name
+/// (required), Email (optional, validated), Designation, Number and Description
+/// — and pops the built [Contact] on save (or null on cancel). Persistence is
+/// the caller's responsibility (via [CustomerContactsViewModel]); this dialog is
+/// purely the input surface, so it holds no repository reference.
+class ContactFormDialog extends StatefulWidget {
+  const ContactFormDialog({super.key, this.existing});
+
+  final Contact? existing;
+
+  @override
+  State<ContactFormDialog> createState() => _ContactFormDialogState();
+}
+
+class _ContactFormDialogState extends State<ContactFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _name;
+  late final TextEditingController _email;
+  late final TextEditingController _designation;
+  late final TextEditingController _number;
+  late final TextEditingController _description;
+
+  Contact? get _existing => widget.existing;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = _existing;
+    _name = TextEditingController(text: c?.name ?? '');
+    _email = TextEditingController(text: c?.email ?? '');
+    _designation = TextEditingController(text: c?.designation ?? '');
+    _number = TextEditingController(text: c?.number ?? '');
+    _description = TextEditingController(text: c?.description ?? '');
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _designation.dispose();
+    _number.dispose();
+    _description.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = _existing == null;
+    return FormDialog(
+      title: isNew ? 'Add Contact' : 'Edit Contact',
+      onSubmit: _submit,
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AppTextField(
+              label: 'Name',
+              controller: _name,
+              isRequired: true,
+              hintText: 'e.g. Jane Cooper',
+              validator: (v) => Validators.required(v, field: 'Name'),
+            ),
+            const FormGap(),
+            AppTextField(
+              label: 'Designation',
+              controller: _designation,
+              hintText: 'e.g. CEO, Tech Lead, CSM',
+            ),
+            const FormGap(),
+            FormRow([
+              AppTextField(
+                label: 'Email',
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? null : Validators.email(v),
+              ),
+              AppTextField(
+                label: 'Number',
+                controller: _number,
+                keyboardType: TextInputType.phone,
+              ),
+            ]),
+            const FormGap(),
+            AppTextField(
+              label: 'Description',
+              controller: _description,
+              maxLines: 3,
+              hintText: 'Role, responsibilities or notes',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return false;
+    // Preserve the id/createdAt on edit; mint them on add.
+    final base = _existing ??
+        Contact(id: 'ct${DateTime.now().microsecondsSinceEpoch}',
+            createdAt: DateTime.now());
+    final contact = base.copyWith(
+      name: _name.text.trim(),
+      email: _email.text.trim(),
+      designation: _designation.text.trim(),
+      number: _number.text.trim(),
+      description: _description.text.trim(),
+    );
+    Navigator.of(context).pop(contact);
+    return true;
   }
 }
 
