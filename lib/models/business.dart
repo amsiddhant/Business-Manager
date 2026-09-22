@@ -1,4 +1,5 @@
 import '../core/enums.dart';
+import '../core/utils/date_utils.dart';
 import 'audit_fields.dart';
 import 'entity_comment.dart';
 
@@ -37,6 +38,11 @@ class Business {
     this.country = 'India',
     this.size = CompanySize.small,
     this.status = EntityStatus.active,
+    this.lifecycle = BusinessLifecycle.active,
+    this.foundedBy = '',
+    this.ownedBy = '',
+    this.startDate,
+    this.endDate,
     this.facebookUrl = '',
     this.instagramUrl = '',
     this.xUrl = '',
@@ -58,6 +64,23 @@ class Business {
   final CompanySize size;
   final EntityStatus status;
 
+  /// Operational lifecycle — trading vs. wound down. Independent of [status],
+  /// which governs archive/visibility.
+  final BusinessLifecycle lifecycle;
+
+  /// Who founded the business (free-form name).
+  final String foundedBy;
+
+  /// Who currently owns the business (free-form name).
+  final String ownedBy;
+
+  /// When the business commenced trading. Anchors the tenure calculation.
+  final DateTime? startDate;
+
+  /// When the business ceased trading. Only meaningful when [lifecycle] is
+  /// closed; caps the tenure calculation.
+  final DateTime? endDate;
+
   // Social media presence.
   final String facebookUrl;
   final String instagramUrl;
@@ -73,6 +96,27 @@ class Business {
   final AuditFields audit;
 
   bool get isActive => status == EntityStatus.active;
+
+  /// True when the business has been wound down.
+  bool get isClosed => lifecycle.isClosed;
+
+  /// The end of the tenure window: the closure date for a closed business,
+  /// otherwise "now". Falls back to [asOf] when a closed business has no
+  /// recorded [endDate].
+  DateTime _tenureEnd(DateTime asOf) =>
+      isClosed ? (endDate ?? asOf) : asOf;
+
+  /// Calendar-accurate operating span from [startDate] to the tenure end
+  /// (closure date if closed, else [asOf]). Returns null when no start date is
+  /// recorded, so callers can show a "set a start date" affordance.
+  ///
+  /// [asOf] is injected (rather than reading the clock here) so the value is
+  /// pure and testable; UI passes `DateTime.now()`.
+  TimeRemaining? tenure(DateTime asOf) {
+    final start = startDate;
+    if (start == null) return null;
+    return TimeRemaining.between(start, _tenureEnd(asOf));
+  }
 
   /// Social links as (label, url) pairs, in a stable display order, skipping
   /// the ones that are blank.
@@ -107,6 +151,11 @@ class Business {
         'country': country,
         'size': size.wire,
         'status': status.wire,
+        'lifecycle': lifecycle.wire,
+        'foundedBy': foundedBy,
+        'ownedBy': ownedBy,
+        if (startDate != null) 'startDate': startDate!.toIso8601String(),
+        if (endDate != null) 'endDate': endDate!.toIso8601String(),
         'facebookUrl': facebookUrl,
         'instagramUrl': instagramUrl,
         'xUrl': xUrl,
@@ -128,6 +177,11 @@ class Business {
         country: map['country'] as String? ?? '',
         size: CompanySize.fromWire(map['size'] as String?),
         status: EntityStatus.fromWire(map['status'] as String?),
+        lifecycle: BusinessLifecycle.fromWire(map['lifecycle'] as String?),
+        foundedBy: map['foundedBy'] as String? ?? '',
+        ownedBy: map['ownedBy'] as String? ?? '',
+        startDate: parseDate(map['startDate']),
+        endDate: parseDate(map['endDate']),
         facebookUrl: map['facebookUrl'] as String? ?? '',
         instagramUrl: map['instagramUrl'] as String? ?? '',
         xUrl: map['xUrl'] as String? ?? '',
@@ -149,6 +203,11 @@ class Business {
     String? country,
     CompanySize? size,
     EntityStatus? status,
+    BusinessLifecycle? lifecycle,
+    String? foundedBy,
+    String? ownedBy,
+    DateTime? startDate,
+    DateTime? endDate,
     String? facebookUrl,
     String? instagramUrl,
     String? xUrl,
@@ -169,6 +228,11 @@ class Business {
         country: country ?? this.country,
         size: size ?? this.size,
         status: status ?? this.status,
+        lifecycle: lifecycle ?? this.lifecycle,
+        foundedBy: foundedBy ?? this.foundedBy,
+        ownedBy: ownedBy ?? this.ownedBy,
+        startDate: startDate ?? this.startDate,
+        endDate: endDate ?? this.endDate,
         facebookUrl: facebookUrl ?? this.facebookUrl,
         instagramUrl: instagramUrl ?? this.instagramUrl,
         xUrl: xUrl ?? this.xUrl,

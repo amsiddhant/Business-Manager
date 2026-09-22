@@ -49,6 +49,28 @@ enum EntityStatus {
   }
 }
 
+/// Operational lifecycle of a business: whether it is still trading or has been
+/// wound down. Kept distinct from [EntityStatus] (which handles archive /
+/// visibility soft-deletion) so the two axes never conflate — a business can be
+/// closed yet still visible for historical reporting.
+enum BusinessLifecycle {
+  active('ACTIVE', 'Active'),
+  closed('CLOSED', 'Closed');
+
+  const BusinessLifecycle(this.wire, this.label);
+  final String wire;
+  final String label;
+
+  static BusinessLifecycle fromWire(String? value) {
+    return BusinessLifecycle.values.firstWhere(
+      (e) => e.wire == value,
+      orElse: () => BusinessLifecycle.active,
+    );
+  }
+
+  bool get isClosed => this == BusinessLifecycle.closed;
+}
+
 /// Account status for users.
 enum AccountStatus {
   active('ACTIVE', 'Active'),

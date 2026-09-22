@@ -61,6 +61,11 @@ class DemoSeed {
           currency: CurrencyCode.inr,
           country: 'India',
           status: EntityStatus.active,
+          lifecycle: BusinessLifecycle.active,
+          foundedBy: 'Olivia Owner',
+          ownedBy: 'Olivia Owner',
+          // ~4 years of trading, anchored well before the current FY.
+          startDate: DateTime(_fyStart.year - 4, 6, 15),
           audit: _audit(_fyStart),
         ),
         Business(
@@ -72,6 +77,10 @@ class DemoSeed {
           currency: CurrencyCode.inr,
           country: 'India',
           status: EntityStatus.active,
+          lifecycle: BusinessLifecycle.active,
+          foundedBy: 'Olivia Owner & Adam Admin',
+          ownedBy: 'Olivia Owner',
+          startDate: DateTime(_fyStart.year - 2, 1, 10),
           audit: _audit(_fyStart),
         ),
       ];

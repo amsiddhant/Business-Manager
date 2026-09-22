@@ -108,6 +108,8 @@ class BusinessDetailScreen extends StatelessWidget {
     final left = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _TenureBanner(business: business),
+        const SizedBox(height: AppSpacing.lg),
         _ProfileCard(business: business),
         const SizedBox(height: AppSpacing.lg),
         _FinancialSummaryCard(
@@ -172,6 +174,169 @@ class BusinessDetailScreen extends StatelessWidget {
   }
 }
 
+/// The headline tenure card: shows how long the business has been operating in
+/// large type (e.g. "4 yr 3 mo"), with the trading window beneath. This is the
+/// prominent element the detail page leads with.
+///
+/// For a closed business the span is measured to its end date and the copy
+/// switches to "operated for". When no start date is recorded yet it degrades
+/// to a gentle prompt rather than an empty box.
+class _TenureBanner extends StatelessWidget {
+  const _TenureBanner({required this.business});
+
+  final Business business;
+
+  @override
+  Widget build(BuildContext context) {
+    final closed = business.isClosed;
+    final tenure = business.tenure(DateTime.now());
+    final accent = closed ? AppColors.warning : AppColors.primary;
+    final surface = closed ? AppColors.warningSurface : AppColors.primarySurface;
+
+    final headline = tenure == null
+        ? 'Not set'
+        : (tenure.isToday ? 'Started today' : tenure.shortLabel);
+    final caption = _caption(tenure, closed);
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(AppSpacing.radius),
+        border: Border.all(color: accent.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+            ),
+            child: Icon(
+              closed ? Icons.history_toggle_off : Icons.timelapse_outlined,
+              color: accent,
+              size: 26,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.lg),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  closed ? 'BUSINESS TENURE (CLOSED)' : 'BUSINESS TENURE',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: accent,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  headline,
+                  style: const TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w800,
+                    height: 1.05,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                if (caption != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    caption,
+                    style: const TextStyle(
+                        fontSize: 13, color: AppColors.textSecondary),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (tenure != null)
+            _TenureBreakdown(tenure: tenure, accent: accent),
+        ],
+      ),
+    );
+  }
+
+  /// A supporting line under the headline: the trading window, or a prompt to
+  /// set a start date.
+  String? _caption(TimeRemaining? tenure, bool closed) {
+    if (tenure == null) {
+      return 'Add a start date to track how long this business has operated.';
+    }
+    final start = AppDate.format(business.startDate);
+    if (closed) {
+      return 'Operated $start → ${AppDate.format(business.endDate)}';
+    }
+    return 'Trading since $start · ${tenure.totalDays} days';
+  }
+}
+
+/// The years / months / days breakdown shown at the trailing edge of the tenure
+/// banner on wide layouts; hidden on narrow ones to avoid crowding.
+class _TenureBreakdown extends StatelessWidget {
+  const _TenureBreakdown({required this.tenure, required this.accent});
+
+  final TimeRemaining tenure;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    // Below ~520px the two-line headline + breakdown would collide; drop it.
+    if (MediaQuery.sizeOf(context).width < 520) return const SizedBox.shrink();
+    final units = <(int, String)>[
+      (tenure.years, tenure.years == 1 ? 'year' : 'years'),
+      (tenure.months, tenure.months == 1 ? 'month' : 'months'),
+      (tenure.days, tenure.days == 1 ? 'day' : 'days'),
+    ];
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (value, label) in units)
+          Padding(
+            padding: const EdgeInsets.only(left: AppSpacing.lg),
+            child: Column(
+              children: [
+                Text(
+                  '$value',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+                Text(
+                  label,
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Status pill for the operational [BusinessLifecycle] (green = active,
+/// warning = closed) — distinct from the entity visibility badge.
+class _LifecycleBadge extends StatelessWidget {
+  const _LifecycleBadge({required this.lifecycle});
+
+  final BusinessLifecycle lifecycle;
+
+  @override
+  Widget build(BuildContext context) => StatusBadge(
+        label: lifecycle.label,
+        tone: lifecycle.isClosed ? BadgeTone.warning : BadgeTone.success,
+      );
+}
+
 class _ProfileCard extends StatelessWidget {
   const _ProfileCard({required this.business});
   final Business business;
@@ -181,6 +346,13 @@ class _ProfileCard extends StatelessWidget {
     final fields = <DetailField>[
       DetailField('Business ID', business.id, Icons.badge_outlined),
       DetailField('Type', business.type, Icons.category_outlined),
+      DetailField('Founded By', business.foundedBy, Icons.emoji_people_outlined),
+      DetailField('Owned By', business.ownedBy, Icons.person_outline),
+      DetailField('Start Date', AppDate.format(business.startDate),
+          Icons.event_available_outlined),
+      if (business.isClosed)
+        DetailField('End Date', AppDate.format(business.endDate),
+            Icons.event_busy_outlined),
       DetailField('Company Size', business.size.label, Icons.groups_outlined),
       DetailField('Country', business.country, Icons.public),
       DetailField('Currency',
@@ -192,7 +364,7 @@ class _ProfileCard extends StatelessWidget {
 
     return SectionCard(
       title: 'Business Profile',
-      trailing: StatusBadge.entity(business.status),
+      trailing: _LifecycleBadge(lifecycle: business.lifecycle),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

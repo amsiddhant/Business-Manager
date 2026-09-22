@@ -69,7 +69,8 @@ class BusinessesScreen extends StatelessWidget {
         AppDataTable<Business>(
           rows: businesses,
           onRowTap: (b) => context.go(Routes.businessDetailPath(b.id)),
-          searchableText: (b) => '${b.name} ${b.type} ${b.country}',
+          searchableText: (b) =>
+              '${b.name} ${b.type} ${b.country} ${b.foundedBy} ${b.ownedBy}',
           emptyTitle: 'No businesses yet',
           emptyMessage: canCreate
               ? 'Create your first business to start tracking profitability.'
@@ -99,19 +100,28 @@ class BusinessesScreen extends StatelessWidget {
               sortValue: (b) => b.name.toLowerCase(),
             ),
             AppColumn(
+              label: 'Founded By',
+              cell: (b) => Text(b.foundedBy.isEmpty ? '—' : b.foundedBy),
+              sortValue: (b) => b.foundedBy.toLowerCase(),
+            ),
+            AppColumn(
               label: 'Country',
               cell: (b) => Text(b.country),
               sortValue: (b) => b.country,
             ),
             AppColumn(
-              label: 'Currency',
-              cell: (b) => Text(b.currency.name.toUpperCase()),
-              sortValue: (b) => b.currency.name,
+              label: 'Tenure',
+              cell: (b) => Text(
+                b.tenure(DateTime.now())?.shortLabel ?? '—',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              // Sort by the absolute span so "—" (no start date) sorts last.
+              sortValue: (b) => b.tenure(DateTime.now())?.totalDays ?? -1,
             ),
             AppColumn(
               label: 'Status',
-              cell: (b) => StatusBadge.entity(b.status),
-              sortValue: (b) => b.status.label,
+              cell: (b) => _BusinessStatusCell(business: b),
+              sortValue: (b) => b.lifecycle.label,
             ),
             AppColumn(
               label: '',
@@ -158,6 +168,33 @@ class _Loading extends StatelessWidget {
           LoadingView(),
         ],
       );
+}
+
+/// The Status cell in the businesses table: the operational lifecycle badge
+/// (Active / Closed) plus a secondary visibility badge when the row is hidden
+/// (Inactive) or archived, so both axes are legible at a glance.
+class _BusinessStatusCell extends StatelessWidget {
+  const _BusinessStatusCell({required this.business});
+
+  final Business business;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      children: [
+        StatusBadge(
+          label: business.lifecycle.label,
+          tone: business.lifecycle.isClosed
+              ? BadgeTone.warning
+              : BadgeTone.success,
+        ),
+        if (business.status != EntityStatus.active)
+          StatusBadge.entity(business.status),
+      ],
+    );
+  }
 }
 
 class _RowActions extends StatelessWidget {
@@ -234,6 +271,8 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
   late final TextEditingController _description;
   late final TextEditingController _website;
   late final TextEditingController _country;
+  late final TextEditingController _foundedBy;
+  late final TextEditingController _ownedBy;
   late final TextEditingController _facebook;
   late final TextEditingController _instagram;
   late final TextEditingController _x;
@@ -244,6 +283,9 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
   late CurrencyCode _currency;
   late EntityStatus _status;
   late CompanySize _size;
+  late BusinessLifecycle _lifecycle;
+  DateTime? _startDate;
+  DateTime? _endDate;
   // Business Type is a free-form string with searchable suggestions; the
   // selected/typed value is held here so imported values outside the preset
   // list are preserved.
@@ -259,6 +301,8 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
     _description = TextEditingController(text: b?.description ?? '');
     _website = TextEditingController(text: b?.website ?? '');
     _country = TextEditingController(text: b?.country ?? 'India');
+    _foundedBy = TextEditingController(text: b?.foundedBy ?? '');
+    _ownedBy = TextEditingController(text: b?.ownedBy ?? '');
     _facebook = TextEditingController(text: b?.facebookUrl ?? '');
     _instagram = TextEditingController(text: b?.instagramUrl ?? '');
     _x = TextEditingController(text: b?.xUrl ?? '');
@@ -269,6 +313,9 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
     _currency = b?.currency ?? CurrencyCode.inr;
     _status = b?.status ?? EntityStatus.active;
     _size = b?.size ?? CompanySize.small;
+    _lifecycle = b?.lifecycle ?? BusinessLifecycle.active;
+    _startDate = b?.startDate;
+    _endDate = b?.endDate;
     _type = b?.type ?? '';
   }
 
@@ -278,6 +325,8 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
     _description.dispose();
     _website.dispose();
     _country.dispose();
+    _foundedBy.dispose();
+    _ownedBy.dispose();
     _facebook.dispose();
     _instagram.dispose();
     _x.dispose();
@@ -341,10 +390,11 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
                 onChanged: (v) => setState(() => _currency = v ?? _currency),
               ),
               AppDropdown<EntityStatus>(
-                label: 'Status',
+                label: 'Visibility',
                 value: _status,
                 items: const [EntityStatus.active, EntityStatus.inactive],
                 itemLabel: (s) => s.label,
+                helper: 'Hide from active views without archiving',
                 onChanged: (v) => setState(() => _status = v ?? _status),
               ),
             ]),
@@ -361,6 +411,53 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
               controller: _description,
               maxLines: 3,
             ),
+            const FormGap(),
+            const _SectionLabel('Founding & Ownership'),
+            const FormGap(),
+            FormRow([
+              AppTextField(
+                label: 'Founded By',
+                controller: _foundedBy,
+                hintText: 'e.g. Jane Doe',
+              ),
+              AppTextField(
+                label: 'Owned By',
+                controller: _ownedBy,
+                hintText: 'Current owner',
+              ),
+            ]),
+            const FormGap(),
+            FormRow([
+              AppDropdown<BusinessLifecycle>(
+                label: 'Business Status',
+                value: _lifecycle,
+                items: BusinessLifecycle.values,
+                itemLabel: (l) => l.label,
+                onChanged: (v) => setState(() {
+                  _lifecycle = v ?? _lifecycle;
+                  // Dropping back to Active clears any stale closure date.
+                  if (!_lifecycle.isClosed) _endDate = null;
+                }),
+              ),
+              AppDateField(
+                label: 'Start Date',
+                value: _startDate,
+                helper: 'When the business began trading',
+                lastDate: DateTime.now(),
+                onChanged: (v) => setState(() => _startDate = v),
+              ),
+            ]),
+            if (_lifecycle.isClosed) ...[
+              const FormGap(),
+              AppDateField(
+                label: 'End Date',
+                value: _endDate,
+                isRequired: true,
+                helper: 'When the business ceased trading',
+                firstDate: _startDate,
+                onChanged: (v) => setState(() => _endDate = v),
+              ),
+            ],
             const FormGap(),
             const _SectionLabel('Social Media'),
             const FormGap(),
@@ -423,7 +520,20 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
 
   Future<bool> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
+    // A closed business needs an end date, and it can't precede the start.
+    if (_lifecycle.isClosed) {
+      if (_endDate == null) {
+        showErrorSnack(context, 'Select an end date for a closed business.');
+        return false;
+      }
+      if (_startDate != null && _endDate!.isBefore(_startDate!)) {
+        showErrorSnack(context, 'End date cannot be before the start date.');
+        return false;
+      }
+    }
     final isNew = _existing == null;
+    // Active businesses carry no closure date, whatever was previously set.
+    final endDate = _lifecycle.isClosed ? _endDate : null;
     final business = (_existing ??
             Business(id: '', name: _name.text.trim()))
         .copyWith(
@@ -435,6 +545,11 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
       currency: _currency,
       size: _size,
       status: _status,
+      lifecycle: _lifecycle,
+      foundedBy: _foundedBy.text.trim(),
+      ownedBy: _ownedBy.text.trim(),
+      startDate: _startDate,
+      endDate: endDate,
       facebookUrl: _facebook.text.trim(),
       instagramUrl: _instagram.text.trim(),
       xUrl: _x.text.trim(),
