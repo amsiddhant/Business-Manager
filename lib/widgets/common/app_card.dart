@@ -57,32 +57,52 @@ class SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The header must always keep a readable inset, even when [padding] is
+    // zero — full-bleed cards (e.g. data tables) set zero padding so the body
+    // spans edge to edge, but the title/subtitle would then sit flush against
+    // the card's rounded corner and spill out. Top the header up to a minimum
+    // inset so it stays readable regardless of the body padding; when the card
+    // is already padded (the default) the top-up is zero and layout is
+    // unchanged.
+    final resolved = padding.resolve(Directionality.of(context));
+    double topUp(double edge) =>
+        edge < AppSpacing.xl ? AppSpacing.xl - edge : 0;
+    final headerPadding = EdgeInsets.only(
+      left: topUp(resolved.left),
+      right: topUp(resolved.right),
+      top: topUp(resolved.top),
+    );
+
+    final header = Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600)),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(subtitle!,
+                    style: const TextStyle(
+                        fontSize: 12.5, color: AppColors.textSecondary)),
+              ],
+            ],
+          ),
+        ),
+        ?trailing,
+      ],
+    );
+
     return AppCard(
       padding: padding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w600)),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
-                      Text(subtitle!,
-                          style: const TextStyle(
-                              fontSize: 12.5, color: AppColors.textSecondary)),
-                    ],
-                  ],
-                ),
-              ),
-              ?trailing,
-            ],
-          ),
+          headerPadding == EdgeInsets.zero
+              ? header
+              : Padding(padding: headerPadding, child: header),
           const SizedBox(height: AppSpacing.lg),
           child,
         ],
