@@ -14,6 +14,7 @@ import '../../state/data_controller.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
@@ -21,8 +22,34 @@ import '../../widgets/forms/form_fields.dart';
 
 /// Lists all businesses the current user can access, with create / edit /
 /// archive actions gated by permission.
-class BusinessesScreen extends StatelessWidget {
+class BusinessesScreen extends StatefulWidget {
   const BusinessesScreen({super.key});
+
+  @override
+  State<BusinessesScreen> createState() => _BusinessesScreenState();
+
+  static Future<void> openForm(BuildContext context, Business? existing) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _BusinessFormDialog(existing: existing, repo: repo),
+    );
+    if (saved == true) {
+      await data.refresh();
+      if (context.mounted) {
+        showSuccessSnack(
+            context,
+            existing == null
+                ? 'Business created successfully'
+                : 'Business updated successfully');
+      }
+    }
+  }
+}
+
+class _BusinessesScreenState extends State<BusinessesScreen> {
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
@@ -59,25 +86,32 @@ class BusinessesScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => openForm(context, null),
+                onPressed: () => BusinessesScreen.openForm(context, null),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Business'),
               ),
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
+        SearchField(
+          hintText: 'Search businesses by name, type, country or status…',
+          onChanged: (v) => setState(() => _search = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
         AppDataTable<Business>(
           rows: businesses,
           onRowTap: (b) => context.go(Routes.businessDetailPath(b.id)),
+          searchText: _search,
           searchableText: (b) =>
-              '${b.name} ${b.type} ${b.country} ${b.foundedBy} ${b.ownedBy}',
+              '${b.name} ${b.type} ${b.country} ${b.foundedBy} ${b.ownedBy} '
+              '${b.lifecycle.label} ${b.status.label} ${b.currency.name}',
           emptyTitle: 'No businesses yet',
           emptyMessage: canCreate
               ? 'Create your first business to start tracking profitability.'
               : 'No businesses have been assigned to you.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => openForm(context, null),
+                  onPressed: () => BusinessesScreen.openForm(context, null),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Business'),
                 )
@@ -135,25 +169,6 @@ class BusinessesScreen extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  static Future<void> openForm(BuildContext context, Business? existing) async {
-    final data = context.read<DataController>();
-    final repo = context.read<AppState>().repository;
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => _BusinessFormDialog(existing: existing, repo: repo),
-    );
-    if (saved == true) {
-      await data.refresh();
-      if (context.mounted) {
-        showSuccessSnack(
-            context,
-            existing == null
-                ? 'Business created successfully'
-                : 'Business updated successfully');
-      }
-    }
   }
 }
 

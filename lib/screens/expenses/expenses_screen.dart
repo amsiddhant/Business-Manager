@@ -18,6 +18,7 @@ import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
@@ -25,8 +26,48 @@ import '../../widgets/forms/form_fields.dart';
 
 /// Lists business operating expenses. Dealer-linked expenses are read-only —
 /// they are managed via the Dealers screen.
-class ExpensesScreen extends StatelessWidget {
+class ExpensesScreen extends StatefulWidget {
   const ExpensesScreen({super.key});
+
+  @override
+  State<ExpensesScreen> createState() => _ExpensesScreenState();
+
+  static CurrencyCode _currencyFor(DataController data, String businessId) =>
+      data.businessById(businessId)?.currency ?? CurrencyCode.inr;
+
+  static Future<void> openForm(
+      BuildContext context, Expense? existing, String? selectedBizId) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    final businesses = data.selectableBusinesses;
+    if (existing == null && businesses.isEmpty) {
+      showErrorSnack(context, 'Create a business before adding expenses.');
+      return;
+    }
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _ExpenseFormDialog(
+        existing: existing,
+        repo: repo,
+        businesses: businesses,
+        preselectBusinessId: selectedBizId,
+      ),
+    );
+    if (saved == true) {
+      await data.refresh();
+      if (context.mounted) {
+        showSuccessSnack(
+            context,
+            existing == null
+                ? 'Expense created successfully'
+                : 'Expense updated successfully');
+      }
+    }
+  }
+}
+
+class _ExpensesScreenState extends State<ExpensesScreen> {
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
@@ -64,25 +105,32 @@ class ExpensesScreen extends StatelessWidget {
           actions: [
             if (canManage)
               ElevatedButton.icon(
-                onPressed: () => openForm(context, null, bizId),
+                onPressed: () => ExpensesScreen.openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Expense'),
               ),
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
+        SearchField(
+          hintText: 'Search expenses by name, category, vendor or status…',
+          onChanged: (v) => setState(() => _search = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
         AppDataTable<Expense>(
           rows: expenses,
+          searchText: _search,
           onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
           searchableText: (e) =>
-              '${e.id} ${e.name} ${e.category.label} ${e.vendor}',
+              '${e.id} ${e.name} ${e.category.label} ${e.vendor} ${e.frequency.label} ${e.status.label}',
           emptyTitle: 'No expenses found',
           emptyMessage: canManage
               ? 'Add your operating costs to see accurate net profit.'
               : 'Expenses will appear here once added.',
           emptyAction: canManage
               ? ElevatedButton.icon(
-                  onPressed: () => openForm(context, null, bizId),
+                  onPressed: () =>
+                      ExpensesScreen.openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Expense'),
                 )
@@ -118,7 +166,7 @@ class ExpensesScreen extends StatelessWidget {
               label: 'Amount',
               numeric: true,
               cell: (e) => CurrencyText(e.amount,
-                  currency: _currencyFor(data, e.businessId)),
+                  currency: ExpensesScreen._currencyFor(data, e.businessId)),
               sortValue: (e) => e.amount.minor,
             ),
             AppColumn(
@@ -130,7 +178,7 @@ class ExpensesScreen extends StatelessWidget {
               label: 'Annualised',
               numeric: true,
               cell: (e) => CurrencyText(e.annualisedAmount,
-                  currency: _currencyFor(data, e.businessId)),
+                  currency: ExpensesScreen._currencyFor(data, e.businessId)),
               sortValue: (e) => e.annualisedAmount.minor,
             ),
             AppColumn(
@@ -150,39 +198,6 @@ class ExpensesScreen extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  static CurrencyCode _currencyFor(DataController data, String businessId) =>
-      data.businessById(businessId)?.currency ?? CurrencyCode.inr;
-
-  static Future<void> openForm(
-      BuildContext context, Expense? existing, String? selectedBizId) async {
-    final data = context.read<DataController>();
-    final repo = context.read<AppState>().repository;
-    final businesses = data.selectableBusinesses;
-    if (existing == null && businesses.isEmpty) {
-      showErrorSnack(context, 'Create a business before adding expenses.');
-      return;
-    }
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => _ExpenseFormDialog(
-        existing: existing,
-        repo: repo,
-        businesses: businesses,
-        preselectBusinessId: selectedBizId,
-      ),
-    );
-    if (saved == true) {
-      await data.refresh();
-      if (context.mounted) {
-        showSuccessSnack(
-            context,
-            existing == null
-                ? 'Expense created successfully'
-                : 'Expense updated successfully');
-      }
-    }
   }
 }
 

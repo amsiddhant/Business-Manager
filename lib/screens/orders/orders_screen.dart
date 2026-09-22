@@ -21,18 +21,56 @@ import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
 
 /// Lists orders for the selected scope with full CRUD gated by permission.
-class OrdersScreen extends StatelessWidget {
+class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
 
+  @override
+  State<OrdersScreen> createState() => _OrdersScreenState();
+
+  static Future<void> openForm(
+      BuildContext context, Order? existing, String? selectedBizId) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    if (existing == null && data.products.isEmpty) {
+      showErrorSnack(context, 'Create a product before adding orders.');
+      return;
+    }
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _OrderFormDialog(
+        existing: existing,
+        repo: repo,
+        allProducts: data.products,
+        allCustomers: data.customers,
+        preselectBusinessId: selectedBizId,
+      ),
+    );
+    if (saved == true) {
+      await data.refresh();
+      if (context.mounted) {
+        showSuccessSnack(
+            context,
+            existing == null
+                ? 'Order created successfully'
+                : 'Order updated successfully');
+      }
+    }
+  }
+}
+
+class _OrdersScreenState extends State<OrdersScreen> {
   static final _epoch = DateTime.fromMillisecondsSinceEpoch(0);
   static DateTime _dateOf(Order o) =>
       o.orderDate ?? o.audit.createdAt ?? _epoch;
+
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
@@ -71,25 +109,31 @@ class OrdersScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => openForm(context, null, bizId),
+                onPressed: () => OrdersScreen.openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Order'),
               ),
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
+        SearchField(
+          hintText: 'Search orders by ID, product, customer or status…',
+          onChanged: (v) => setState(() => _search = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
         AppDataTable<Order>(
           rows: orders,
+          searchText: _search,
           onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
           searchableText: (o) =>
-              '${o.id} ${o.productName} ${o.customerReference}',
+              '${o.id} ${o.productName} ${o.customerReference} ${o.status.label}',
           emptyTitle: 'No orders found',
           emptyMessage: canCreate
               ? 'Record your first order to start tracking revenue.'
               : 'Orders will appear here once added.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => openForm(context, null, bizId),
+                  onPressed: () => OrdersScreen.openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Order'),
                 )
@@ -159,36 +203,6 @@ class OrdersScreen extends StatelessWidget {
 
   static CurrencyCode _currencyFor(DataController data, String businessId) =>
       data.businessById(businessId)?.currency ?? CurrencyCode.inr;
-
-  static Future<void> openForm(
-      BuildContext context, Order? existing, String? selectedBizId) async {
-    final data = context.read<DataController>();
-    final repo = context.read<AppState>().repository;
-    if (existing == null && data.products.isEmpty) {
-      showErrorSnack(context, 'Create a product before adding orders.');
-      return;
-    }
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => _OrderFormDialog(
-        existing: existing,
-        repo: repo,
-        allProducts: data.products,
-        allCustomers: data.customers,
-        preselectBusinessId: selectedBizId,
-      ),
-    );
-    if (saved == true) {
-      await data.refresh();
-      if (context.mounted) {
-        showSuccessSnack(
-            context,
-            existing == null
-                ? 'Order created successfully'
-                : 'Order updated successfully');
-      }
-    }
-  }
 }
 
 class _Loading extends StatelessWidget {

@@ -19,6 +19,7 @@ import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/detail_widgets.dart';
 import '../../widgets/common/initials_avatar.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
@@ -401,7 +402,7 @@ class _RequestRow extends StatelessWidget {
   }
 }
 
-class _UsersTable extends StatelessWidget {
+class _UsersTable extends StatefulWidget {
   const _UsersTable({
     required this.users,
     required this.currentUid,
@@ -422,79 +423,102 @@ class _UsersTable extends StatelessWidget {
   final ValueChanged<AppUser> onResetPassword;
   final ValueChanged<AppUser> onDelete;
 
+  @override
+  State<_UsersTable> createState() => _UsersTableState();
+}
+
+class _UsersTableState extends State<_UsersTable> {
+  String _search = '';
+
   String _accessLabel(AppUser u) {
     if (u.isOwner) return 'All businesses';
     if (u.assignedBusinessIds.isEmpty) return 'None';
     return u.assignedBusinessIds
         .map((id) =>
-            businesses.where((b) => b.id == id).map((b) => b.name).firstOrNull ??
+            widget.businesses
+                .where((b) => b.id == id)
+                .map((b) => b.name)
+                .firstOrNull ??
             id)
         .join(', ');
   }
 
   @override
   Widget build(BuildContext context) {
-    return AppDataTable<AppUser>(
-      rows: users,
-      searchableText: (u) => '${u.name} ${u.email} ${u.loginId}',
-      emptyTitle: 'No users found',
-      onRowTap: onView,
-      columns: [
-        AppColumn(
-          label: 'Name',
-          cell: (u) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(u.name,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(u.email,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
-            ],
-          ),
-          sortValue: (u) => u.name.toLowerCase(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SearchField(
+          hintText: 'Search users by name, login ID, email, role or status…',
+          onChanged: (v) => setState(() => _search = v),
         ),
-        AppColumn(
-          label: 'Login ID',
-          cell: (u) => Text(u.loginId),
-          sortValue: (u) => u.loginId.toLowerCase(),
-        ),
-        AppColumn(
-          label: 'Role',
-          cell: (u) => StatusBadge.role(u.role),
-          sortValue: (u) => u.role.label,
-        ),
-        AppColumn(
-          label: 'Access',
-          cell: (u) => ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 220),
-            child: Text(_accessLabel(u),
-                maxLines: 2, overflow: TextOverflow.ellipsis),
-          ),
-          sortValue: (u) => _accessLabel(u),
-        ),
-        AppColumn(
-          label: 'Last Login',
-          cell: (u) => Text(AppDate.format(u.lastLoginAt)),
-          sortValue: (u) => u.lastLoginAt?.millisecondsSinceEpoch ?? 0,
-        ),
-        AppColumn(
-          label: 'Status',
-          cell: (u) => StatusBadge.account(u.status),
-          sortValue: (u) => u.status.label,
-        ),
-        AppColumn(
-          label: '',
-          cell: (u) => _RowActions(
-            user: u,
-            isSelf: u.uid == currentUid,
-            onView: () => onView(u),
-            onEdit: () => onEdit(u),
-            onToggleStatus: () => onToggleStatus(u),
-            onResetPassword: () => onResetPassword(u),
-            onDelete: () => onDelete(u),
-          ),
+        const SizedBox(height: AppSpacing.md),
+        AppDataTable<AppUser>(
+          rows: widget.users,
+          searchText: _search,
+          searchableText: (u) =>
+              '${u.name} ${u.email} ${u.loginId} ${u.role.label} '
+              '${u.status.label} ${_accessLabel(u)}',
+          emptyTitle: 'No users found',
+          onRowTap: widget.onView,
+          columns: [
+            AppColumn(
+              label: 'Name',
+              cell: (u) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(u.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(u.email,
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary)),
+                ],
+              ),
+              sortValue: (u) => u.name.toLowerCase(),
+            ),
+            AppColumn(
+              label: 'Login ID',
+              cell: (u) => Text(u.loginId),
+              sortValue: (u) => u.loginId.toLowerCase(),
+            ),
+            AppColumn(
+              label: 'Role',
+              cell: (u) => StatusBadge.role(u.role),
+              sortValue: (u) => u.role.label,
+            ),
+            AppColumn(
+              label: 'Access',
+              cell: (u) => ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 220),
+                child: Text(_accessLabel(u),
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+              ),
+              sortValue: (u) => _accessLabel(u),
+            ),
+            AppColumn(
+              label: 'Last Login',
+              cell: (u) => Text(AppDate.format(u.lastLoginAt)),
+              sortValue: (u) => u.lastLoginAt?.millisecondsSinceEpoch ?? 0,
+            ),
+            AppColumn(
+              label: 'Status',
+              cell: (u) => StatusBadge.account(u.status),
+              sortValue: (u) => u.status.label,
+            ),
+            AppColumn(
+              label: '',
+              cell: (u) => _RowActions(
+                user: u,
+                isSelf: u.uid == widget.currentUid,
+                onView: () => widget.onView(u),
+                onEdit: () => widget.onEdit(u),
+                onToggleStatus: () => widget.onToggleStatus(u),
+                onResetPassword: () => widget.onResetPassword(u),
+                onDelete: () => widget.onDelete(u),
+              ),
+            ),
+          ],
         ),
       ],
     );

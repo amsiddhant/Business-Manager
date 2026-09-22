@@ -19,6 +19,7 @@ import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
@@ -26,8 +27,52 @@ import '../../widgets/forms/form_fields.dart';
 
 /// Lists marketing campaigns for the selected scope, with full CRUD gated by
 /// permission.
-class CampaignsScreen extends StatelessWidget {
+class CampaignsScreen extends StatefulWidget {
   const CampaignsScreen({super.key});
+
+  @override
+  State<CampaignsScreen> createState() => _CampaignsScreenState();
+
+  static String _productName(DataController data, String productId) =>
+      data.productById(productId)?.name ?? '—';
+
+  static CurrencyCode _currencyFor(DataController data, String businessId) =>
+      data.businessById(businessId)?.currency ?? CurrencyCode.inr;
+
+  static Future<void> openForm(
+      BuildContext context, Campaign? existing, String? selectedBizId) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    final businesses = data.selectableBusinesses;
+    if (existing == null && data.products.isEmpty) {
+      showErrorSnack(context, 'Create a product before adding campaigns.');
+      return;
+    }
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _CampaignFormDialog(
+        existing: existing,
+        repo: repo,
+        businesses: businesses,
+        allProducts: data.products,
+        preselectBusinessId: selectedBizId,
+      ),
+    );
+    if (saved == true) {
+      await data.refresh();
+      if (context.mounted) {
+        showSuccessSnack(
+            context,
+            existing == null
+                ? 'Campaign created successfully'
+                : 'Campaign updated successfully');
+      }
+    }
+  }
+}
+
+class _CampaignsScreenState extends State<CampaignsScreen> {
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
@@ -65,24 +110,34 @@ class CampaignsScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => openForm(context, null, bizId),
+                onPressed: () =>
+                    CampaignsScreen.openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Campaign'),
               ),
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
+        SearchField(
+          hintText: 'Search campaigns by name, product, platform or status…',
+          onChanged: (v) => setState(() => _search = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
         AppDataTable<Campaign>(
           rows: campaigns,
+          searchText: _search,
           onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
-          searchableText: (c) => '${c.id} ${c.name} ${c.platform.label}',
+          searchableText: (c) =>
+              '${c.id} ${c.name} ${c.platform.label} ${c.status.label} '
+              '${CampaignsScreen._productName(data, c.productId)}',
           emptyTitle: 'No campaigns found',
           emptyMessage: canCreate
               ? 'Create your first campaign to start tracking marketing spend.'
               : 'Campaigns will appear here once added.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => openForm(context, null, bizId),
+                  onPressed: () =>
+                      CampaignsScreen.openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Campaign'),
                 )
@@ -96,7 +151,7 @@ class CampaignsScreen extends StatelessWidget {
                 children: [
                   Text(c.name,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
-                  Text(_productName(data, c.productId),
+                  Text(CampaignsScreen._productName(data, c.productId),
                       style: const TextStyle(
                           fontSize: 12, color: Color(0xFF6B7280))),
                 ],
@@ -113,7 +168,7 @@ class CampaignsScreen extends StatelessWidget {
               label: 'Spend',
               numeric: true,
               cell: (c) => CurrencyText(c.amountInvested,
-                  currency: _currencyFor(data, c.businessId)),
+                  currency: CampaignsScreen._currencyFor(data, c.businessId)),
               sortValue: (c) => c.amountInvested.minor,
             ),
             AppColumn(
@@ -145,43 +200,6 @@ class CampaignsScreen extends StatelessWidget {
         ),
       ],
     );
-  }
-
-  static String _productName(DataController data, String productId) =>
-      data.productById(productId)?.name ?? '—';
-
-  static CurrencyCode _currencyFor(DataController data, String businessId) =>
-      data.businessById(businessId)?.currency ?? CurrencyCode.inr;
-
-  static Future<void> openForm(
-      BuildContext context, Campaign? existing, String? selectedBizId) async {
-    final data = context.read<DataController>();
-    final repo = context.read<AppState>().repository;
-    final businesses = data.selectableBusinesses;
-    if (existing == null && data.products.isEmpty) {
-      showErrorSnack(context, 'Create a product before adding campaigns.');
-      return;
-    }
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => _CampaignFormDialog(
-        existing: existing,
-        repo: repo,
-        businesses: businesses,
-        allProducts: data.products,
-        preselectBusinessId: selectedBizId,
-      ),
-    );
-    if (saved == true) {
-      await data.refresh();
-      if (context.mounted) {
-        showSuccessSnack(
-            context,
-            existing == null
-                ? 'Campaign created successfully'
-                : 'Campaign updated successfully');
-      }
-    }
   }
 }
 

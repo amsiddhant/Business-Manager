@@ -25,6 +25,7 @@ import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/detail_widgets.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/responsive.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import 'products_screen.dart';
@@ -318,21 +319,44 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _CampaignsCard extends StatelessWidget {
+class _CampaignsCard extends StatefulWidget {
   const _CampaignsCard({required this.campaigns, required this.currency});
 
   final List<Campaign> campaigns;
   final CurrencyCode currency;
 
   @override
+  State<_CampaignsCard> createState() => _CampaignsCardState();
+}
+
+class _CampaignsCardState extends State<_CampaignsCard> {
+  String _search = '';
+
+  @override
   Widget build(BuildContext context) {
+    final campaigns = widget.campaigns;
+    final currency = widget.currency;
     return SectionCard(
       title: 'Product Campaigns',
       subtitle: '${campaigns.length} associated',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Campaign>(
-        rows: campaigns,
-        rowsPerPage: 5,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search campaigns by name, platform or status…',
+              onChanged: (v) => setState(() => _search = v),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Campaign>(
+            rows: campaigns,
+            searchText: _search,
+            searchableText: (c) =>
+                '${c.id} ${c.name} ${c.platform.label} ${c.status.label}',
+            rowsPerPage: 5,
         onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
         emptyTitle: 'No campaigns',
         emptyMessage: 'Campaigns for this product will appear here.',
@@ -373,12 +397,14 @@ class _CampaignsCard extends StatelessWidget {
             sortValue: (c) => c.status.label,
           ),
         ],
+          ),
+        ],
       ),
     );
   }
 }
 
-class _OrdersCard extends StatelessWidget {
+class _OrdersCard extends StatefulWidget {
   const _OrdersCard({required this.orders, required this.currency});
 
   final List<Order> orders;
@@ -389,16 +415,40 @@ class _OrdersCard extends StatelessWidget {
       o.orderDate ?? o.audit.createdAt ?? _epoch;
 
   @override
+  State<_OrdersCard> createState() => _OrdersCardState();
+}
+
+class _OrdersCardState extends State<_OrdersCard> {
+  String _search = '';
+
+  @override
   Widget build(BuildContext context) {
-    final sorted = [...orders]
-      ..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
+    final currency = widget.currency;
+    final sorted = [...widget.orders]
+      ..sort((a, b) =>
+          _OrdersCard._dateOf(b).compareTo(_OrdersCard._dateOf(a)));
     return SectionCard(
       title: 'Product Orders',
-      subtitle: '${orders.length} total',
+      subtitle: '${widget.orders.length} total',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Order>(
-        rows: sorted,
-        rowsPerPage: 10,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search orders by ID, date, status or customer…',
+              onChanged: (v) => setState(() => _search = v),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Order>(
+            rows: sorted,
+            searchText: _search,
+            searchableText: (o) =>
+                '${o.id} ${AppDate.short(_OrdersCard._dateOf(o))} '
+                '${o.status.label} ${o.customerReference}',
+            rowsPerPage: 10,
         onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
         emptyTitle: 'No orders',
         emptyMessage: 'Orders for this product will appear here.',
@@ -411,8 +461,9 @@ class _OrdersCard extends StatelessWidget {
           ),
           AppColumn(
             label: 'Date',
-            cell: (o) => Text(AppDate.short(_dateOf(o))),
-            sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
+            cell: (o) => Text(AppDate.short(_OrdersCard._dateOf(o))),
+            sortValue: (o) =>
+                _OrdersCard._dateOf(o).millisecondsSinceEpoch,
           ),
           AppColumn(
             label: 'Qty',
@@ -445,6 +496,8 @@ class _OrdersCard extends StatelessWidget {
             label: 'Status',
             cell: (o) => StatusBadge.order(o.status),
             sortValue: (o) => o.status.label,
+          ),
+        ],
           ),
         ],
       ),

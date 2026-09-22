@@ -20,6 +20,7 @@ import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
@@ -27,8 +28,47 @@ import '../../widgets/forms/form_fields.dart';
 
 /// Lists dealers/vendors for the selected scope. Each dealer's recurring cost
 /// is automatically mirrored into Business Expenses by the repository.
-class DealersScreen extends StatelessWidget {
+class DealersScreen extends StatefulWidget {
   const DealersScreen({super.key});
+
+  /// Opens the create/edit dealer dialog. Static on the public widget class so
+  /// the dealer detail screen can invoke it as `DealersScreen.openForm(...)`.
+  static Future<void> openForm(
+      BuildContext context, Dealer? existing, String? selectedBizId) async {
+    final data = context.read<DataController>();
+    final repo = context.read<AppState>().repository;
+    final businesses = data.selectableBusinesses;
+    if (existing == null && businesses.isEmpty) {
+      showErrorSnack(context, 'Create a business before adding dealers.');
+      return;
+    }
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _DealerFormDialog(
+        existing: existing,
+        repo: repo,
+        businesses: businesses,
+        preselectBusinessId: selectedBizId,
+      ),
+    );
+    if (saved == true) {
+      await data.refresh();
+      if (context.mounted) {
+        showSuccessSnack(
+            context,
+            existing == null
+                ? 'Dealer created successfully'
+                : 'Dealer updated successfully');
+      }
+    }
+  }
+
+  @override
+  State<DealersScreen> createState() => _DealersScreenState();
+}
+
+class _DealersScreenState extends State<DealersScreen> {
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
@@ -66,24 +106,33 @@ class DealersScreen extends StatelessWidget {
           actions: [
             if (canCreate)
               ElevatedButton.icon(
-                onPressed: () => openForm(context, null, bizId),
+                onPressed: () => DealersScreen.openForm(context, null, bizId),
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('Add Dealer'),
               ),
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
+        SearchField(
+          hintText: 'Search dealers by ID, name, contact, frequency or status…',
+          onChanged: (v) => setState(() => _search = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
         AppDataTable<Dealer>(
           rows: dealers,
+          searchText: _search,
           onRowTap: (d) => context.go(Routes.dealerDetailPath(d.id)),
-          searchableText: (d) => '${d.id} ${d.name} ${d.contactName}',
+          searchableText: (d) =>
+              '${d.id} ${d.name} ${d.contactName} ${d.contactInfo} '
+              '${d.costFrequency.label} ${d.status.label}',
           emptyTitle: 'No dealers found',
           emptyMessage: canCreate
               ? 'Add a dealer to track vendor costs automatically.'
               : 'Dealers will appear here once added.',
           emptyAction: canCreate
               ? ElevatedButton.icon(
-                  onPressed: () => openForm(context, null, bizId),
+                  onPressed: () =>
+                      DealersScreen.openForm(context, null, bizId),
                   icon: const Icon(Icons.add, size: 18),
                   label: const Text('Add Dealer'),
                 )
@@ -143,36 +192,6 @@ class DealersScreen extends StatelessWidget {
 
   static CurrencyCode _currencyFor(DataController data, String businessId) =>
       data.businessById(businessId)?.currency ?? CurrencyCode.inr;
-
-  static Future<void> openForm(
-      BuildContext context, Dealer? existing, String? selectedBizId) async {
-    final data = context.read<DataController>();
-    final repo = context.read<AppState>().repository;
-    final businesses = data.selectableBusinesses;
-    if (existing == null && businesses.isEmpty) {
-      showErrorSnack(context, 'Create a business before adding dealers.');
-      return;
-    }
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => _DealerFormDialog(
-        existing: existing,
-        repo: repo,
-        businesses: businesses,
-        preselectBusinessId: selectedBizId,
-      ),
-    );
-    if (saved == true) {
-      await data.refresh();
-      if (context.mounted) {
-        showSuccessSnack(
-            context,
-            existing == null
-                ? 'Dealer created successfully'
-                : 'Dealer updated successfully');
-      }
-    }
-  }
 }
 
 class _Loading extends StatelessWidget {

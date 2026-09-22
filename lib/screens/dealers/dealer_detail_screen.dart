@@ -19,6 +19,7 @@ import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/detail_widgets.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import 'dealers_screen.dart';
@@ -200,45 +201,72 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
-class _MirroredExpenseCard extends StatelessWidget {
+class _MirroredExpenseCard extends StatefulWidget {
   const _MirroredExpenseCard({required this.expense, required this.currency});
 
   final Expense expense;
   final CurrencyCode currency;
 
   @override
+  State<_MirroredExpenseCard> createState() => _MirroredExpenseCardState();
+}
+
+class _MirroredExpenseCardState extends State<_MirroredExpenseCard> {
+  String _search = '';
+
+  @override
   Widget build(BuildContext context) {
+    final expense = widget.expense;
+    final currency = widget.currency;
     return SectionCard(
       title: 'Linked Expense',
       subtitle: 'This dealer\'s cost is mirrored into Business Expenses',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Expense>(
-        rows: [expense],
-        rowsPerPage: 5,
-        onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
-        columns: [
-          AppColumn(
-            label: 'Expense',
-            cell: (e) => Text(e.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (e) => e.name.toLowerCase(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // The card is full-bleed (zero padding) so the table can span edge to
+          // edge; inset the search field to line up with the header text.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.md),
+            child: SearchField(
+              hintText: 'Search expense by name, category, frequency or status…',
+              onChanged: (v) => setState(() => _search = v),
+            ),
           ),
-          AppColumn(
-            label: 'Category',
-            cell: (e) =>
-                StatusBadge(label: e.category.label, tone: BadgeTone.neutral),
-            sortValue: (e) => e.category.label,
-          ),
-          AppColumn(
-            label: 'Amount',
-            numeric: true,
-            cell: (e) => CurrencyText(e.amount, currency: currency),
-            sortValue: (e) => e.amount.minor,
-          ),
-          AppColumn(
-            label: 'Frequency',
-            cell: (e) => Text(e.frequency.label),
-            sortValue: (e) => e.frequency.label,
+          AppDataTable<Expense>(
+            rows: [expense],
+            rowsPerPage: 5,
+            searchText: _search,
+            searchableText: (e) => '${e.id} ${e.name} ${e.category.label} '
+                '${e.frequency.label} ${e.status.label}',
+            onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
+            columns: [
+              AppColumn(
+                label: 'Expense',
+                cell: (e) => Text(e.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (e) => e.name.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Category',
+                cell: (e) => StatusBadge(
+                    label: e.category.label, tone: BadgeTone.neutral),
+                sortValue: (e) => e.category.label,
+              ),
+              AppColumn(
+                label: 'Amount',
+                numeric: true,
+                cell: (e) => CurrencyText(e.amount, currency: currency),
+                sortValue: (e) => e.amount.minor,
+              ),
+              AppColumn(
+                label: 'Frequency',
+                cell: (e) => Text(e.frequency.label),
+                sortValue: (e) => e.frequency.label,
+              ),
+            ],
           ),
         ],
       ),

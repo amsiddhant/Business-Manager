@@ -19,6 +19,7 @@ import '../../widgets/common/csv_actions.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
@@ -26,8 +27,15 @@ import '../../widgets/forms/form_fields.dart';
 
 /// Lists products for the selected business (or all accessible businesses),
 /// with create / edit / delete gated by permission.
-class ProductsScreen extends StatelessWidget {
+class ProductsScreen extends StatefulWidget {
   const ProductsScreen({super.key});
+
+  @override
+  State<ProductsScreen> createState() => _ProductsScreenState();
+}
+
+class _ProductsScreenState extends State<ProductsScreen> {
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
@@ -88,9 +96,16 @@ class ProductsScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
+        SearchField(
+          hintText: 'Search products by ID, name, SKU or category…',
+          onChanged: (v) => setState(() => _search = v),
+        ),
+        const SizedBox(height: AppSpacing.md),
         AppDataTable<Product>(
           rows: products,
-          searchableText: (p) => '${p.id} ${p.name} ${p.sku} ${p.category}',
+          searchText: _search,
+          searchableText: (p) =>
+              '${p.id} ${p.name} ${p.sku} ${p.category} ${p.status.label}',
           onRowTap: (p) => context.go(Routes.productDetailPath(p.id)),
           emptyTitle: 'No products found',
           emptyMessage: canCreate
@@ -246,8 +261,8 @@ class _RowActions extends StatelessWidget {
           IconButton(
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined, size: 18),
-            onPressed: () =>
-                ProductsScreen._openForm(context, product, product.businessId),
+            onPressed: () => _ProductsScreenState._openForm(
+                context, product, product.businessId),
           ),
         if (canDelete)
           IconButton(

@@ -28,6 +28,7 @@ import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/detail_widgets.dart';
 import '../../widgets/common/initials_avatar.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import 'businesses_screen.dart';
@@ -547,47 +548,72 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _ProductsCard extends StatelessWidget {
+class _ProductsCard extends StatefulWidget {
   const _ProductsCard({required this.products, required this.currency});
 
   final List<Product> products;
   final CurrencyCode currency;
 
   @override
+  State<_ProductsCard> createState() => _ProductsCardState();
+}
+
+class _ProductsCardState extends State<_ProductsCard> {
+  String _productSearch = '';
+
+  @override
   Widget build(BuildContext context) {
+    final products = widget.products;
+    final currency = widget.currency;
     return SectionCard(
       title: 'Products',
       subtitle: '${products.length} associated',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Product>(
-        rows: products,
-        rowsPerPage: 5,
-        emptyTitle: 'No products',
-        emptyMessage: 'Products for this business will appear here.',
-        onRowTap: (p) => context.go(Routes.productDetailPath(p.id)),
-        columns: [
-          AppColumn(
-            label: 'Product',
-            cell: (p) => Text(p.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (p) => p.name.toLowerCase(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search products by name, price or status…',
+              onChanged: (v) => setState(() => _productSearch = v),
+            ),
           ),
-          AppColumn(
-            label: 'Buying',
-            numeric: true,
-            cell: (p) => CurrencyText(p.buyingPrice, currency: currency),
-            sortValue: (p) => p.buyingPrice.minor,
-          ),
-          AppColumn(
-            label: 'Selling',
-            numeric: true,
-            cell: (p) => CurrencyText(p.sellingPrice, currency: currency),
-            sortValue: (p) => p.sellingPrice.minor,
-          ),
-          AppColumn(
-            label: 'Status',
-            cell: (p) => StatusBadge.entity(p.status),
-            sortValue: (p) => p.status.label,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Product>(
+            rows: products,
+            rowsPerPage: 5,
+            searchText: _productSearch,
+            searchableText: (p) =>
+                '${p.name} ${p.buyingPrice.minor} ${p.sellingPrice.minor} ${p.status.label}',
+            emptyTitle: 'No products',
+            emptyMessage: 'Products for this business will appear here.',
+            onRowTap: (p) => context.go(Routes.productDetailPath(p.id)),
+            columns: [
+              AppColumn(
+                label: 'Product',
+                cell: (p) => Text(p.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (p) => p.name.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Buying',
+                numeric: true,
+                cell: (p) => CurrencyText(p.buyingPrice, currency: currency),
+                sortValue: (p) => p.buyingPrice.minor,
+              ),
+              AppColumn(
+                label: 'Selling',
+                numeric: true,
+                cell: (p) => CurrencyText(p.sellingPrice, currency: currency),
+                sortValue: (p) => p.sellingPrice.minor,
+              ),
+              AppColumn(
+                label: 'Status',
+                cell: (p) => StatusBadge.entity(p.status),
+                sortValue: (p) => p.status.label,
+              ),
+            ],
           ),
         ],
       ),
@@ -595,47 +621,72 @@ class _ProductsCard extends StatelessWidget {
   }
 }
 
-class _CampaignsCard extends StatelessWidget {
+class _CampaignsCard extends StatefulWidget {
   const _CampaignsCard({required this.campaigns, required this.currency});
 
   final List<Campaign> campaigns;
   final CurrencyCode currency;
 
   @override
+  State<_CampaignsCard> createState() => _CampaignsCardState();
+}
+
+class _CampaignsCardState extends State<_CampaignsCard> {
+  String _campaignSearch = '';
+
+  @override
   Widget build(BuildContext context) {
+    final campaigns = widget.campaigns;
+    final currency = widget.currency;
     return SectionCard(
       title: 'Campaigns',
       subtitle: '${campaigns.length} associated',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Campaign>(
-        rows: campaigns,
-        rowsPerPage: 5,
-        emptyTitle: 'No campaigns',
-        emptyMessage: 'Campaigns for this business will appear here.',
-        onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
-        columns: [
-          AppColumn(
-            label: 'Campaign',
-            cell: (c) => Text(c.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (c) => c.name.toLowerCase(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search campaigns by name, platform or status…',
+              onChanged: (v) => setState(() => _campaignSearch = v),
+            ),
           ),
-          AppColumn(
-            label: 'Platform',
-            cell: (c) =>
-                StatusBadge(label: c.platform.label, tone: BadgeTone.info),
-            sortValue: (c) => c.platform.label,
-          ),
-          AppColumn(
-            label: 'Spend',
-            numeric: true,
-            cell: (c) => CurrencyText(c.amountInvested, currency: currency),
-            sortValue: (c) => c.amountInvested.minor,
-          ),
-          AppColumn(
-            label: 'Status',
-            cell: (c) => StatusBadge.campaign(c.status),
-            sortValue: (c) => c.status.label,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Campaign>(
+            rows: campaigns,
+            rowsPerPage: 5,
+            searchText: _campaignSearch,
+            searchableText: (c) =>
+                '${c.name} ${c.platform.label} ${c.amountInvested.minor} ${c.status.label}',
+            emptyTitle: 'No campaigns',
+            emptyMessage: 'Campaigns for this business will appear here.',
+            onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
+            columns: [
+              AppColumn(
+                label: 'Campaign',
+                cell: (c) => Text(c.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (c) => c.name.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Platform',
+                cell: (c) =>
+                    StatusBadge(label: c.platform.label, tone: BadgeTone.info),
+                sortValue: (c) => c.platform.label,
+              ),
+              AppColumn(
+                label: 'Spend',
+                numeric: true,
+                cell: (c) => CurrencyText(c.amountInvested, currency: currency),
+                sortValue: (c) => c.amountInvested.minor,
+              ),
+              AppColumn(
+                label: 'Status',
+                cell: (c) => StatusBadge.campaign(c.status),
+                sortValue: (c) => c.status.label,
+              ),
+            ],
           ),
         ],
       ),
@@ -643,7 +694,7 @@ class _CampaignsCard extends StatelessWidget {
   }
 }
 
-class _OrdersCard extends StatelessWidget {
+class _OrdersCard extends StatefulWidget {
   const _OrdersCard({required this.orders, required this.currency});
 
   final List<Order> orders;
@@ -654,46 +705,75 @@ class _OrdersCard extends StatelessWidget {
       o.orderDate ?? o.audit.createdAt ?? _epoch;
 
   @override
+  State<_OrdersCard> createState() => _OrdersCardState();
+}
+
+class _OrdersCardState extends State<_OrdersCard> {
+  String _orderSearch = '';
+
+  @override
   Widget build(BuildContext context) {
+    final orders = widget.orders;
+    final currency = widget.currency;
     final sorted = [...orders]
-      ..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
+      ..sort((a, b) =>
+          _OrdersCard._dateOf(b).compareTo(_OrdersCard._dateOf(a)));
     return SectionCard(
       title: 'Orders',
       subtitle: '${orders.length} total',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Order>(
-        rows: sorted,
-        rowsPerPage: 5,
-        emptyTitle: 'No orders',
-        emptyMessage: 'Orders for this business will appear here.',
-        onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
-        columns: [
-          AppColumn(
-            label: 'Order ID',
-            cell: (o) => Text(o.id,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (o) => o.id,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search orders by ID, product or status…',
+              onChanged: (v) => setState(() => _orderSearch = v),
+            ),
           ),
-          AppColumn(
-            label: 'Product',
-            cell: (o) => Text(o.productName),
-            sortValue: (o) => o.productName.toLowerCase(),
-          ),
-          AppColumn(
-            label: 'Date',
-            cell: (o) => Text(AppDate.short(_dateOf(o))),
-            sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
-          ),
-          AppColumn(
-            label: 'Revenue',
-            numeric: true,
-            cell: (o) => CurrencyText(o.recognisedRevenue, currency: currency),
-            sortValue: (o) => o.recognisedRevenue.minor,
-          ),
-          AppColumn(
-            label: 'Status',
-            cell: (o) => StatusBadge.order(o.status),
-            sortValue: (o) => o.status.label,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Order>(
+            rows: sorted,
+            rowsPerPage: 5,
+            searchText: _orderSearch,
+            searchableText: (o) =>
+                '${o.id} ${o.productName} ${AppDate.short(_OrdersCard._dateOf(o))} '
+                '${o.recognisedRevenue.minor} ${o.status.label}',
+            emptyTitle: 'No orders',
+            emptyMessage: 'Orders for this business will appear here.',
+            onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
+            columns: [
+              AppColumn(
+                label: 'Order ID',
+                cell: (o) => Text(o.id,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (o) => o.id,
+              ),
+              AppColumn(
+                label: 'Product',
+                cell: (o) => Text(o.productName),
+                sortValue: (o) => o.productName.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Date',
+                cell: (o) => Text(AppDate.short(_OrdersCard._dateOf(o))),
+                sortValue: (o) =>
+                    _OrdersCard._dateOf(o).millisecondsSinceEpoch,
+              ),
+              AppColumn(
+                label: 'Revenue',
+                numeric: true,
+                cell: (o) =>
+                    CurrencyText(o.recognisedRevenue, currency: currency),
+                sortValue: (o) => o.recognisedRevenue.minor,
+              ),
+              AppColumn(
+                label: 'Status',
+                cell: (o) => StatusBadge.order(o.status),
+                sortValue: (o) => o.status.label,
+              ),
+            ],
           ),
         ],
       ),
@@ -701,47 +781,72 @@ class _OrdersCard extends StatelessWidget {
   }
 }
 
-class _ExpensesCard extends StatelessWidget {
+class _ExpensesCard extends StatefulWidget {
   const _ExpensesCard({required this.expenses, required this.currency});
 
   final List<Expense> expenses;
   final CurrencyCode currency;
 
   @override
+  State<_ExpensesCard> createState() => _ExpensesCardState();
+}
+
+class _ExpensesCardState extends State<_ExpensesCard> {
+  String _expenseSearch = '';
+
+  @override
   Widget build(BuildContext context) {
+    final expenses = widget.expenses;
+    final currency = widget.currency;
     return SectionCard(
       title: 'Expenses',
       subtitle: '${expenses.length} associated',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Expense>(
-        rows: expenses,
-        rowsPerPage: 5,
-        emptyTitle: 'No expenses',
-        emptyMessage: 'Expenses for this business will appear here.',
-        onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
-        columns: [
-          AppColumn(
-            label: 'Expense',
-            cell: (e) => Text(e.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (e) => e.name.toLowerCase(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search expenses by name, category or frequency…',
+              onChanged: (v) => setState(() => _expenseSearch = v),
+            ),
           ),
-          AppColumn(
-            label: 'Category',
-            cell: (e) =>
-                StatusBadge(label: e.category.label, tone: BadgeTone.neutral),
-            sortValue: (e) => e.category.label,
-          ),
-          AppColumn(
-            label: 'Amount',
-            numeric: true,
-            cell: (e) => CurrencyText(e.amount, currency: currency),
-            sortValue: (e) => e.amount.minor,
-          ),
-          AppColumn(
-            label: 'Frequency',
-            cell: (e) => Text(e.frequency.label),
-            sortValue: (e) => e.frequency.label,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Expense>(
+            rows: expenses,
+            rowsPerPage: 5,
+            searchText: _expenseSearch,
+            searchableText: (e) =>
+                '${e.name} ${e.category.label} ${e.amount.minor} ${e.frequency.label}',
+            emptyTitle: 'No expenses',
+            emptyMessage: 'Expenses for this business will appear here.',
+            onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
+            columns: [
+              AppColumn(
+                label: 'Expense',
+                cell: (e) => Text(e.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (e) => e.name.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Category',
+                cell: (e) => StatusBadge(
+                    label: e.category.label, tone: BadgeTone.neutral),
+                sortValue: (e) => e.category.label,
+              ),
+              AppColumn(
+                label: 'Amount',
+                numeric: true,
+                cell: (e) => CurrencyText(e.amount, currency: currency),
+                sortValue: (e) => e.amount.minor,
+              ),
+              AppColumn(
+                label: 'Frequency',
+                cell: (e) => Text(e.frequency.label),
+                sortValue: (e) => e.frequency.label,
+              ),
+            ],
           ),
         ],
       ),
@@ -749,46 +854,71 @@ class _ExpensesCard extends StatelessWidget {
   }
 }
 
-class _DealersCard extends StatelessWidget {
+class _DealersCard extends StatefulWidget {
   const _DealersCard({required this.dealers, required this.currency});
 
   final List<Dealer> dealers;
   final CurrencyCode currency;
 
   @override
+  State<_DealersCard> createState() => _DealersCardState();
+}
+
+class _DealersCardState extends State<_DealersCard> {
+  String _dealerSearch = '';
+
+  @override
   Widget build(BuildContext context) {
+    final dealers = widget.dealers;
+    final currency = widget.currency;
     return SectionCard(
       title: 'Dealers',
       subtitle: '${dealers.length} associated',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Dealer>(
-        rows: dealers,
-        rowsPerPage: 5,
-        emptyTitle: 'No dealers',
-        emptyMessage: 'Dealers for this business will appear here.',
-        onRowTap: (d) => context.go(Routes.dealerDetailPath(d.id)),
-        columns: [
-          AppColumn(
-            label: 'Dealer',
-            cell: (d) => Text(d.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (d) => d.name.toLowerCase(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search dealers by name, frequency or status…',
+              onChanged: (v) => setState(() => _dealerSearch = v),
+            ),
           ),
-          AppColumn(
-            label: 'Cost',
-            numeric: true,
-            cell: (d) => CurrencyText(d.cost, currency: currency),
-            sortValue: (d) => d.cost.minor,
-          ),
-          AppColumn(
-            label: 'Frequency',
-            cell: (d) => Text(d.costFrequency.label),
-            sortValue: (d) => d.costFrequency.label,
-          ),
-          AppColumn(
-            label: 'Status',
-            cell: (d) => StatusBadge.entity(d.status),
-            sortValue: (d) => d.status.label,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Dealer>(
+            rows: dealers,
+            rowsPerPage: 5,
+            searchText: _dealerSearch,
+            searchableText: (d) =>
+                '${d.name} ${d.cost.minor} ${d.costFrequency.label} ${d.status.label}',
+            emptyTitle: 'No dealers',
+            emptyMessage: 'Dealers for this business will appear here.',
+            onRowTap: (d) => context.go(Routes.dealerDetailPath(d.id)),
+            columns: [
+              AppColumn(
+                label: 'Dealer',
+                cell: (d) => Text(d.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (d) => d.name.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Cost',
+                numeric: true,
+                cell: (d) => CurrencyText(d.cost, currency: currency),
+                sortValue: (d) => d.cost.minor,
+              ),
+              AppColumn(
+                label: 'Frequency',
+                cell: (d) => Text(d.costFrequency.label),
+                sortValue: (d) => d.costFrequency.label,
+              ),
+              AppColumn(
+                label: 'Status',
+                cell: (d) => StatusBadge.entity(d.status),
+                sortValue: (d) => d.status.label,
+              ),
+            ],
           ),
         ],
       ),

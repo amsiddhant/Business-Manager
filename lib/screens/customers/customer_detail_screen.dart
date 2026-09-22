@@ -2180,25 +2180,35 @@ class _ContactFormDialogState extends State<ContactFormDialog> {
 /// business currency rather than assuming one; a Business column is shown only
 /// when the customer spans more than one business. The [orders] passed in are
 /// already access-scoped (see [DataController.ordersForCustomer]).
-class _OrdersCard extends StatelessWidget {
+class _OrdersCard extends StatefulWidget {
   const _OrdersCard({required this.orders, required this.businesses});
 
   final List<Order> orders;
   final List<Business> businesses;
+
+  @override
+  State<_OrdersCard> createState() => _OrdersCardState();
+}
+
+class _OrdersCardState extends State<_OrdersCard> {
+  /// Live search query. Matched (case-insensitively) against order id, product,
+  /// status label and formatted date via [AppDataTable]'s [searchableText].
+  /// Debounced by [SearchField].
+  String _orderSearch = '';
 
   static final _epoch = DateTime.fromMillisecondsSinceEpoch(0);
   static DateTime _dateOf(Order o) =>
       o.orderDate ?? o.audit.createdAt ?? _epoch;
 
   CurrencyCode _currencyOf(Order o) {
-    for (final b in businesses) {
+    for (final b in widget.businesses) {
       if (b.id == o.businessId) return b.currency;
     }
     return CurrencyCode.inr;
   }
 
   String _businessName(String id) {
-    for (final b in businesses) {
+    for (final b in widget.businesses) {
       if (b.id == id) return b.name;
     }
     return id;
@@ -2206,6 +2216,8 @@ class _OrdersCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final orders = widget.orders;
+    final businesses = widget.businesses;
     final multiBusiness = businesses.length > 1;
     final sorted = [...orders]
       ..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
@@ -2214,14 +2226,32 @@ class _OrdersCard extends StatelessWidget {
       subtitle: '${orders.length} '
           '${orders.length == 1 ? 'order' : 'orders'} placed',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Order>(
-        rows: sorted,
-        rowsPerPage: 10,
-        onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
-        searchableText: (o) => '${o.id} ${o.productName}',
-        emptyTitle: 'No orders',
-        emptyMessage: 'Orders placed by this customer will appear here.',
-        columns: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Live searchbar — shown once there is more than one order to sift
+          // through.
+          if (orders.length > 1) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg, 0, AppSpacing.lg, AppSpacing.md),
+              child: SearchField(
+                hintText: 'Search orders by ID, product or status…',
+                onChanged: (v) => setState(() => _orderSearch = v),
+              ),
+            ),
+          ],
+          AppDataTable<Order>(
+            rows: sorted,
+            rowsPerPage: 10,
+            searchText: _orderSearch,
+            onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
+            searchableText: (o) => '${o.id} ${o.productName} '
+                '${o.status.label} ${AppDate.short(_dateOf(o))} '
+                '${multiBusiness ? _businessName(o.businessId) : ''}',
+            emptyTitle: 'No orders',
+            emptyMessage: 'Orders placed by this customer will appear here.',
+            columns: [
           AppColumn(
             label: 'Order ID',
             cell: (o) => Text(o.id,
@@ -2272,6 +2302,8 @@ class _OrdersCard extends StatelessWidget {
             label: 'Status',
             cell: (o) => StatusBadge.order(o.status),
             sortValue: (o) => o.status.label,
+          ),
+            ],
           ),
         ],
       ),

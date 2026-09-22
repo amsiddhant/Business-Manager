@@ -21,6 +21,7 @@ import '../../widgets/common/app_card.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 
@@ -38,6 +39,13 @@ class _ReportsScreenState extends State<ReportsScreen>
     with SingleTickerProviderStateMixin {
   static const _service = ProfitCalculationService();
   late final TabController _tabs;
+
+  // Independent live-search queries, one per report table.
+  String _salesSearch = '';
+  String _expenseSearch = '';
+  String _marketingSearch = '';
+  String _productSearch = '';
+  String _businessSearch = '';
 
   static const _reports = [
     'Sales',
@@ -149,6 +157,27 @@ class _ReportsScreenState extends State<ReportsScreen>
     showSuccessSnack(context, 'Report exported');
   }
 
+  /// Composes a report's live [SearchField] above its [table], aligning the
+  /// field with the card header inset (the tables sit in zero-padding
+  /// [SectionCard]s so the body spans edge to edge).
+  Widget _searchable({
+    required String hintText,
+    required ValueChanged<String> onSearch,
+    required Widget table,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+          child: SearchField(hintText: hintText, onChanged: onSearch),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        table,
+      ],
+    );
+  }
+
   _Report _buildReport({
     required int index,
     required DataController data,
@@ -168,8 +197,7 @@ class _ReportsScreenState extends State<ReportsScreen>
       case 2:
         return _marketingReport(campaigns, orders, range, currency);
       case 3:
-        return _productReport(
-            products, orders, campaigns, range, currency);
+        return _productReport(products, orders, campaigns, range, currency);
       case 4:
       default:
         return _businessReport(data, bizId, orders, campaigns, expenses, range);
@@ -179,10 +207,15 @@ class _ReportsScreenState extends State<ReportsScreen>
   // ---- Sales ----------------------------------------------------------------
 
   _Report _salesReport(
-      List<Order> orders, DateRange range, CurrencyCode currency) {
+    List<Order> orders,
+    DateRange range,
+    CurrencyCode currency,
+  ) {
     final rows = _service.recognisedOrdersIn(orders, range)
-      ..sort((a, b) => (b.orderDate ?? range.start)
-          .compareTo(a.orderDate ?? range.start));
+      ..sort(
+        (a, b) =>
+            (b.orderDate ?? range.start).compareTo(a.orderDate ?? range.start),
+      );
     return _Report(
       slug: 'sales-report',
       csvHeader: const [
@@ -216,60 +249,79 @@ class _ReportsScreenState extends State<ReportsScreen>
         title: 'Sales Report',
         subtitle: '${rows.length} recognised orders',
         padding: EdgeInsets.zero,
-        child: AppDataTable<Order>(
-          rows: rows,
-          searchableText: (o) => '${o.id} ${o.productName}',
-          emptyTitle: 'No sales in this period',
-          columns: [
-            AppColumn(
+        child: _searchable(
+          hintText: 'Search sales by order ID, product or status…',
+          onSearch: (v) => setState(() => _salesSearch = v),
+          table: AppDataTable<Order>(
+            rows: rows,
+            searchText: _salesSearch,
+            searchableText: (o) => '${o.id} ${o.productName} ${o.status.label}',
+            emptyTitle: 'No sales in this period',
+            columns: [
+              AppColumn(
                 label: 'Order ID',
-                cell: (o) => Text(o.id,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (o) => o.id),
-            AppColumn(
+                cell: (o) => Text(
+                  o.id,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                sortValue: (o) => o.id,
+              ),
+              AppColumn(
                 label: 'Date',
                 cell: (o) => Text(AppDate.format(o.orderDate)),
-                sortValue: (o) =>
-                    o.orderDate?.millisecondsSinceEpoch ?? 0),
-            AppColumn(
+                sortValue: (o) => o.orderDate?.millisecondsSinceEpoch ?? 0,
+              ),
+              AppColumn(
                 label: 'Product',
                 cell: (o) => Text(o.productName),
-                sortValue: (o) => o.productName.toLowerCase()),
-            AppColumn(
+                sortValue: (o) => o.productName.toLowerCase(),
+              ),
+              AppColumn(
                 label: 'Qty',
                 numeric: true,
                 cell: (o) => Text('${o.quantity}'),
-                sortValue: (o) => o.quantity),
-            AppColumn(
+                sortValue: (o) => o.quantity,
+              ),
+              AppColumn(
                 label: 'Revenue',
                 numeric: true,
                 cell: (o) =>
                     Text(MoneyFormatter.format(o.recognisedRevenue, currency)),
-                sortValue: (o) => o.recognisedRevenue.minor),
-            AppColumn(
+                sortValue: (o) => o.recognisedRevenue.minor,
+              ),
+              AppColumn(
                 label: 'Refund',
                 numeric: true,
-                cell: (o) => Text(o.effectiveRefund.isZero
-                    ? '—'
-                    : MoneyFormatter.format(o.effectiveRefund, currency)),
-                sortValue: (o) => o.effectiveRefund.minor),
-            AppColumn(
+                cell: (o) => Text(
+                  o.effectiveRefund.isZero
+                      ? '—'
+                      : MoneyFormatter.format(o.effectiveRefund, currency),
+                ),
+                sortValue: (o) => o.effectiveRefund.minor,
+              ),
+              AppColumn(
                 label: 'Cost',
                 numeric: true,
                 cell: (o) => Text(
-                    MoneyFormatter.format(o.recognisedProductCost, currency)),
-                sortValue: (o) => o.recognisedProductCost.minor),
-            AppColumn(
+                  MoneyFormatter.format(o.recognisedProductCost, currency),
+                ),
+                sortValue: (o) => o.recognisedProductCost.minor,
+              ),
+              AppColumn(
                 label: 'Gross Profit',
                 numeric: true,
                 cell: (o) => Text(
-                    MoneyFormatter.format(o.recognisedGrossProfit, currency)),
-                sortValue: (o) => o.recognisedGrossProfit.minor),
-            AppColumn(
+                  MoneyFormatter.format(o.recognisedGrossProfit, currency),
+                ),
+                sortValue: (o) => o.recognisedGrossProfit.minor,
+              ),
+              AppColumn(
                 label: 'Status',
                 cell: (o) => StatusBadge.order(o.status),
-                sortValue: (o) => o.status.label),
-          ],
+                sortValue: (o) => o.status.label,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -278,9 +330,14 @@ class _ReportsScreenState extends State<ReportsScreen>
   // ---- Expenses -------------------------------------------------------------
 
   _Report _expenseReport(
-      List<Expense> expenses, DateRange range, CurrencyCode currency) {
+    List<Expense> expenses,
+    DateRange range,
+    CurrencyCode currency,
+  ) {
     final rows = [...expenses]
-      ..sort((a, b) => b.annualisedAmount.minor.compareTo(a.annualisedAmount.minor));
+      ..sort(
+        (a, b) => b.annualisedAmount.minor.compareTo(a.annualisedAmount.minor),
+      );
     return _Report(
       slug: 'expense-report',
       csvHeader: const [
@@ -308,46 +365,65 @@ class _ReportsScreenState extends State<ReportsScreen>
         title: 'Expense Report',
         subtitle: '${rows.length} expenses · prorated to period',
         padding: EdgeInsets.zero,
-        child: AppDataTable<Expense>(
-          rows: rows,
-          searchableText: (e) => '${e.name} ${e.category.label}',
-          emptyTitle: 'No expenses in this period',
-          columns: [
-            AppColumn(
+        child: _searchable(
+          hintText: 'Search expenses by name, category, frequency or status…',
+          onSearch: (v) => setState(() => _expenseSearch = v),
+          table: AppDataTable<Expense>(
+            rows: rows,
+            searchText: _expenseSearch,
+            searchableText: (e) =>
+                '${e.name} ${e.category.label} ${e.frequency.label} ${e.status.label}',
+            emptyTitle: 'No expenses in this period',
+            columns: [
+              AppColumn(
                 label: 'Expense',
-                cell: (e) => Text(e.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (e) => e.name.toLowerCase()),
-            AppColumn(
+                cell: (e) => Text(
+                  e.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                sortValue: (e) => e.name.toLowerCase(),
+              ),
+              AppColumn(
                 label: 'Category',
                 cell: (e) => Text(e.category.label),
-                sortValue: (e) => e.category.label),
-            AppColumn(
+                sortValue: (e) => e.category.label,
+              ),
+              AppColumn(
                 label: 'Frequency',
                 cell: (e) => Text(e.frequency.label),
-                sortValue: (e) => e.frequency.label),
-            AppColumn(
+                sortValue: (e) => e.frequency.label,
+              ),
+              AppColumn(
                 label: 'Amount',
                 numeric: true,
                 cell: (e) => Text(MoneyFormatter.format(e.amount, currency)),
-                sortValue: (e) => e.amount.minor),
-            AppColumn(
+                sortValue: (e) => e.amount.minor,
+              ),
+              AppColumn(
                 label: 'Annualised',
                 numeric: true,
                 cell: (e) =>
                     Text(MoneyFormatter.format(e.annualisedAmount, currency)),
-                sortValue: (e) => e.annualisedAmount.minor),
-            AppColumn(
+                sortValue: (e) => e.annualisedAmount.minor,
+              ),
+              AppColumn(
                 label: 'In-Period',
                 numeric: true,
-                cell: (e) => Text(MoneyFormatter.format(
-                    _service.proratedExpense(e, range), currency)),
-                sortValue: (e) => _service.proratedExpense(e, range).minor),
-            AppColumn(
+                cell: (e) => Text(
+                  MoneyFormatter.format(
+                    _service.proratedExpense(e, range),
+                    currency,
+                  ),
+                ),
+                sortValue: (e) => _service.proratedExpense(e, range).minor,
+              ),
+              AppColumn(
                 label: 'Status',
                 cell: (e) => StatusBadge.entity(e.status),
-                sortValue: (e) => e.status.label),
-          ],
+                sortValue: (e) => e.status.label,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -355,8 +431,12 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   // ---- Marketing ------------------------------------------------------------
 
-  _Report _marketingReport(List<Campaign> campaigns, List<Order> orders,
-      DateRange range, CurrencyCode currency) {
+  _Report _marketingReport(
+    List<Campaign> campaigns,
+    List<Order> orders,
+    DateRange range,
+    CurrencyCode currency,
+  ) {
     final perf = _service.campaignPerformance(
       campaigns: campaigns,
       orders: orders,
@@ -391,53 +471,71 @@ class _ReportsScreenState extends State<ReportsScreen>
         title: 'Marketing Report',
         subtitle: '${perf.length} campaigns',
         padding: EdgeInsets.zero,
-        child: AppDataTable<CampaignPerformance>(
-          rows: perf,
-          searchableText: (p) => '${p.campaign.name} ${p.campaign.platform.label}',
-          emptyTitle: 'No campaigns in this period',
-          columns: [
-            AppColumn(
+        child: _searchable(
+          hintText: 'Search campaigns by name or platform…',
+          onSearch: (v) => setState(() => _marketingSearch = v),
+          table: AppDataTable<CampaignPerformance>(
+            rows: perf,
+            searchText: _marketingSearch,
+            searchableText: (p) =>
+                '${p.campaign.name} ${p.campaign.platform.label}',
+            emptyTitle: 'No campaigns in this period',
+            columns: [
+              AppColumn(
                 label: 'Campaign',
-                cell: (p) => Text(p.campaign.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (p) => p.campaign.name.toLowerCase()),
-            AppColumn(
+                cell: (p) => Text(
+                  p.campaign.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                sortValue: (p) => p.campaign.name.toLowerCase(),
+              ),
+              AppColumn(
                 label: 'Platform',
                 cell: (p) => StatusBadge(
-                    label: p.campaign.platform.label, tone: BadgeTone.info),
-                sortValue: (p) => p.campaign.platform.label),
-            AppColumn(
+                  label: p.campaign.platform.label,
+                  tone: BadgeTone.info,
+                ),
+                sortValue: (p) => p.campaign.platform.label,
+              ),
+              AppColumn(
                 label: 'Spend',
                 numeric: true,
                 cell: (p) => Text(MoneyFormatter.format(p.spend, currency)),
-                sortValue: (p) => p.spend.minor),
-            AppColumn(
+                sortValue: (p) => p.spend.minor,
+              ),
+              AppColumn(
                 label: 'Clicks',
                 numeric: true,
                 cell: (p) => Text('${p.campaign.clicks}'),
-                sortValue: (p) => p.campaign.clicks),
-            AppColumn(
+                sortValue: (p) => p.campaign.clicks,
+              ),
+              AppColumn(
                 label: 'Conv.',
                 numeric: true,
                 cell: (p) => Text('${p.campaign.conversions}'),
-                sortValue: (p) => p.campaign.conversions),
-            AppColumn(
+                sortValue: (p) => p.campaign.conversions,
+              ),
+              AppColumn(
                 label: 'Attr. Revenue',
                 numeric: true,
                 cell: (p) =>
                     Text(MoneyFormatter.format(p.attributedRevenue, currency)),
-                sortValue: (p) => p.attributedRevenue.minor),
-            AppColumn(
+                sortValue: (p) => p.attributedRevenue.minor,
+              ),
+              AppColumn(
                 label: 'ROI',
                 numeric: true,
                 cell: (p) => Text(PercentFormatter.format(p.roi ?? double.nan)),
-                sortValue: (p) => p.roi ?? -1e9),
-            AppColumn(
+                sortValue: (p) => p.roi ?? -1e9,
+              ),
+              AppColumn(
                 label: 'ROAS',
                 numeric: true,
                 cell: (p) => Text(PercentFormatter.roas(p.roas)),
-                sortValue: (p) => p.roas ?? -1),
-          ],
+                sortValue: (p) => p.roas ?? -1,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -445,8 +543,13 @@ class _ReportsScreenState extends State<ReportsScreen>
 
   // ---- Product profitability ------------------------------------------------
 
-  _Report _productReport(List<Product> products, List<Order> orders,
-      List<Campaign> campaigns, DateRange range, CurrencyCode currency) {
+  _Report _productReport(
+    List<Product> products,
+    List<Order> orders,
+    List<Campaign> campaigns,
+    DateRange range,
+    CurrencyCode currency,
+  ) {
     final rows = _service.productProfitability(
       products: products,
       orders: orders,
@@ -484,43 +587,56 @@ class _ReportsScreenState extends State<ReportsScreen>
         title: 'Product Profitability',
         subtitle: '${rows.length} products',
         padding: EdgeInsets.zero,
-        child: AppDataTable<ProductProfit>(
-          rows: rows,
-          searchableText: (p) => p.product.name,
-          emptyTitle: 'No products to report',
-          columns: [
-            AppColumn(
+        child: _searchable(
+          hintText: 'Search products by ID or name…',
+          onSearch: (v) => setState(() => _productSearch = v),
+          table: AppDataTable<ProductProfit>(
+            rows: rows,
+            searchText: _productSearch,
+            searchableText: (p) => '${p.product.id} ${p.product.name}',
+            emptyTitle: 'No products to report',
+            columns: [
+              AppColumn(
                 label: 'Product',
-                cell: (p) => Text(p.product.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (p) => p.product.name.toLowerCase()),
-            AppColumn(
+                cell: (p) => Text(
+                  p.product.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                sortValue: (p) => p.product.name.toLowerCase(),
+              ),
+              AppColumn(
                 label: 'Orders',
                 numeric: true,
                 cell: (p) => Text('${p.orderCount}'),
-                sortValue: (p) => p.orderCount),
-            AppColumn(
+                sortValue: (p) => p.orderCount,
+              ),
+              AppColumn(
                 label: 'Units',
                 numeric: true,
                 cell: (p) => Text('${p.unitsSold}'),
-                sortValue: (p) => p.unitsSold),
-            AppColumn(
+                sortValue: (p) => p.unitsSold,
+              ),
+              AppColumn(
                 label: 'Revenue',
                 numeric: true,
                 cell: (p) => Text(MoneyFormatter.format(p.revenue, currency)),
-                sortValue: (p) => p.revenue.minor),
-            AppColumn(
+                sortValue: (p) => p.revenue.minor,
+              ),
+              AppColumn(
                 label: 'Cost',
                 numeric: true,
-                cell: (p) => Text(MoneyFormatter.format(p.productCost, currency)),
-                sortValue: (p) => p.productCost.minor),
-            AppColumn(
+                cell: (p) =>
+                    Text(MoneyFormatter.format(p.productCost, currency)),
+                sortValue: (p) => p.productCost.minor,
+              ),
+              AppColumn(
                 label: 'Marketing',
                 numeric: true,
                 cell: (p) =>
                     Text(MoneyFormatter.format(p.marketingCost, currency)),
-                sortValue: (p) => p.marketingCost.minor),
-            AppColumn(
+                sortValue: (p) => p.marketingCost.minor,
+              ),
+              AppColumn(
                 label: 'Net Profit',
                 numeric: true,
                 cell: (p) => Text(
@@ -532,13 +648,16 @@ class _ReportsScreenState extends State<ReportsScreen>
                         : AppColors.success,
                   ),
                 ),
-                sortValue: (p) => p.netProfit.minor),
-            AppColumn(
+                sortValue: (p) => p.netProfit.minor,
+              ),
+              AppColumn(
                 label: 'Margin',
                 numeric: true,
                 cell: (p) => Text(PercentFormatter.format(p.margin)),
-                sortValue: (p) => p.margin),
-          ],
+                sortValue: (p) => p.margin,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -569,7 +688,9 @@ class _ReportsScreenState extends State<ReportsScreen>
       );
       rows.add(_BusinessRow(business: b, summary: summary));
     }
-    rows.sort((a, b) => b.summary.revenue.minor.compareTo(a.summary.revenue.minor));
+    rows.sort(
+      (a, b) => b.summary.revenue.minor.compareTo(a.summary.revenue.minor),
+    );
 
     return _Report(
       slug: 'business-profitability',
@@ -602,52 +723,84 @@ class _ReportsScreenState extends State<ReportsScreen>
         title: 'Business Profitability',
         subtitle: '${rows.length} businesses',
         padding: EdgeInsets.zero,
-        child: AppDataTable<_BusinessRow>(
-          rows: rows,
-          searchableText: (r) => r.business.name,
-          emptyTitle: 'No businesses to report',
-          columns: [
-            AppColumn(
+        child: _searchable(
+          hintText: 'Search businesses by name or currency…',
+          onSearch: (v) => setState(() => _businessSearch = v),
+          table: AppDataTable<_BusinessRow>(
+            rows: rows,
+            searchText: _businessSearch,
+            searchableText: (r) =>
+                '${r.business.id} ${r.business.name} ${r.business.currency.wire}',
+            emptyTitle: 'No businesses to report',
+            columns: [
+              AppColumn(
                 label: 'Business',
-                cell: (r) => Text(r.business.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (r) => r.business.name.toLowerCase()),
-            AppColumn(
+                cell: (r) => Text(
+                  r.business.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                sortValue: (r) => r.business.name.toLowerCase(),
+              ),
+              AppColumn(
                 label: 'Revenue',
                 numeric: true,
-                cell: (r) => Text(MoneyFormatter.format(
-                    r.summary.revenue, r.business.currency)),
-                sortValue: (r) => r.summary.revenue.minor),
-            AppColumn(
+                cell: (r) => Text(
+                  MoneyFormatter.format(r.summary.revenue, r.business.currency),
+                ),
+                sortValue: (r) => r.summary.revenue.minor,
+              ),
+              AppColumn(
                 label: 'Product Cost',
                 numeric: true,
-                cell: (r) => Text(MoneyFormatter.format(
-                    r.summary.productCost, r.business.currency)),
-                sortValue: (r) => r.summary.productCost.minor),
-            AppColumn(
+                cell: (r) => Text(
+                  MoneyFormatter.format(
+                    r.summary.productCost,
+                    r.business.currency,
+                  ),
+                ),
+                sortValue: (r) => r.summary.productCost.minor,
+              ),
+              AppColumn(
                 label: 'Marketing',
                 numeric: true,
-                cell: (r) => Text(MoneyFormatter.format(
-                    r.summary.marketingCost, r.business.currency)),
-                sortValue: (r) => r.summary.marketingCost.minor),
-            AppColumn(
+                cell: (r) => Text(
+                  MoneyFormatter.format(
+                    r.summary.marketingCost,
+                    r.business.currency,
+                  ),
+                ),
+                sortValue: (r) => r.summary.marketingCost.minor,
+              ),
+              AppColumn(
                 label: 'Op. Expenses',
                 numeric: true,
-                cell: (r) => Text(MoneyFormatter.format(
-                    r.summary.operatingExpenses, r.business.currency)),
-                sortValue: (r) => r.summary.operatingExpenses.minor),
-            AppColumn(
+                cell: (r) => Text(
+                  MoneyFormatter.format(
+                    r.summary.operatingExpenses,
+                    r.business.currency,
+                  ),
+                ),
+                sortValue: (r) => r.summary.operatingExpenses.minor,
+              ),
+              AppColumn(
                 label: 'Gross Profit',
                 numeric: true,
-                cell: (r) => Text(MoneyFormatter.format(
-                    r.summary.grossProfit, r.business.currency)),
-                sortValue: (r) => r.summary.grossProfit.minor),
-            AppColumn(
+                cell: (r) => Text(
+                  MoneyFormatter.format(
+                    r.summary.grossProfit,
+                    r.business.currency,
+                  ),
+                ),
+                sortValue: (r) => r.summary.grossProfit.minor,
+              ),
+              AppColumn(
                 label: 'Net Profit',
                 numeric: true,
                 cell: (r) => Text(
                   MoneyFormatter.format(
-                      r.summary.netProfit, r.business.currency),
+                    r.summary.netProfit,
+                    r.business.currency,
+                  ),
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: r.summary.netProfit.isNegative
@@ -655,13 +808,16 @@ class _ReportsScreenState extends State<ReportsScreen>
                         : AppColors.success,
                   ),
                 ),
-                sortValue: (r) => r.summary.netProfit.minor),
-            AppColumn(
+                sortValue: (r) => r.summary.netProfit.minor,
+              ),
+              AppColumn(
                 label: 'Net Margin',
                 numeric: true,
                 cell: (r) => Text(PercentFormatter.format(r.summary.netMargin)),
-                sortValue: (r) => r.summary.netMargin),
-          ],
+                sortValue: (r) => r.summary.netMargin,
+              ),
+            ],
+          ),
         ),
       ),
     );

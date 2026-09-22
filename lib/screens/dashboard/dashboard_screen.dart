@@ -18,6 +18,7 @@ import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/responsive.dart';
 import '../../widgets/common/scorecard.dart';
+import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 
@@ -385,15 +386,23 @@ class _ChartsGrid extends StatelessWidget {
   }
 }
 
-class _TopProductsTable extends StatelessWidget {
+class _TopProductsTable extends StatefulWidget {
   const _TopProductsTable({required this.rows, required this.currency});
 
   final List<ProductProfit> rows;
   final CurrencyCode currency;
 
   @override
+  State<_TopProductsTable> createState() => _TopProductsTableState();
+}
+
+class _TopProductsTableState extends State<_TopProductsTable> {
+  String _productSearch = '';
+
+  @override
   Widget build(BuildContext context) {
-    final sorted = [...rows]
+    final currency = widget.currency;
+    final sorted = [...widget.rows]
       ..sort((a, b) => b.revenue.minor.compareTo(a.revenue.minor));
     final top = sorted.take(10).toList();
 
@@ -401,59 +410,74 @@ class _TopProductsTable extends StatelessWidget {
       title: 'Top Products',
       subtitle: 'Ranked by revenue in the selected period',
       padding: EdgeInsets.zero,
-      child: AppDataTable<ProductProfit>(
-        rows: top,
-        rowsPerPage: 10,
-        emptyTitle: 'No product activity',
-        emptyMessage: 'Recognised orders will populate this table.',
-        columns: [
-          AppColumn(
-            label: 'Product',
-            cell: (p) => Text(p.product.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (p) => p.product.name.toLowerCase(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search products by name…',
+              onChanged: (v) => setState(() => _productSearch = v),
+            ),
           ),
-          AppColumn(
-            label: 'Orders',
-            numeric: true,
-            cell: (p) => Text('${p.orderCount}'),
-            sortValue: (p) => p.orderCount,
-          ),
-          AppColumn(
-            label: 'Revenue',
-            numeric: true,
-            cell: (p) => CurrencyText(p.revenue, currency: currency),
-            sortValue: (p) => p.revenue.minor,
-          ),
-          AppColumn(
-            label: 'Cost',
-            numeric: true,
-            cell: (p) => CurrencyText(p.productCost, currency: currency),
-            sortValue: (p) => p.productCost.minor,
-          ),
-          AppColumn(
-            label: 'Marketing',
-            numeric: true,
-            cell: (p) => CurrencyText(p.marketingCost, currency: currency),
-            sortValue: (p) => p.marketingCost.minor,
-          ),
-          AppColumn(
-            label: 'Gross Profit',
-            numeric: true,
-            cell: (p) => CurrencyText(p.grossProfit, currency: currency),
-            sortValue: (p) => p.grossProfit.minor,
-          ),
-          AppColumn(
-            label: 'Net Profit',
-            numeric: true,
-            cell: (p) => CurrencyText(p.netProfit, currency: currency),
-            sortValue: (p) => p.netProfit.minor,
-          ),
-          AppColumn(
-            label: 'Margin',
-            numeric: true,
-            cell: (p) => Text(PercentFormatter.format(p.margin)),
-            sortValue: (p) => p.margin.isFinite ? p.margin : -1,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<ProductProfit>(
+            rows: top,
+            rowsPerPage: 10,
+            searchText: _productSearch,
+            searchableText: (p) => p.product.name,
+            emptyTitle: 'No product activity',
+            emptyMessage: 'Recognised orders will populate this table.',
+            columns: [
+              AppColumn(
+                label: 'Product',
+                cell: (p) => Text(p.product.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (p) => p.product.name.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Orders',
+                numeric: true,
+                cell: (p) => Text('${p.orderCount}'),
+                sortValue: (p) => p.orderCount,
+              ),
+              AppColumn(
+                label: 'Revenue',
+                numeric: true,
+                cell: (p) => CurrencyText(p.revenue, currency: currency),
+                sortValue: (p) => p.revenue.minor,
+              ),
+              AppColumn(
+                label: 'Cost',
+                numeric: true,
+                cell: (p) => CurrencyText(p.productCost, currency: currency),
+                sortValue: (p) => p.productCost.minor,
+              ),
+              AppColumn(
+                label: 'Marketing',
+                numeric: true,
+                cell: (p) => CurrencyText(p.marketingCost, currency: currency),
+                sortValue: (p) => p.marketingCost.minor,
+              ),
+              AppColumn(
+                label: 'Gross Profit',
+                numeric: true,
+                cell: (p) => CurrencyText(p.grossProfit, currency: currency),
+                sortValue: (p) => p.grossProfit.minor,
+              ),
+              AppColumn(
+                label: 'Net Profit',
+                numeric: true,
+                cell: (p) => CurrencyText(p.netProfit, currency: currency),
+                sortValue: (p) => p.netProfit.minor,
+              ),
+              AppColumn(
+                label: 'Margin',
+                numeric: true,
+                cell: (p) => Text(PercentFormatter.format(p.margin)),
+                sortValue: (p) => p.margin.isFinite ? p.margin : -1,
+              ),
+            ],
           ),
         ],
       ),
@@ -461,7 +485,7 @@ class _TopProductsTable extends StatelessWidget {
   }
 }
 
-class _RecentOrdersTable extends StatelessWidget {
+class _RecentOrdersTable extends StatefulWidget {
   const _RecentOrdersTable({
     required this.orders,
     required this.range,
@@ -472,13 +496,22 @@ class _RecentOrdersTable extends StatelessWidget {
   final DateRange range;
   final CurrencyCode currency;
 
+  @override
+  State<_RecentOrdersTable> createState() => _RecentOrdersTableState();
+}
+
+class _RecentOrdersTableState extends State<_RecentOrdersTable> {
+  String _orderSearch = '';
+
   static final _epoch = DateTime.fromMillisecondsSinceEpoch(0);
   static DateTime _dateOf(Order o) =>
       o.orderDate ?? o.audit.createdAt ?? _epoch;
 
   @override
   Widget build(BuildContext context) {
-    final inRange = orders
+    final currency = widget.currency;
+    final range = widget.range;
+    final inRange = widget.orders
         .where((o) => range.contains(_dateOf(o)))
         .toList()
       ..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
@@ -488,53 +521,69 @@ class _RecentOrdersTable extends StatelessWidget {
       title: 'Recent Orders',
       subtitle: 'Latest activity in the selected period',
       padding: EdgeInsets.zero,
-      child: AppDataTable<Order>(
-        rows: recent,
-        rowsPerPage: 10,
-        emptyTitle: 'No orders yet',
-        emptyMessage: 'Orders in the selected period will appear here.',
-        columns: [
-          AppColumn(
-            label: 'Order ID',
-            cell: (o) => Text(o.id,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (o) => o.id,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search orders by ID, product or status…',
+              onChanged: (v) => setState(() => _orderSearch = v),
+            ),
           ),
-          AppColumn(
-            label: 'Product',
-            cell: (o) => Text(o.productName),
-            sortValue: (o) => o.productName.toLowerCase(),
-          ),
-          AppColumn(
-            label: 'Date',
-            cell: (o) => Text(AppDate.short(_dateOf(o))),
-            sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
-          ),
-          AppColumn(
-            label: 'Revenue',
-            numeric: true,
-            cell: (o) =>
-                CurrencyText(o.recognisedRevenue, currency: currency),
-            sortValue: (o) => o.recognisedRevenue.minor,
-          ),
-          AppColumn(
-            label: 'Cost',
-            numeric: true,
-            cell: (o) =>
-                CurrencyText(o.recognisedProductCost, currency: currency),
-            sortValue: (o) => o.recognisedProductCost.minor,
-          ),
-          AppColumn(
-            label: 'Profit',
-            numeric: true,
-            cell: (o) =>
-                CurrencyText(o.recognisedGrossProfit, currency: currency),
-            sortValue: (o) => o.recognisedGrossProfit.minor,
-          ),
-          AppColumn(
-            label: 'Status',
-            cell: (o) => StatusBadge.order(o.status),
-            sortValue: (o) => o.status.label,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<Order>(
+            rows: recent,
+            rowsPerPage: 10,
+            searchText: _orderSearch,
+            searchableText: (o) =>
+                '${o.id} ${o.productName} ${o.status.label}',
+            emptyTitle: 'No orders yet',
+            emptyMessage: 'Orders in the selected period will appear here.',
+            columns: [
+              AppColumn(
+                label: 'Order ID',
+                cell: (o) => Text(o.id,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (o) => o.id,
+              ),
+              AppColumn(
+                label: 'Product',
+                cell: (o) => Text(o.productName),
+                sortValue: (o) => o.productName.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Date',
+                cell: (o) => Text(AppDate.short(_dateOf(o))),
+                sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
+              ),
+              AppColumn(
+                label: 'Revenue',
+                numeric: true,
+                cell: (o) =>
+                    CurrencyText(o.recognisedRevenue, currency: currency),
+                sortValue: (o) => o.recognisedRevenue.minor,
+              ),
+              AppColumn(
+                label: 'Cost',
+                numeric: true,
+                cell: (o) =>
+                    CurrencyText(o.recognisedProductCost, currency: currency),
+                sortValue: (o) => o.recognisedProductCost.minor,
+              ),
+              AppColumn(
+                label: 'Profit',
+                numeric: true,
+                cell: (o) =>
+                    CurrencyText(o.recognisedGrossProfit, currency: currency),
+                sortValue: (o) => o.recognisedGrossProfit.minor,
+              ),
+              AppColumn(
+                label: 'Status',
+                cell: (o) => StatusBadge.order(o.status),
+                sortValue: (o) => o.status.label,
+              ),
+            ],
           ),
         ],
       ),
@@ -542,15 +591,24 @@ class _RecentOrdersTable extends StatelessWidget {
   }
 }
 
-class _CampaignPerformanceTable extends StatelessWidget {
+class _CampaignPerformanceTable extends StatefulWidget {
   const _CampaignPerformanceTable({required this.rows, required this.currency});
 
   final List<CampaignPerformance> rows;
   final CurrencyCode currency;
 
   @override
+  State<_CampaignPerformanceTable> createState() =>
+      _CampaignPerformanceTableState();
+}
+
+class _CampaignPerformanceTableState extends State<_CampaignPerformanceTable> {
+  String _campaignSearch = '';
+
+  @override
   Widget build(BuildContext context) {
-    final sorted = [...rows]
+    final currency = widget.currency;
+    final sorted = [...widget.rows]
       ..sort((a, b) => b.spend.minor.compareTo(a.spend.minor));
     final top = sorted.take(10).toList();
 
@@ -558,64 +616,80 @@ class _CampaignPerformanceTable extends StatelessWidget {
       title: 'Campaign Performance',
       subtitle: 'Spend and return by campaign',
       padding: EdgeInsets.zero,
-      child: AppDataTable<CampaignPerformance>(
-        rows: top,
-        rowsPerPage: 10,
-        emptyTitle: 'No campaign activity',
-        emptyMessage: 'Campaigns with spend will appear here.',
-        columns: [
-          AppColumn(
-            label: 'Campaign',
-            cell: (c) => Text(c.campaign.name,
-                style: const TextStyle(fontWeight: FontWeight.w600)),
-            sortValue: (c) => c.campaign.name.toLowerCase(),
-          ),
-          AppColumn(
-            label: 'Platform',
-            cell: (c) => StatusBadge(
-              label: c.campaign.platform.label,
-              tone: BadgeTone.info,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: SearchField(
+              hintText: 'Search campaigns by name or platform…',
+              onChanged: (v) => setState(() => _campaignSearch = v),
             ),
-            sortValue: (c) => c.campaign.platform.label,
           ),
-          AppColumn(
-            label: 'Spend',
-            numeric: true,
-            cell: (c) => CurrencyText(c.spend, currency: currency),
-            sortValue: (c) => c.spend.minor,
-          ),
-          AppColumn(
-            label: 'Clicks',
-            numeric: true,
-            cell: (c) => Text('${c.campaign.clicks}'),
-            sortValue: (c) => c.campaign.clicks,
-          ),
-          AppColumn(
-            label: 'Conversions',
-            numeric: true,
-            cell: (c) => Text('${c.campaign.conversions}'),
-            sortValue: (c) => c.campaign.conversions,
-          ),
-          AppColumn(
-            label: 'Revenue',
-            numeric: true,
-            cell: (c) =>
-                CurrencyText(c.attributedRevenue, currency: currency),
-            sortValue: (c) => c.attributedRevenue.minor,
-          ),
-          AppColumn(
-            label: 'ROI',
-            numeric: true,
-            cell: (c) => Text(c.roi == null
-                ? 'N/A'
-                : PercentFormatter.format(c.roi!)),
-            sortValue: (c) => c.roi ?? -1,
-          ),
-          AppColumn(
-            label: 'ROAS',
-            numeric: true,
-            cell: (c) => Text(PercentFormatter.roas(c.roas)),
-            sortValue: (c) => c.roas ?? -1,
+          const SizedBox(height: AppSpacing.md),
+          AppDataTable<CampaignPerformance>(
+            rows: top,
+            rowsPerPage: 10,
+            searchText: _campaignSearch,
+            searchableText: (c) =>
+                '${c.campaign.name} ${c.campaign.platform.label}',
+            emptyTitle: 'No campaign activity',
+            emptyMessage: 'Campaigns with spend will appear here.',
+            columns: [
+              AppColumn(
+                label: 'Campaign',
+                cell: (c) => Text(c.campaign.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                sortValue: (c) => c.campaign.name.toLowerCase(),
+              ),
+              AppColumn(
+                label: 'Platform',
+                cell: (c) => StatusBadge(
+                  label: c.campaign.platform.label,
+                  tone: BadgeTone.info,
+                ),
+                sortValue: (c) => c.campaign.platform.label,
+              ),
+              AppColumn(
+                label: 'Spend',
+                numeric: true,
+                cell: (c) => CurrencyText(c.spend, currency: currency),
+                sortValue: (c) => c.spend.minor,
+              ),
+              AppColumn(
+                label: 'Clicks',
+                numeric: true,
+                cell: (c) => Text('${c.campaign.clicks}'),
+                sortValue: (c) => c.campaign.clicks,
+              ),
+              AppColumn(
+                label: 'Conversions',
+                numeric: true,
+                cell: (c) => Text('${c.campaign.conversions}'),
+                sortValue: (c) => c.campaign.conversions,
+              ),
+              AppColumn(
+                label: 'Revenue',
+                numeric: true,
+                cell: (c) =>
+                    CurrencyText(c.attributedRevenue, currency: currency),
+                sortValue: (c) => c.attributedRevenue.minor,
+              ),
+              AppColumn(
+                label: 'ROI',
+                numeric: true,
+                cell: (c) => Text(c.roi == null
+                    ? 'N/A'
+                    : PercentFormatter.format(c.roi!)),
+                sortValue: (c) => c.roi ?? -1,
+              ),
+              AppColumn(
+                label: 'ROAS',
+                numeric: true,
+                cell: (c) => Text(PercentFormatter.roas(c.roas)),
+                sortValue: (c) => c.roas ?? -1,
+              ),
+            ],
           ),
         ],
       ),
