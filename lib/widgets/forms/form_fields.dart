@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
+import 'app_form.dart';
 
 /// A labelled wrapper placing a field label above its input, with an optional
 /// "required" asterisk.
@@ -104,6 +105,11 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hooks = FormHooksScope.maybeOf(context);
+    // Passwords never go into a draft.
+    if (hooks != null && controller != null && !obscureText && enabled) {
+      hooks.registerText(label, controller!);
+    }
     return LabeledField(
       label: label,
       isRequired: isRequired,
@@ -115,7 +121,12 @@ class AppTextField extends StatelessWidget {
         keyboardType: keyboardType,
         maxLines: obscureText ? 1 : maxLines,
         obscureText: obscureText,
-        onChanged: onChanged,
+        onChanged: hooks == null
+            ? onChanged
+            : (v) {
+                hooks.markDirty();
+                onChanged?.call(v);
+              },
         inputFormatters: inputFormatters,
         enabled: enabled,
         textInputAction: textInputAction,
@@ -134,8 +145,10 @@ class AppTextField extends StatelessWidget {
   }
 }
 
-/// A money input that only accepts numbers/decimals and shows a currency prefix.
-class AppMoneyField extends StatelessWidget {
+/// A money input that only accepts numbers/decimals and shows the currency
+/// symbol. Digits are grouped once you leave the field (1,25,000 for ₹,
+/// 125,000 otherwise); `Money.parse` and the validators ignore the commas.
+class AppMoneyField extends StatefulWidget {
   const AppMoneyField({
     super.key,
     required this.label,
@@ -156,21 +169,88 @@ class AppMoneyField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
 
   @override
+  State<AppMoneyField> createState() => _AppMoneyFieldState();
+}
+
+class _AppMoneyFieldState extends State<AppMoneyField> {
+  final _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocus);
+    // After the first frame: the form may be listening to this controller.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_focus.hasFocus) _regroup();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focus
+      ..removeListener(_onFocus)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onFocus() {
+    if (_focus.hasFocus) {
+      final c = widget.controller;
+      final plain = c.text.replaceAll(',', '');
+      if (plain != c.text) {
+        c.value = TextEditingValue(
+          text: plain,
+          selection: TextSelection.collapsed(offset: plain.length),
+        );
+      }
+    } else {
+      _regroup();
+    }
+  }
+
+  void _regroup() {
+    final c = widget.controller;
+    final grouped =
+        groupMoneyDigits(c.text, indian: widget.symbol.trim() == '₹');
+    if (grouped != c.text) c.text = grouped;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AppTextField(
-      label: label,
-      controller: controller,
-      isRequired: isRequired,
-      validator: validator,
-      helper: helper,
-      onChanged: onChanged,
-      prefixText: '$symbol ',
+      label: widget.label,
+      controller: widget.controller,
+      focusNode: _focus,
+      isRequired: widget.isRequired,
+      validator: widget.validator,
+      helper: widget.helper,
+      onChanged: widget.onChanged,
+      prefixText: '${widget.symbol} ',
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
       ],
     );
   }
+}
+
+/// "125000.5" → "1,25,000.5" ([indian]) or "125,000.5". Anything that isn't
+/// a plain number comes back unchanged.
+String groupMoneyDigits(String raw, {required bool indian}) {
+  final plain = raw.replaceAll(',', '').trim();
+  final m = RegExp(r'^(\d+)(\.\d*)?$').firstMatch(plain);
+  if (m == null) return raw;
+  final whole = m.group(1)!.replaceFirst(RegExp(r'^0+(?=\d)'), '');
+  final fraction = m.group(2) ?? '';
+  if (whole.length <= 3) return '$whole$fraction';
+  final last3 = whole.substring(whole.length - 3);
+  final rest = whole.substring(0, whole.length - 3);
+  final size = indian ? 2 : 3;
+  final groups = <String>[];
+  for (var end = rest.length; end > 0; end -= size) {
+    groups.insert(0, rest.substring((end - size).clamp(0, end), end));
+  }
+  return '${groups.join(',')},$last3$fraction';
 }
 
 /// A labelled dropdown.
@@ -207,7 +287,10 @@ class AppDropdown<T> extends StatelessWidget {
           for (final item in items)
             DropdownMenuItem<T>(value: item, child: Text(itemLabel(item))),
         ],
-        onChanged: onChanged,
+        onChanged: (v) {
+          FormHooksScope.maybeOf(context)?.markDirty();
+          onChanged(v);
+        },
       ),
     );
   }
@@ -287,7 +370,10 @@ class _AppSearchableDropdownState<T> extends State<AppSearchableDropdown<T>> {
         hintText: widget.hintText,
         menuHeight: 320,
         inputDecorationTheme: Theme.of(context).inputDecorationTheme,
-        onSelected: widget.onChanged,
+        onSelected: (v) {
+          FormHooksScope.maybeOf(context)?.markDirty();
+          widget.onChanged(v);
+        },
         dropdownMenuEntries: [
           for (final item in widget.items)
             DropdownMenuEntry<T>(value: item, label: widget.itemLabel(item)),
@@ -297,7 +383,8 @@ class _AppSearchableDropdownState<T> extends State<AppSearchableDropdown<T>> {
   }
 }
 
-/// A labelled date picker field.
+/// A labelled date picker field. Optional dates can be cleared; "Today"
+/// is one tap away, and the picker's pencil icon allows typing a date.
 class AppDateField extends StatelessWidget {
   const AppDateField({
     super.key,
@@ -320,6 +407,20 @@ class AppDateField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
+    final first = firstDate ?? DateTime(2015);
+    final last = lastDate ?? DateTime(2100);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final todayAllowed = !today.isBefore(DateUtils.dateOnly(first)) &&
+        !today.isAfter(DateUtils.dateOnly(last));
+    final isToday = value != null && DateUtils.isSameDay(value, today);
+
+    void set(DateTime? d) {
+      FormHooksScope.maybeOf(context)?.markDirty();
+      onChanged(d);
+    }
+
     return LabeledField(
       label: label,
       isRequired: isRequired,
@@ -327,24 +428,50 @@ class AppDateField extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
         onTap: () async {
+          final initial = value ?? (todayAllowed ? today : first);
           final picked = await showDatePicker(
             context: context,
-            initialDate: value ?? DateTime.now(),
-            firstDate: firstDate ?? DateTime(2015),
-            lastDate: lastDate ?? DateTime(2100),
+            initialDate: initial.isBefore(first)
+                ? first
+                : (initial.isAfter(last) ? last : initial),
+            firstDate: first,
+            lastDate: last,
           );
-          if (picked != null) onChanged(picked);
+          if (picked != null) set(picked);
         },
         child: InputDecorator(
-          decoration: const InputDecoration(
-            suffixIcon: Icon(Icons.calendar_today_outlined, size: 18),
+          decoration: InputDecoration(
+            prefixIcon: Icon(Icons.calendar_today_outlined,
+                size: 18, color: t.textSecondary),
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (todayAllowed && !isToday)
+                  TextButton(
+                    onPressed: () => set(today),
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      textStyle: const TextStyle(
+                          fontSize: 12.5, fontWeight: FontWeight.w600),
+                    ),
+                    child: const Text('Today'),
+                  ),
+                if (!isRequired && value != null)
+                  IconButton(
+                    tooltip: 'Clear date',
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.close, size: 18, color: t.textSecondary),
+                    onPressed: () => set(null),
+                  ),
+                const SizedBox(width: 4),
+              ],
+            ),
           ),
           child: Text(
             value == null ? 'Select date' : AppDate.format(value),
             style: TextStyle(
-              color: value == null
-                  ? context.tokens.textTertiary
-                  : context.tokens.textPrimary,
+              color: value == null ? t.textTertiary : t.textPrimary,
             ),
           ),
         ),

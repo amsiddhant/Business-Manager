@@ -74,22 +74,3 @@ class _KeepAliveState extends State<_KeepAlive>
     return widget.child;
   }
 }
-
-/// The pre-[AppPage] page body: everything built at once in one scroll view.
-/// Wraps routes that haven't moved to [AppPage] yet (removed once they all
-/// have).
-class LegacyScroll extends StatelessWidget {
-  const LegacyScroll({super.key, required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1400),
-        child: child,
-      ),
-    );
-  }
-}

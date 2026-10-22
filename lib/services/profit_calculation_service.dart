@@ -327,6 +327,43 @@ class ForecastPoint {
 
 /// Centralised financial calculation engine. All profit formulas live here so
 /// they are never duplicated across UI screens.
+/// Headline figures for a list of orders (the strip on the Orders page).
+class OrderListSummary {
+  const OrderListSummary({
+    required this.count,
+    required this.recognisedCount,
+    required this.units,
+    required this.revenue,
+    required this.grossProfit,
+    required this.refunds,
+    required this.refundedCount,
+    required this.cancelledCount,
+  });
+
+  /// Every order, whatever its status.
+  final int count;
+
+  /// Orders that count towards revenue (not cancelled).
+  final int recognisedCount;
+  final int units;
+
+  /// Recognised revenue, net of refunds.
+  final Money revenue;
+  final Money grossProfit;
+  final Money refunds;
+  final int refundedCount;
+  final int cancelledCount;
+
+  /// Recognised revenue per recognised order.
+  Money get averageOrderValue =>
+      recognisedCount == 0 ? Money.zero : revenue / recognisedCount;
+
+  /// Gross profit as a % of revenue; null without revenue.
+  double? get grossMargin => revenue.isZero
+      ? null
+      : grossProfit.minor / revenue.minor * 100;
+}
+
 class ProfitCalculationService {
   const ProfitCalculationService();
 
@@ -356,6 +393,36 @@ class ProfitCalculationService {
 
   int unitsSoldOf(Iterable<Order> orders) =>
       orders.fold(0, (sum, o) => sum + o.quantity);
+
+  /// The headline figures for [orders] as listed (no date filter): counts
+  /// by status, and recognised revenue, gross profit and refunds.
+  OrderListSummary summariseOrders(Iterable<Order> orders) {
+    var count = 0, recognised = 0, units = 0, refunded = 0, cancelled = 0;
+    var revenue = Money.zero, profit = Money.zero, refunds = Money.zero;
+    for (final o in orders) {
+      count++;
+      if (o.status == OrderStatus.cancelled) cancelled++;
+      if (o.isRefunded) {
+        refunded++;
+        refunds += o.effectiveRefund;
+      }
+      if (!o.isRecognised) continue;
+      recognised++;
+      units += o.quantity;
+      revenue += o.recognisedRevenue;
+      profit += o.recognisedGrossProfit;
+    }
+    return OrderListSummary(
+      count: count,
+      recognisedCount: recognised,
+      units: units,
+      revenue: revenue,
+      grossProfit: profit,
+      refunds: refunds,
+      refundedCount: refunded,
+      cancelledCount: cancelled,
+    );
+  }
 
   // ---- Marketing ------------------------------------------------------------
 

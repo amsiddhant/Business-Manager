@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/app_exception.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
@@ -10,7 +9,6 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
-import '../../models/app_user.dart';
 import '../../models/business.dart';
 import '../../models/campaign.dart';
 import '../../models/dealer.dart';
@@ -24,18 +22,18 @@ import '../../state/filter_controller.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/comment_thread.dart';
 import '../../widgets/common/currency_display.dart';
-import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/detail_widgets.dart';
-import '../../widgets/common/initials_avatar.dart';
-import '../../widgets/common/page_header.dart';
-import '../../widgets/common/search_field.dart';
-import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
+import '../../widgets/common/team_access_card.dart';
+import '../../widgets/data/app_data_grid.dart';
+import '../../widgets/layout/detail_page.dart';
+import '../../widgets/layout/kpi_strip.dart';
 import 'businesses_screen.dart';
 
-/// A full-screen business profile: identity + social links on the left, all
-/// mapped entities (products, campaigns, orders, expenses, dealers) scoped to
-/// this business, plus a team-access roster and a comment thread on the right.
+/// A full-screen business profile: identity, tenure and social links, the
+/// headline figures, every mapped entity (products, campaigns, orders,
+/// expenses, dealers) scoped to this business, a team-access roster, and a
+/// comment thread.
 ///
 /// Every mapped table is fed from the [DataController]'s already-access-scoped
 /// lists, so a viewer only ever sees data for businesses they can access.
@@ -52,44 +50,24 @@ class BusinessDetailScreen extends StatelessWidget {
     final filter = context.watch<FilterController>();
     final appState = context.watch<AppState>();
     final user = appState.currentUser;
+    void back() => context.go(Routes.businesses);
 
     if (data.loading && !data.loaded) {
-      return const Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          PageHeader(title: 'Business'),
-          SizedBox(height: 48),
-          LoadingView(),
-        ],
-      );
+      return DetailPage.loading(
+          title: 'Business', onBack: back, backLabel: 'Businesses');
     }
 
     final business = data.businessById(businessId);
     if (business == null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          PageHeader(
-            title: 'Business',
-            actions: [
-              OutlinedButton.icon(
-                onPressed: () => context.go(Routes.businesses),
-                icon: const Icon(Icons.arrow_back, size: 18),
-                label: const Text('Back to Businesses'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 48),
-          const EmptyView(
-            icon: Icons.search_off,
-            title: 'Business not found',
-            message:
-                'This business may have been removed or is not accessible.',
-          ),
-        ],
+      return DetailPage.notFound(
+        title: 'Business',
+        onBack: back,
+        backLabel: 'Businesses',
+        message: 'This business may have been removed or is not accessible.',
       );
     }
 
+    final t = context.tokens;
     final currency = business.currency;
     final products = data.productsFor(business.id);
     final campaigns = data.campaignsFor(business.id);
@@ -105,71 +83,195 @@ class BusinessDetailScreen extends StatelessWidget {
     );
 
     final canEdit = user?.can(Permission.editBusiness) ?? false;
-
-    final left = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _TenureBanner(business: business),
-        const SizedBox(height: AppSpacing.lg),
-        _ProfileCard(business: business),
-        const SizedBox(height: AppSpacing.lg),
-        _FinancialSummaryCard(
-          summary: summary,
-          currency: currency,
-          period: filter.periodLabel,
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _ProductsCard(products: products, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _CampaignsCard(campaigns: campaigns, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _OrdersCard(orders: orders, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _ExpensesCard(expenses: expenses, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _DealersCard(dealers: dealers, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _TeamAccessCard(business: business),
-      ],
-    );
+    final canArchive = user?.can(Permission.deleteBusiness) ?? false;
+    final canRestore = canEdit && BusinessActions.canRestore(business);
+    final canArchiveNow = canArchive && BusinessActions.canArchive(business);
+    final tenure = business.tenure(DateTime.now());
+    final period = filter.periodLabel;
+    String money(Money m) => MoneyFormatter.format(m, currency);
 
     final repo = appState.repository;
-    final right = DetailActivityColumn(
-      activityAt: business.lastActivityAt,
-      comments: business.comments,
-      canComment: canEdit,
-      onPost: (comment) async {
-        await repo.saveBusiness(
-          business.copyWith(comments: [...business.comments, comment]),
-          isNew: false,
-        );
-      },
-    );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        PageHeader(
-          title: business.name,
-          subtitle: '${business.id}'
-              '${business.type.isEmpty ? '' : ' · ${business.type}'}',
-          actions: [
-            OutlinedButton.icon(
-              onPressed: () => context.go(Routes.businesses),
-              icon: const Icon(Icons.arrow_back, size: 18),
-              label: const Text('Back'),
-            ),
-            if (canEdit)
-              ElevatedButton.icon(
-                onPressed: () => BusinessesScreen.openForm(context, business),
-                icon: const Icon(Icons.edit_outlined, size: 18),
-                label: const Text('Edit'),
-              ),
-          ],
+    return DetailPage(
+      title: business.name,
+      subtitle: '${business.id}'
+          '${business.type.isEmpty ? '' : ' · ${business.type}'}',
+      avatarName: business.name,
+      backLabel: 'Businesses',
+      onBack: back,
+      status: Wrap(
+        spacing: AppSpacing.xs,
+        runSpacing: AppSpacing.xs,
+        children: [
+          _LifecycleBadge(lifecycle: business.lifecycle),
+          if (business.status != EntityStatus.active)
+            StatusBadge.entity(business.status),
+        ],
+      ),
+      meta: [
+        if (business.type.isNotEmpty)
+          DetailMeta(Icons.category_outlined, business.type, tooltip: 'Type'),
+        DetailMeta(
+          business.isClosed
+              ? Icons.history_toggle_off
+              : Icons.timelapse_outlined,
+          tenure == null
+              ? 'No start date'
+              : (tenure.isToday ? 'Started today' : tenure.shortLabel),
+          tooltip: business.isClosed ? 'Operated for' : 'Trading for',
         ),
-        const SizedBox(height: AppSpacing.lg),
-        DetailTwoColumn(left: left, right: right),
+        DetailMeta(Icons.public, business.country.isEmpty
+            ? currency.name.toUpperCase()
+            : '${business.country} · ${currency.name.toUpperCase()}',
+            tooltip: 'Country and currency'),
+        if (business.website.trim().isNotEmpty)
+          DetailMeta(Icons.link, business.website.trim(),
+              tooltip: 'Open website',
+              onTap: () => openExternalUrl(business.website.trim())),
       ],
+      primaryAction: canEdit
+          ? FilledButton.icon(
+              onPressed: () => BusinessesScreen.openForm(context, business),
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('Edit'),
+            )
+          : null,
+      menu: [
+        if (canRestore)
+          DetailAction(
+            label: 'Restore business',
+            icon: Icons.unarchive_outlined,
+            onSelected: () => BusinessActions.restore(context, business),
+          ),
+        if (canArchiveNow)
+          DetailAction(
+            label: 'Archive business',
+            icon: Icons.archive_outlined,
+            destructive: true,
+            onSelected: () => BusinessActions.archive(context, business),
+          ),
+      ],
+      banner: BusinessActions.canRestore(business)
+          ? _HiddenBanner(
+              business: business,
+              onRestore: canRestore
+                  ? () => BusinessActions.restore(context, business)
+                  : null,
+            )
+          : null,
+      kpis: [
+        KpiItem(
+          label: 'Revenue',
+          value: money(summary.revenue),
+          icon: Icons.trending_up,
+          caption: period,
+        ),
+        KpiItem(
+          label: 'Product cost',
+          value: money(summary.productCost),
+          icon: Icons.inventory_2_outlined,
+        ),
+        KpiItem(
+          label: 'Marketing',
+          value: money(summary.marketingCost),
+          icon: Icons.campaign_outlined,
+        ),
+        KpiItem(
+          label: 'Operating exp.',
+          value: money(summary.operatingExpenses),
+          icon: Icons.receipt_long_outlined,
+        ),
+        KpiItem(
+          label: 'Gross profit',
+          value: money(summary.grossProfit),
+          icon: Icons.savings_outlined,
+          tone: summary.grossProfit.isNegative ? t.error : t.success,
+        ),
+        KpiItem(
+          label: 'Net profit',
+          value: money(summary.netProfit),
+          icon: Icons.account_balance_wallet_outlined,
+          tone: summary.netProfit.isNegative ? t.error : t.success,
+        ),
+        KpiItem(
+          label: 'Net margin',
+          value: PercentFormatter.format(summary.netMargin),
+          icon: Icons.percent,
+        ),
+        KpiItem(
+          label: 'Orders',
+          value: '${summary.orderCount}',
+          icon: Icons.shopping_cart_outlined,
+        ),
+      ],
+      activity: DetailActivityColumn(
+        activityAt: business.lastActivityAt,
+        comments: business.comments,
+        canComment: canEdit,
+        onPost: (comment) async {
+          await repo.saveBusiness(
+            business.copyWith(comments: [...business.comments, comment]),
+            isNew: false,
+          );
+        },
+      ),
+      children: [
+        _TenureBanner(business: business),
+        _ProfileCard(business: business),
+        _ProductsGrid(products: products, currency: currency),
+        _CampaignsGrid(campaigns: campaigns, currency: currency),
+        _OrdersGrid(orders: orders, currency: currency),
+        _ExpensesGrid(expenses: expenses, currency: currency),
+        _DealersGrid(dealers: dealers, currency: currency),
+        TeamAccessCard.business(business),
+      ],
+    );
+  }
+}
+
+/// A notice above the sections when the business is archived or inactive,
+/// with a one-tap Restore for users who may edit it.
+class _HiddenBanner extends StatelessWidget {
+  const _HiddenBanner({required this.business, required this.onRestore});
+
+  final Business business;
+  final VoidCallback? onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final archived = business.status == EntityStatus.archived;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+      decoration: BoxDecoration(
+        color: t.warningSurface,
+        borderRadius: BorderRadius.circular(AppSpacing.radius),
+        border: Border.all(color: t.warning.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(archived ? Icons.archive_outlined : Icons.visibility_off_outlined,
+              color: t.warning, size: 20),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              archived
+                  ? 'This business is archived and hidden from active views.'
+                  : 'This business is inactive and hidden from active views.',
+              style: TextStyle(fontSize: 13.5, color: t.textPrimary),
+            ),
+          ),
+          if (onRestore != null) ...[
+            const SizedBox(width: AppSpacing.md),
+            OutlinedButton.icon(
+              onPressed: onRestore,
+              icon: const Icon(Icons.unarchive_outlined, size: 18),
+              label: const Text('Restore'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -368,28 +470,6 @@ class _ProfileCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              InitialsAvatar(name: business.name, size: 48),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(business.name,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w700)),
-                    if (business.type.isNotEmpty)
-                      Text(business.type,
-                          style: TextStyle(
-                              fontSize: 13, color: context.tokens.textSecondary)),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
           DetailGrid(fields: fields),
           if (business.description.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
@@ -409,8 +489,7 @@ class _ProfileCard extends StatelessWidget {
                               fontSize: 12, color: context.tokens.textSecondary)),
                       const SizedBox(height: 2),
                       Text(business.description,
-                          style: const TextStyle(
-                              fontSize: 14, height: 1.4)),
+                          style: const TextStyle(fontSize: 14, height: 1.4)),
                     ],
                   ),
                 ),
@@ -420,7 +499,7 @@ class _ProfileCard extends StatelessWidget {
           ],
           if (social.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
-            Text('Social Media',
+            Text('Online presence',
                 style: TextStyle(
                     fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: AppSpacing.sm),
@@ -449,252 +528,142 @@ class _ProfileCard extends StatelessWidget {
   }
 }
 
-class _FinancialSummaryCard extends StatelessWidget {
-  const _FinancialSummaryCard({
-    required this.summary,
-    required this.currency,
-    required this.period,
-  });
-
-  final ProfitSummary summary;
-  final CurrencyCode currency;
-  final String period;
-
-  @override
-  Widget build(BuildContext context) {
-    final metrics = <_Metric>[
-      _Metric('Revenue', MoneyFormatter.format(summary.revenue, currency)),
-      _Metric('Product Cost',
-          MoneyFormatter.format(summary.productCost, currency)),
-      _Metric('Marketing',
-          MoneyFormatter.format(summary.marketingCost, currency)),
-      _Metric('Operating Exp.',
-          MoneyFormatter.format(summary.operatingExpenses, currency)),
-      _Metric('Gross Profit',
-          MoneyFormatter.format(summary.grossProfit, currency),
-          tone: summary.grossProfit.isNegative
-              ? context.tokens.error
-              : context.tokens.success),
-      _Metric('Net Profit', MoneyFormatter.format(summary.netProfit, currency),
-          tone: summary.netProfit.isNegative
-              ? context.tokens.error
-              : context.tokens.success),
-      _Metric('Net Margin', PercentFormatter.format(summary.netMargin)),
-      _Metric('Orders', '${summary.orderCount}'),
-    ];
-
-    return SectionCard(
-      title: 'Financial Summary',
-      subtitle: 'For $period',
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final columns = MediaQuery.sizeOf(context).width < 700 ? 2 : 4;
-          const gap = AppSpacing.md;
-          final tileWidth =
-              (constraints.maxWidth - gap * (columns - 1)) / columns;
-          return Wrap(
-            spacing: gap,
-            runSpacing: gap,
-            children: [
-              for (final m in metrics)
-                SizedBox(width: tileWidth, child: _MetricTile(metric: m)),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _Metric {
-  const _Metric(this.label, this.value, {this.tone});
-  final String label;
-  final String value;
-  final Color? tone;
-}
-
-class _MetricTile extends StatelessWidget {
-  const _MetricTile({required this.metric});
-  final _Metric metric;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: context.tokens.surfaceAlt,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(metric.label,
-              style: TextStyle(
-                  fontSize: 12, color: context.tokens.textSecondary)),
-          const SizedBox(height: 4),
-          Text(
-            metric.value,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: metric.tone ?? context.tokens.textPrimary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProductsCard extends StatefulWidget {
-  const _ProductsCard({required this.products, required this.currency});
+class _ProductsGrid extends StatelessWidget {
+  const _ProductsGrid({required this.products, required this.currency});
 
   final List<Product> products;
   final CurrencyCode currency;
 
   @override
-  State<_ProductsCard> createState() => _ProductsCardState();
-}
-
-class _ProductsCardState extends State<_ProductsCard> {
-  String _productSearch = '';
-
-  @override
   Widget build(BuildContext context) {
-    final products = widget.products;
-    final currency = widget.currency;
-    return SectionCard(
+    return AppDataGrid<Product>(
+      gridId: 'business.products',
       title: 'Products',
       subtitle: '${products.length} associated',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search products by name, price or status…',
-              onChanged: (v) => setState(() => _productSearch = v),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<Product>(
-            rows: products,
-            rowsPerPage: 5,
-            searchText: _productSearch,
-            searchableText: (p) =>
-                '${p.name} ${p.buyingPrice.minor} ${p.sellingPrice.minor} ${p.status.label}',
-            emptyTitle: 'No products',
-            emptyMessage: 'Products for this business will appear here.',
-            onRowTap: (p) => context.go(Routes.productDetailPath(p.id)),
-            columns: [
-              AppColumn(
-                label: 'Product',
-                cell: (p) => Text(p.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (p) => p.name.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Buying',
-                numeric: true,
-                cell: (p) => CurrencyText(p.buyingPrice, currency: currency),
-                sortValue: (p) => p.buyingPrice.minor,
-              ),
-              AppColumn(
-                label: 'Selling',
-                numeric: true,
-                cell: (p) => CurrencyText(p.sellingPrice, currency: currency),
-                sortValue: (p) => p.sellingPrice.minor,
-              ),
-              AppColumn(
-                label: 'Status',
-                cell: (p) => StatusBadge.entity(p.status),
-                sortValue: (p) => p.status.label,
-              ),
-            ],
-          ),
-        ],
-      ),
+      rows: products,
+      rowKey: (p) => p.id,
+      pageSize: 5,
+      exportName: 'business-products',
+      searchHint: 'Search products by name, price or status…',
+      searchText: (p) =>
+          '${p.name} ${p.buyingPrice.minor} ${p.sellingPrice.minor} ${p.status.label}',
+      emptyTitle: 'No products',
+      emptyMessage: 'Products for this business will appear here.',
+      emptyIcon: Icons.inventory_2_outlined,
+      onRowTap: (p) => context.go(Routes.productDetailPath(p.id)),
+      columns: [
+        GridColumn<Product>(
+          id: 'name',
+          label: 'Product',
+          flex: 2,
+          cardRole: CardRole.title,
+          cell: (p) => Text(p.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          sortValue: (p) => p.name.toLowerCase(),
+          exportValue: (p) => p.name,
+        ),
+        GridColumn<Product>(
+          id: 'buying',
+          label: 'Buying',
+          numeric: true,
+          cardRole: CardRole.metric,
+          cell: (p) => CurrencyText(p.buyingPrice, currency: currency),
+          sortValue: (p) => p.buyingPrice.minor,
+          exportValue: (p) => p.buyingPrice.major.toStringAsFixed(2),
+        ),
+        GridColumn<Product>(
+          id: 'selling',
+          label: 'Selling',
+          numeric: true,
+          cardRole: CardRole.metric,
+          cell: (p) => CurrencyText(p.sellingPrice, currency: currency),
+          sortValue: (p) => p.sellingPrice.minor,
+          exportValue: (p) => p.sellingPrice.major.toStringAsFixed(2),
+        ),
+        GridColumn<Product>(
+          id: 'status',
+          label: 'Status',
+          cardRole: CardRole.badge,
+          cell: (p) => StatusBadge.entity(p.status),
+          sortValue: (p) => p.status.label,
+          exportValue: (p) => p.status.label,
+        ),
+      ],
     );
   }
 }
 
-class _CampaignsCard extends StatefulWidget {
-  const _CampaignsCard({required this.campaigns, required this.currency});
+class _CampaignsGrid extends StatelessWidget {
+  const _CampaignsGrid({required this.campaigns, required this.currency});
 
   final List<Campaign> campaigns;
   final CurrencyCode currency;
 
   @override
-  State<_CampaignsCard> createState() => _CampaignsCardState();
-}
-
-class _CampaignsCardState extends State<_CampaignsCard> {
-  String _campaignSearch = '';
-
-  @override
   Widget build(BuildContext context) {
-    final campaigns = widget.campaigns;
-    final currency = widget.currency;
-    return SectionCard(
+    return AppDataGrid<Campaign>(
+      gridId: 'business.campaigns',
       title: 'Campaigns',
       subtitle: '${campaigns.length} associated',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search campaigns by name, platform or status…',
-              onChanged: (v) => setState(() => _campaignSearch = v),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<Campaign>(
-            rows: campaigns,
-            rowsPerPage: 5,
-            searchText: _campaignSearch,
-            searchableText: (c) =>
-                '${c.name} ${c.platform.label} ${c.amountInvested.minor} ${c.status.label}',
-            emptyTitle: 'No campaigns',
-            emptyMessage: 'Campaigns for this business will appear here.',
-            onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
-            columns: [
-              AppColumn(
-                label: 'Campaign',
-                cell: (c) => Text(c.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (c) => c.name.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Platform',
-                cell: (c) =>
-                    StatusBadge(label: c.platform.label, tone: BadgeTone.info),
-                sortValue: (c) => c.platform.label,
-              ),
-              AppColumn(
-                label: 'Spend',
-                numeric: true,
-                cell: (c) => CurrencyText(c.amountInvested, currency: currency),
-                sortValue: (c) => c.amountInvested.minor,
-              ),
-              AppColumn(
-                label: 'Status',
-                cell: (c) => StatusBadge.campaign(c.status),
-                sortValue: (c) => c.status.label,
-              ),
-            ],
-          ),
-        ],
-      ),
+      rows: campaigns,
+      rowKey: (c) => c.id,
+      pageSize: 5,
+      exportName: 'business-campaigns',
+      searchHint: 'Search campaigns by name, platform or status…',
+      searchText: (c) =>
+          '${c.name} ${c.platform.label} ${c.amountInvested.minor} ${c.status.label}',
+      emptyTitle: 'No campaigns',
+      emptyMessage: 'Campaigns for this business will appear here.',
+      emptyIcon: Icons.campaign_outlined,
+      onRowTap: (c) => context.go(Routes.campaignDetailPath(c.id)),
+      columns: [
+        GridColumn<Campaign>(
+          id: 'name',
+          label: 'Campaign',
+          flex: 2,
+          cardRole: CardRole.title,
+          cell: (c) => Text(c.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          sortValue: (c) => c.name.toLowerCase(),
+          exportValue: (c) => c.name,
+        ),
+        GridColumn<Campaign>(
+          id: 'platform',
+          label: 'Platform',
+          cardRole: CardRole.meta,
+          cell: (c) =>
+              StatusBadge(label: c.platform.label, tone: BadgeTone.info),
+          sortValue: (c) => c.platform.label,
+          exportValue: (c) => c.platform.label,
+        ),
+        GridColumn<Campaign>(
+          id: 'spend',
+          label: 'Spend',
+          numeric: true,
+          cardRole: CardRole.metric,
+          cell: (c) => CurrencyText(c.amountInvested, currency: currency),
+          sortValue: (c) => c.amountInvested.minor,
+          exportValue: (c) => c.amountInvested.major.toStringAsFixed(2),
+        ),
+        GridColumn<Campaign>(
+          id: 'status',
+          label: 'Status',
+          cardRole: CardRole.badge,
+          cell: (c) => StatusBadge.campaign(c.status),
+          sortValue: (c) => c.status.label,
+          exportValue: (c) => c.status.label,
+        ),
+      ],
     );
   }
 }
 
-class _OrdersCard extends StatefulWidget {
-  const _OrdersCard({required this.orders, required this.currency});
+class _OrdersGrid extends StatelessWidget {
+  const _OrdersGrid({required this.orders, required this.currency});
 
   final List<Order> orders;
   final CurrencyCode currency;
@@ -704,404 +673,206 @@ class _OrdersCard extends StatefulWidget {
       o.orderDate ?? o.audit.createdAt ?? _epoch;
 
   @override
-  State<_OrdersCard> createState() => _OrdersCardState();
-}
-
-class _OrdersCardState extends State<_OrdersCard> {
-  String _orderSearch = '';
-
-  @override
   Widget build(BuildContext context) {
-    final orders = widget.orders;
-    final currency = widget.currency;
-    final sorted = [...orders]
-      ..sort((a, b) =>
-          _OrdersCard._dateOf(b).compareTo(_OrdersCard._dateOf(a)));
-    return SectionCard(
+    final sorted = [...orders]..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
+    return AppDataGrid<Order>(
+      gridId: 'business.orders',
       title: 'Orders',
       subtitle: '${orders.length} total',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search orders by ID, product or status…',
-              onChanged: (v) => setState(() => _orderSearch = v),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<Order>(
-            rows: sorted,
-            rowsPerPage: 5,
-            searchText: _orderSearch,
-            searchableText: (o) =>
-                '${o.id} ${o.productName} ${AppDate.short(_OrdersCard._dateOf(o))} '
-                '${o.recognisedRevenue.minor} ${o.status.label}',
-            emptyTitle: 'No orders',
-            emptyMessage: 'Orders for this business will appear here.',
-            onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
-            columns: [
-              AppColumn(
-                label: 'Order ID',
-                cell: (o) => Text(o.id,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (o) => o.id,
-              ),
-              AppColumn(
-                label: 'Product',
-                cell: (o) => Text(o.productName),
-                sortValue: (o) => o.productName.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Date',
-                cell: (o) => Text(AppDate.short(_OrdersCard._dateOf(o))),
-                sortValue: (o) =>
-                    _OrdersCard._dateOf(o).millisecondsSinceEpoch,
-              ),
-              AppColumn(
-                label: 'Revenue',
-                numeric: true,
-                cell: (o) =>
-                    CurrencyText(o.recognisedRevenue, currency: currency),
-                sortValue: (o) => o.recognisedRevenue.minor,
-              ),
-              AppColumn(
-                label: 'Status',
-                cell: (o) => StatusBadge.order(o.status),
-                sortValue: (o) => o.status.label,
-              ),
-            ],
-          ),
-        ],
-      ),
+      rows: sorted,
+      rowKey: (o) => o.id,
+      pageSize: 5,
+      exportName: 'business-orders',
+      searchHint: 'Search orders by ID, product or status…',
+      searchText: (o) => '${o.id} ${o.productName} '
+          '${AppDate.short(_dateOf(o))} ${o.recognisedRevenue.minor} '
+          '${o.status.label}',
+      emptyTitle: 'No orders',
+      emptyMessage: 'Orders for this business will appear here.',
+      emptyIcon: Icons.receipt_long_outlined,
+      onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
+      columns: [
+        GridColumn<Order>(
+          id: 'id',
+          label: 'Order ID',
+          minWidth: 110,
+          cardRole: CardRole.subtitle,
+          cell: (o) => Text(o.id,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          sortValue: (o) => o.id,
+          exportValue: (o) => o.id,
+        ),
+        GridColumn<Order>(
+          id: 'product',
+          label: 'Product',
+          flex: 2,
+          cardRole: CardRole.title,
+          cell: (o) => Text(o.productName,
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          sortValue: (o) => o.productName.toLowerCase(),
+          exportValue: (o) => o.productName,
+        ),
+        GridColumn<Order>(
+          id: 'date',
+          label: 'Date',
+          minWidth: 110,
+          cardRole: CardRole.meta,
+          cell: (o) => Text(AppDate.short(_dateOf(o))),
+          sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
+          exportValue: (o) => AppDate.format(_dateOf(o)),
+        ),
+        GridColumn<Order>(
+          id: 'revenue',
+          label: 'Revenue',
+          numeric: true,
+          cardRole: CardRole.metric,
+          cell: (o) => CurrencyText(o.recognisedRevenue, currency: currency),
+          sortValue: (o) => o.recognisedRevenue.minor,
+          exportValue: (o) => o.recognisedRevenue.major.toStringAsFixed(2),
+        ),
+        GridColumn<Order>(
+          id: 'status',
+          label: 'Status',
+          minWidth: 120,
+          cardRole: CardRole.badge,
+          cell: (o) => StatusBadge.order(o.status),
+          sortValue: (o) => o.status.label,
+          exportValue: (o) => o.status.label,
+        ),
+      ],
     );
   }
 }
 
-class _ExpensesCard extends StatefulWidget {
-  const _ExpensesCard({required this.expenses, required this.currency});
+class _ExpensesGrid extends StatelessWidget {
+  const _ExpensesGrid({required this.expenses, required this.currency});
 
   final List<Expense> expenses;
   final CurrencyCode currency;
 
   @override
-  State<_ExpensesCard> createState() => _ExpensesCardState();
-}
-
-class _ExpensesCardState extends State<_ExpensesCard> {
-  String _expenseSearch = '';
-
-  @override
   Widget build(BuildContext context) {
-    final expenses = widget.expenses;
-    final currency = widget.currency;
-    return SectionCard(
+    return AppDataGrid<Expense>(
+      gridId: 'business.expenses',
       title: 'Expenses',
       subtitle: '${expenses.length} associated',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search expenses by name, category or frequency…',
-              onChanged: (v) => setState(() => _expenseSearch = v),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<Expense>(
-            rows: expenses,
-            rowsPerPage: 5,
-            searchText: _expenseSearch,
-            searchableText: (e) =>
-                '${e.name} ${e.category.label} ${e.amount.minor} ${e.frequency.label}',
-            emptyTitle: 'No expenses',
-            emptyMessage: 'Expenses for this business will appear here.',
-            onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
-            columns: [
-              AppColumn(
-                label: 'Expense',
-                cell: (e) => Text(e.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (e) => e.name.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Category',
-                cell: (e) => StatusBadge(
-                    label: e.category.label, tone: BadgeTone.neutral),
-                sortValue: (e) => e.category.label,
-              ),
-              AppColumn(
-                label: 'Amount',
-                numeric: true,
-                cell: (e) => CurrencyText(e.amount, currency: currency),
-                sortValue: (e) => e.amount.minor,
-              ),
-              AppColumn(
-                label: 'Frequency',
-                cell: (e) => Text(e.frequency.label),
-                sortValue: (e) => e.frequency.label,
-              ),
-            ],
-          ),
-        ],
-      ),
+      rows: expenses,
+      rowKey: (e) => e.id,
+      pageSize: 5,
+      exportName: 'business-expenses',
+      searchHint: 'Search expenses by name, category or frequency…',
+      searchText: (e) =>
+          '${e.name} ${e.category.label} ${e.amount.minor} ${e.frequency.label}',
+      emptyTitle: 'No expenses',
+      emptyMessage: 'Expenses for this business will appear here.',
+      emptyIcon: Icons.receipt_outlined,
+      onRowTap: (e) => context.go(Routes.expenseDetailPath(e.id)),
+      columns: [
+        GridColumn<Expense>(
+          id: 'name',
+          label: 'Expense',
+          flex: 2,
+          cardRole: CardRole.title,
+          cell: (e) => Text(e.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          sortValue: (e) => e.name.toLowerCase(),
+          exportValue: (e) => e.name,
+        ),
+        GridColumn<Expense>(
+          id: 'category',
+          label: 'Category',
+          cardRole: CardRole.badge,
+          cell: (e) =>
+              StatusBadge(label: e.category.label, tone: BadgeTone.neutral),
+          sortValue: (e) => e.category.label,
+          exportValue: (e) => e.category.label,
+        ),
+        GridColumn<Expense>(
+          id: 'amount',
+          label: 'Amount',
+          numeric: true,
+          cardRole: CardRole.metric,
+          cell: (e) => CurrencyText(e.amount, currency: currency),
+          sortValue: (e) => e.amount.minor,
+          exportValue: (e) => e.amount.major.toStringAsFixed(2),
+        ),
+        GridColumn<Expense>(
+          id: 'frequency',
+          label: 'Frequency',
+          cardRole: CardRole.meta,
+          cell: (e) => Text(e.frequency.label),
+          sortValue: (e) => e.frequency.label,
+          exportValue: (e) => e.frequency.label,
+        ),
+      ],
     );
   }
 }
 
-class _DealersCard extends StatefulWidget {
-  const _DealersCard({required this.dealers, required this.currency});
+class _DealersGrid extends StatelessWidget {
+  const _DealersGrid({required this.dealers, required this.currency});
 
   final List<Dealer> dealers;
   final CurrencyCode currency;
 
   @override
-  State<_DealersCard> createState() => _DealersCardState();
-}
-
-class _DealersCardState extends State<_DealersCard> {
-  String _dealerSearch = '';
-
-  @override
   Widget build(BuildContext context) {
-    final dealers = widget.dealers;
-    final currency = widget.currency;
-    return SectionCard(
+    return AppDataGrid<Dealer>(
+      gridId: 'business.dealers',
       title: 'Dealers',
       subtitle: '${dealers.length} associated',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search dealers by name, frequency or status…',
-              onChanged: (v) => setState(() => _dealerSearch = v),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<Dealer>(
-            rows: dealers,
-            rowsPerPage: 5,
-            searchText: _dealerSearch,
-            searchableText: (d) =>
-                '${d.name} ${d.cost.minor} ${d.costFrequency.label} ${d.status.label}',
-            emptyTitle: 'No dealers',
-            emptyMessage: 'Dealers for this business will appear here.',
-            onRowTap: (d) => context.go(Routes.dealerDetailPath(d.id)),
-            columns: [
-              AppColumn(
-                label: 'Dealer',
-                cell: (d) => Text(d.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (d) => d.name.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Cost',
-                numeric: true,
-                cell: (d) => CurrencyText(d.cost, currency: currency),
-                sortValue: (d) => d.cost.minor,
-              ),
-              AppColumn(
-                label: 'Frequency',
-                cell: (d) => Text(d.costFrequency.label),
-                sortValue: (d) => d.costFrequency.label,
-              ),
-              AppColumn(
-                label: 'Status',
-                cell: (d) => StatusBadge.entity(d.status),
-                sortValue: (d) => d.status.label,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The people with access to this business, grouped Owner / Admins / Users.
-///
-/// Enumerating user profiles is Owner-only in the Firestore rules, so for a
-/// non-owner viewer we gate the roster behind an Owner-only note rather than
-/// issuing a `list` query that would be rejected ("rules are not filters").
-class _TeamAccessCard extends StatefulWidget {
-  const _TeamAccessCard({required this.business});
-
-  final Business business;
-
-  @override
-  State<_TeamAccessCard> createState() => _TeamAccessCardState();
-}
-
-class _TeamAccessCardState extends State<_TeamAccessCard> {
-  Future<List<AppUser>>? _rosterFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    final appState = context.read<AppState>();
-    if (appState.currentUser?.isOwner ?? false) {
-      _rosterFuture = appState.repository.fetchUsersCached();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final appState = context.watch<AppState>();
-    final isOwnerViewer = appState.currentUser?.isOwner ?? false;
-
-    return SectionCard(
-      title: 'Team Access',
-      subtitle: 'Owners, admins & users with access to this business',
-      child: !isOwnerViewer
-          ? Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: Text(
-                'The team roster (admins & users) is visible to Owners only.',
-                style:
-                    TextStyle(fontSize: 12, color: context.tokens.textTertiary),
-              ),
-            )
-          : FutureBuilder<List<AppUser>>(
-              future: _rosterFuture,
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  );
-                }
-                if (snap.hasError) {
-                  return Padding(
-                    padding:
-                        const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                    child: Text(ErrorMapper.friendly(snap.error!),
-                        style: TextStyle(
-                            fontSize: 13, color: context.tokens.textSecondary)),
-                  );
-                }
-                final roster = snap.data ?? const <AppUser>[];
-                final b = widget.business;
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _RoleGroup(
-                      label: 'Owner',
-                      icon: Icons.shield_outlined,
-                      people:
-                          roster.where((u) => u.role == UserRole.owner).toList(),
-                    ),
-                    _RoleGroup(
-                      label: 'Admins',
-                      icon: Icons.admin_panel_settings_outlined,
-                      people: roster
-                          .where((u) =>
-                              u.role == UserRole.admin &&
-                              u.assignedBusinessIds.contains(b.id))
-                          .toList(),
-                    ),
-                    _RoleGroup(
-                      label: 'Users',
-                      icon: Icons.person_outline,
-                      people: roster
-                          .where((u) =>
-                              u.role == UserRole.user &&
-                              u.assignedBusinessIds.contains(b.id))
-                          .toList(),
-                    ),
-                  ],
-                );
-              },
-            ),
-    );
-  }
-}
-
-class _RoleGroup extends StatelessWidget {
-  const _RoleGroup({
-    required this.label,
-    required this.icon,
-    required this.people,
-  });
-
-  final String label;
-  final IconData icon;
-  final List<AppUser> people;
-
-  @override
-  Widget build(BuildContext context) {
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        tilePadding: EdgeInsets.zero,
-        childrenPadding: const EdgeInsets.only(left: AppSpacing.lg),
-        dense: true,
-        leading: Icon(icon, size: 18, color: context.tokens.textTertiary),
-        title: Text('$label (${people.length})',
-            style:
-                const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-        children: people.isEmpty
-            ? [
-                Padding(
-                  padding: EdgeInsets.only(
-                      left: AppSpacing.lg, bottom: AppSpacing.sm),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('None',
-                        style: TextStyle(
-                            fontSize: 12, color: context.tokens.textTertiary)),
-                  ),
-                ),
-              ]
-            : [for (final p in people) _PersonTile(person: p)],
-      ),
-    );
-  }
-}
-
-class _PersonTile extends StatelessWidget {
-  const _PersonTile({required this.person});
-
-  final AppUser person;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        children: [
-          InitialsAvatar(name: person.name, size: 28),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(person.name.isEmpty ? person.loginId : person.name,
-                    style: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.w500)),
-                if (person.email.isNotEmpty)
-                  Text(person.email,
-                      style: TextStyle(
-                          fontSize: 11, color: context.tokens.textTertiary)),
-              ],
-            ),
-          ),
-          StatusBadge.role(person.role),
-        ],
-      ),
+      rows: dealers,
+      rowKey: (d) => d.id,
+      pageSize: 5,
+      exportName: 'business-dealers',
+      searchHint: 'Search dealers by name, frequency or status…',
+      searchText: (d) =>
+          '${d.name} ${d.cost.minor} ${d.costFrequency.label} ${d.status.label}',
+      emptyTitle: 'No dealers',
+      emptyMessage: 'Dealers for this business will appear here.',
+      emptyIcon: Icons.handshake_outlined,
+      onRowTap: (d) => context.go(Routes.dealerDetailPath(d.id)),
+      columns: [
+        GridColumn<Dealer>(
+          id: 'name',
+          label: 'Dealer',
+          flex: 2,
+          cardRole: CardRole.title,
+          cell: (d) => Text(d.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          sortValue: (d) => d.name.toLowerCase(),
+          exportValue: (d) => d.name,
+        ),
+        GridColumn<Dealer>(
+          id: 'cost',
+          label: 'Cost',
+          numeric: true,
+          cardRole: CardRole.metric,
+          cell: (d) => CurrencyText(d.cost, currency: currency),
+          sortValue: (d) => d.cost.minor,
+          exportValue: (d) => d.cost.major.toStringAsFixed(2),
+        ),
+        GridColumn<Dealer>(
+          id: 'frequency',
+          label: 'Frequency',
+          cardRole: CardRole.meta,
+          cell: (d) => Text(d.costFrequency.label),
+          sortValue: (d) => d.costFrequency.label,
+          exportValue: (d) => d.costFrequency.label,
+        ),
+        GridColumn<Dealer>(
+          id: 'status',
+          label: 'Status',
+          cardRole: CardRole.badge,
+          cell: (d) => StatusBadge.entity(d.status),
+          sortValue: (d) => d.status.label,
+          exportValue: (d) => d.status.label,
+        ),
+      ],
     );
   }
 }

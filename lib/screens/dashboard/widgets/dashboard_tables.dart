@@ -9,10 +9,10 @@ import '../../../models/order.dart';
 import '../../../services/profit_calculation_service.dart';
 import '../../../widgets/common/app_card.dart';
 import '../../../widgets/common/currency_display.dart';
-import '../../../widgets/common/data_table_card.dart';
 import '../../../widgets/common/search_field.dart';
 import '../../../widgets/common/state_views.dart';
 import '../../../widgets/common/status_badge.dart';
+import '../../../widgets/data/app_data_grid.dart';
 
 /// How many rows a dashboard table shows.
 const kDashboardTableRows = 10;
@@ -80,49 +80,57 @@ class TopProductsTable extends StatelessWidget {
                 color: p.netProfit.isNegative ? t.error : t.textTertiary)),
       ),
       columns: [
-        AppColumn(
+        GridColumn(
+          id: 'product',
           label: 'Product',
           cell: (p) => Text(p.product.name,
               style: const TextStyle(fontWeight: FontWeight.w600)),
           sortValue: (p) => p.product.name.toLowerCase(),
         ),
-        AppColumn(
+        GridColumn(
+          id: 'orders',
           label: 'Orders',
           numeric: true,
           cell: (p) => Text('${p.orderCount}'),
           sortValue: (p) => p.orderCount,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'revenue',
           label: 'Revenue',
           numeric: true,
           cell: (p) => CurrencyText(p.revenue, currency: currency),
           sortValue: (p) => p.revenue.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'cost',
           label: 'Cost',
           numeric: true,
           cell: (p) => CurrencyText(p.productCost, currency: currency),
           sortValue: (p) => p.productCost.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'marketing',
           label: 'Marketing',
           numeric: true,
           cell: (p) => CurrencyText(p.marketingCost, currency: currency),
           sortValue: (p) => p.marketingCost.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'gross_profit',
           label: 'Gross Profit',
           numeric: true,
           cell: (p) => CurrencyText(p.grossProfit, currency: currency),
           sortValue: (p) => p.grossProfit.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'net_profit',
           label: 'Net Profit',
           numeric: true,
           cell: (p) => CurrencyText(p.netProfit, currency: currency),
           sortValue: (p) => p.netProfit.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'margin',
           label: 'Margin',
           numeric: true,
           cell: (p) => Text(PercentFormatter.format(p.margin)),
@@ -176,43 +184,50 @@ class RecentOrdersTable extends StatelessWidget {
         detail: StatusBadge.order(o.status),
       ),
       columns: [
-        AppColumn(
+        GridColumn(
+          id: 'order_id',
           label: 'Order ID',
           cell: (o) =>
               Text(o.id, style: const TextStyle(fontWeight: FontWeight.w600)),
           sortValue: (o) => o.id,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'product',
           label: 'Product',
           cell: (o) => Text(o.productName),
           sortValue: (o) => o.productName.toLowerCase(),
         ),
-        AppColumn(
+        GridColumn(
+          id: 'date',
           label: 'Date',
           cell: (o) => Text(AppDate.short(dateOf(o))),
           sortValue: (o) => dateOf(o).millisecondsSinceEpoch,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'revenue',
           label: 'Revenue',
           numeric: true,
           cell: (o) => CurrencyText(o.recognisedRevenue, currency: currency),
           sortValue: (o) => o.recognisedRevenue.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'cost',
           label: 'Cost',
           numeric: true,
           cell: (o) =>
               CurrencyText(o.recognisedProductCost, currency: currency),
           sortValue: (o) => o.recognisedProductCost.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'profit',
           label: 'Profit',
           numeric: true,
           cell: (o) =>
               CurrencyText(o.recognisedGrossProfit, currency: currency),
           sortValue: (o) => o.recognisedGrossProfit.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'status',
           label: 'Status',
           cell: (o) => StatusBadge.order(o.status),
           sortValue: (o) => o.status.label,
@@ -264,13 +279,15 @@ class CampaignPerformanceTable extends StatelessWidget {
                 TextStyle(fontSize: 12, color: context.tokens.textTertiary)),
       ),
       columns: [
-        AppColumn(
+        GridColumn(
+          id: 'campaign',
           label: 'Campaign',
           cell: (c) => Text(c.campaign.name,
               style: const TextStyle(fontWeight: FontWeight.w600)),
           sortValue: (c) => c.campaign.name.toLowerCase(),
         ),
-        AppColumn(
+        GridColumn(
+          id: 'platform',
           label: 'Platform',
           cell: (c) => StatusBadge(
             label: c.campaign.platform.label,
@@ -278,38 +295,44 @@ class CampaignPerformanceTable extends StatelessWidget {
           ),
           sortValue: (c) => c.campaign.platform.label,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'spend',
           label: 'Spend',
           numeric: true,
           cell: (c) => CurrencyText(c.spend, currency: currency),
           sortValue: (c) => c.spend.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'clicks',
           label: 'Clicks',
           numeric: true,
           cell: (c) => Text('${c.campaign.clicks}'),
           sortValue: (c) => c.campaign.clicks,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'conversions',
           label: 'Conversions',
           numeric: true,
           cell: (c) => Text('${c.campaign.conversions}'),
           sortValue: (c) => c.campaign.conversions,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'revenue',
           label: 'Revenue',
           numeric: true,
           cell: (c) => CurrencyText(c.attributedRevenue, currency: currency),
           sortValue: (c) => c.attributedRevenue.minor,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'roi',
           label: 'ROI',
           numeric: true,
           cell: (c) => Text(
               c.roi == null ? 'N/A' : PercentFormatter.format(c.roi!)),
           sortValue: (c) => c.roi ?? -1,
         ),
-        AppColumn(
+        GridColumn(
+          id: 'roas',
           label: 'ROAS',
           numeric: true,
           cell: (c) => Text(PercentFormatter.roas(c.roas)),
@@ -347,7 +370,7 @@ class _DashboardTable<T> extends StatefulWidget {
   /// Every row, in the table's default order.
   final List<T> rows;
   final String Function(T row) searchable;
-  final List<AppColumn<T>> columns;
+  final List<GridColumn<T>> columns;
   final Widget Function(T row) compact;
   final String emptyTitle;
   final String emptyMessage;
@@ -452,11 +475,11 @@ class _DashboardTableState<T> extends State<_DashboardTable<T>> {
             if (compact)
               _compactList(context, shown, pad)
             else
-              AppDataTable<T>(
+              AppDataGrid<T>(
                 rows: shown,
-                rowsPerPage: kDashboardTableRows,
-                searchText: '',
-                searchableText: widget.searchable,
+                showToolbar: false,
+                framed: false,
+                pageSize: kDashboardTableRows,
                 emptyTitle: widget.emptyTitle,
                 emptyMessage: widget.emptyMessage,
                 onRowTap: widget.onRowTap,

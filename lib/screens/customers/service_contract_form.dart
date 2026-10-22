@@ -11,6 +11,7 @@ import '../../models/customer.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
+import '../../widgets/forms/form_section.dart';
 
 /// Create/edit form for a customer's [ServiceContract], opened when a deal is
 /// marked "Successful". Captures the plan sold, billing cadence, base price and
@@ -181,6 +182,7 @@ class _ServiceContractFormDialogState
 
     return FormDialog(
       title: title,
+      icon: Icons.description_outlined,
       submitLabel: submitLabel,
       width: 600,
       onSubmit: _submit,
@@ -197,65 +199,82 @@ class _ServiceContractFormDialogState
               const FormGap(),
             ],
             _BusinessContextBanner(business: widget.business),
-            const FormGap(),
-            _BillingCycleToggle(
-              value: _cycle,
-              onChanged: (v) => setState(() => _cycle = v),
+            FormSection(
+              title: 'Plan & pricing',
+              icon: Icons.sell_outlined,
+              description: 'What was sold and how it is billed.',
+              children: [
+                _BillingCycleToggle(
+                  value: _cycle,
+                  onChanged: (v) => setState(() => _cycle = v),
+                ),
+                const FormGap(),
+                FormRow([
+                  AppDropdown<SubscriptionPlan>(
+                    label: 'Plan Name',
+                    value: _plan,
+                    isRequired: true,
+                    items: SubscriptionPlan.values,
+                    itemLabel: (p) => p.label,
+                    onChanged: (v) => setState(() => _plan = v ?? _plan),
+                  ),
+                  AppMoneyField(
+                    label: priceLabel,
+                    controller: _price,
+                    isRequired: true,
+                    symbol: _currency.symbol,
+                    validator: (v) =>
+                        Validators.nonNegativeNumber(v, field: 'Price'),
+                  ),
+                ]),
+                const SizedBox(height: AppSpacing.sm),
+                _OneTimeToggle(
+                  value: _priceOneTime,
+                  cycle: _cycle,
+                  onChanged: (v) => setState(() => _priceOneTime = v),
+                ),
+              ],
             ),
-            const FormGap(),
-            FormRow([
-              AppDropdown<SubscriptionPlan>(
-                label: 'Plan Name',
-                value: _plan,
-                isRequired: true,
-                items: SubscriptionPlan.values,
-                itemLabel: (p) => p.label,
-                onChanged: (v) => setState(() => _plan = v ?? _plan),
-              ),
-              AppMoneyField(
-                label: priceLabel,
-                controller: _price,
-                isRequired: true,
-                symbol: _currency.symbol,
-                validator: (v) => Validators.nonNegativeNumber(v, field: 'Price'),
-              ),
-            ]),
-            const SizedBox(height: AppSpacing.sm),
-            _OneTimeToggle(
-              value: _priceOneTime,
-              cycle: _cycle,
-              onChanged: (v) => setState(() => _priceOneTime = v),
+            FormSection(
+              title: 'Term',
+              icon: Icons.event_outlined,
+              children: [
+                FormRow([
+                  AppDateField(
+                    label: 'Date of Purchase',
+                    value: _purchaseDate,
+                    isRequired: true,
+                    onChanged: (v) => setState(() => _purchaseDate = v),
+                  ),
+                  AppDateField(
+                    label: 'Expiry Date',
+                    value: _expiryDate,
+                    firstDate: _purchaseDate,
+                    onChanged: (v) => setState(() => _expiryDate = v),
+                  ),
+                ]),
+              ],
             ),
-            const FormGap(),
-            FormRow([
-              AppDateField(
-                label: 'Date of Purchase',
-                value: _purchaseDate,
-                isRequired: true,
-                onChanged: (v) => setState(() => _purchaseDate = v),
-              ),
-              AppDateField(
-                label: 'Expiry Date',
-                value: _expiryDate,
-                firstDate: _purchaseDate,
-                onChanged: (v) => setState(() => _expiryDate = v),
-              ),
-            ]),
-            const FormGap(),
-            _AddOnsSection(
-              enabled: _hasAddOns,
-              onToggle: _toggleAddOns,
-              rows: _addOns,
-              currency: _currency,
-              onAdd: _addAddOn,
-              onRemove: _removeAddOn,
-            ),
-            const FormGap(),
-            AppTextField(
-              label: 'Comment',
-              controller: _comment,
-              maxLines: 3,
-              hintText: 'Notes about this contract (optional)',
+            FormSection(
+              title: 'Add-ons & notes',
+              icon: Icons.extension_outlined,
+              children: [
+                _AddOnsSection(
+                  enabled: _hasAddOns,
+                  onToggle: _toggleAddOns,
+                  rows: _addOns,
+                  currency: _currency,
+                  onAdd: _addAddOn,
+                  onRemove: _removeAddOn,
+                ),
+                const FormGap(),
+                AppTextField(
+                  label: 'Comment',
+                  controller: _comment,
+                  maxLines: 3,
+                  hintText: 'Notes about this contract (optional)',
+                ),
+              ],
             ),
             const FormGap(),
             _TotalBanner(

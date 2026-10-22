@@ -2,7 +2,7 @@
 ///
 /// Keep in step with `version:` in pubspec.yaml (`test/app_info_test.dart`
 /// fails if they drift).
-const kAppVersion = '1.3.0';
+const kAppVersion = '1.4.0';
 
 /// The build number after the `+` in pubspec.yaml.
-const kAppBuild = 4;
+const kAppBuild = 5;

@@ -20,6 +20,38 @@ class ReleaseNote {
 /// Every release, newest first. Add an entry with each version bump.
 const List<ReleaseNote> kReleaseNotes = [
   ReleaseNote(
+    version: '1.4.0',
+    date: 'October 2026',
+    title: 'Every page redesigned: smarter tables, easier forms',
+    highlights: [
+      'Every list and record page has a new look. Lists open with headline '
+          'figures for what you are looking at, and record pages put the key '
+          'numbers, status and actions right at the top.',
+      'Tables are far more powerful: one-tap status filters, filters on any '
+          'column, sorting, choosing and reordering columns, and saved views. '
+          'Totals at the bottom follow your filters.',
+      'Select several rows to change their status or delete them in one go.',
+      'Export downloads exactly what you see: your search, filters and '
+          'columns.',
+      'On a phone, tables turn into easy-to-read cards.',
+      'Forms open in a side panel (full screen on a phone) and are split into '
+          'clear sections you can jump between. If a save fails, the form lists '
+          'the fields that need attention.',
+      'Forms keep an unsaved draft of new records. Close by accident and you '
+          'will be offered your draft next time.',
+      'Amounts use your business\'s currency and are grouped as you type '
+          '(1,25,000). Date fields have Today and Clear buttons.',
+      'Press Ctrl+Enter (⌘+Enter on Mac) to save a form, and Esc to close it.',
+      'Duplicate an order to record a similar one in seconds. The order form '
+          'shows revenue, cost and profit as you type.',
+      'Forms suggest values from your own records, such as a product\'s last '
+          'and typical price. Nothing is filled in until you tap a '
+          'suggestion.',
+      'Archived and inactive businesses can be restored from the list or '
+          'the business page.',
+    ],
+  ),
+  ReleaseNote(
     version: '1.3.0',
     date: 'October 2026',
     title: 'A new dashboard, and an alerts center',

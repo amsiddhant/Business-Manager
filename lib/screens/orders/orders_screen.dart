@@ -19,34 +19,45 @@ import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
-import '../../widgets/common/data_table_card.dart';
 import '../../widgets/common/page_header.dart';
-import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
+import '../../widgets/forms/app_form.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
+import '../../widgets/forms/form_section.dart';
+import '../../widgets/forms/suggestion_chips.dart';
+import '../../services/profit_calculation_service.dart';
+import '../../services/smart/suggestion_service.dart';
+import '../../widgets/data/app_data_grid.dart';
 import '../../widgets/layout/app_page.dart';
+import '../../widgets/layout/kpi_strip.dart';
 
-/// Lists orders for the selected scope with full CRUD gated by permission.
+/// Lists orders for the selected scope with full CRUD gated by permission:
+/// headline figures, status quick filters, column filters, saved views,
+/// bulk status changes and deletes, and CSV export of the view.
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
 
+  /// Opens the order form: [existing] to edit, or a new order — prefilled
+  /// from [duplicateOf] when given.
   static Future<void> openForm(
-      BuildContext context, Order? existing, String? selectedBizId) async {
+      BuildContext context, Order? existing, String? selectedBizId,
+      {Order? duplicateOf}) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     if (existing == null && data.products.isEmpty) {
       showErrorSnack(context, 'Create a product before adding orders.');
       return;
     }
-    final saved = await showDialog<bool>(
+    final saved = await showAppForm<bool>(
       context: context,
       builder: (_) => _OrderFormDialog(
         existing: existing,
+        template: duplicateOf,
         repo: repo,
         allProducts: data.products,
         allCustomers: data.customers,
@@ -70,7 +81,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   static DateTime _dateOf(Order o) =>
       o.orderDate ?? o.audit.createdAt ?? _epoch;
 
-  String _search = '';
+  static const _service = ProfitCalculationService();
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +96,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     if (data.error != null && !data.loaded) {
       return AppPage(
         children: [
-          const PageHeader(title: 'Orders'),
+          const PageHeader(title: 'Orders', icon: Icons.receipt_long_outlined),
           const SizedBox(height: 48),
           ErrorView(message: data.error!, onRetry: () => data.refresh()),
         ],
@@ -98,97 +109,274 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final canCreate = user?.can(Permission.createOrder) ?? false;
     final canEdit = user?.can(Permission.editOrder) ?? false;
     final canDelete = user?.can(Permission.deleteOrder) ?? false;
+    final repo = appState.repository;
 
-    return AppPage(
-      children: [
-        PageHeader(
-          title: 'Orders',
-          subtitle: 'Record sales and track order revenue',
-          actions: [
-            if (canCreate)
-              ElevatedButton.icon(
-                onPressed: () => OrdersScreen.openForm(context, null, bizId),
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add Order'),
+    CurrencyCode currencyOf(Order o) => _currencyFor(data, o.businessId);
+    String customerOf(Order o) => o.customerReference.isEmpty
+        ? ''
+        : data.customerById(o.customerReference)?.name ?? o.customerReference;
+    String businessOf(Order o) => data.businessById(o.businessId)?.name ?? '';
+    // Figures are shown in the selected business's currency; INR for all.
+    final pageCurrency =
+        (bizId == null ? null : data.businessById(bizId))?.currency ??
+            CurrencyCode.inr;
+    String money(Money m) => MoneyFormatter.compact(m, pageCurrency);
+
+    final summary = _service.summariseOrders(orders);
+    final t = context.tokens;
+    final margin = summary.grossMargin;
+
+    final addButton = canCreate
+        ? FilledButton.icon(
+            onPressed: () => OrdersScreen.openForm(context, null, bizId),
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('Add Order'),
+          )
+        : null;
+
+    return AppPage.slivers(
+      slivers: [
+        SliverToBoxAdapter(
+          child: PageHeader(
+            title: 'Orders',
+            icon: Icons.receipt_long_outlined,
+            count: orders.length,
+            subtitle: 'Record sales and track order revenue',
+            actions: [?addButton],
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+        if (orders.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: KpiStrip(items: [
+              KpiItem(
+                label: 'Revenue',
+                value: money(summary.revenue),
+                icon: Icons.trending_up,
+                caption: 'Net of refunds',
+                tooltip: 'Recognised revenue of these orders: cancelled '
+                    'orders excluded, refunds subtracted.',
+              ),
+              KpiItem(
+                label: 'Gross profit',
+                value: money(summary.grossProfit),
+                icon: Icons.savings_outlined,
+                tone: summary.grossProfit.isNegative ? t.error : t.success,
+                caption: margin == null
+                    ? null
+                    : '${margin.toStringAsFixed(1)}% margin',
+                tooltip: 'Revenue minus product cost, for recognised orders.',
+              ),
+              KpiItem(
+                label: 'Orders',
+                value: '${summary.count}',
+                icon: Icons.receipt_long_outlined,
+                caption: summary.cancelledCount == 0
+                    ? '${summary.units} units sold'
+                    : '${summary.cancelledCount} cancelled',
+              ),
+              KpiItem(
+                label: 'Avg. order value',
+                value: money(summary.averageOrderValue),
+                icon: Icons.shopping_bag_outlined,
+                tooltip: 'Revenue ÷ orders that count towards revenue.',
+              ),
+              KpiItem(
+                label: 'Refunds',
+                value: money(summary.refunds),
+                icon: Icons.assignment_return_outlined,
+                tone: summary.refunds.isPositive ? t.warning : null,
+                caption: '${summary.refundedCount} returned',
+              ),
+            ]),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+        ],
+        SliverAppDataGrid<Order>(
+          gridId: 'orders',
+          rows: orders,
+          rowKey: (o) => o.id,
+          exportName: 'orders',
+          searchHint: 'Search by ID, product, customer or status…',
+          searchText: (o) => '${o.id} ${o.productName} ${o.customerReference} '
+              '${customerOf(o)} ${o.status.label}',
+          onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
+          quickFilters: [
+            for (final s in OrderStatus.values)
+              GridQuickFilter<Order>(
+                id: s.wire,
+                label: s.label,
+                test: (o) => o.status == s,
               ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        SearchField(
-          hintText: 'Search orders by ID, product, customer or status…',
-          onChanged: (v) => setState(() => _search = v),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        AppDataTable<Order>(
-          rows: orders,
-          searchText: _search,
-          onRowTap: (o) => context.go(Routes.orderDetailPath(o.id)),
-          searchableText: (o) =>
-              '${o.id} ${o.productName} ${o.customerReference} ${o.status.label}',
-          emptyTitle: 'No orders found',
+          bulkActions: [
+            if (canEdit)
+              GridBulkAction<Order>(
+                label: 'Change status',
+                icon: Icons.swap_horiz,
+                children: [
+                  for (final s in OrderStatus.values)
+                    if (s != OrderStatus.returned)
+                      GridBulkAction<Order>(
+                        label: s.label,
+                        icon: s.contributesToRevenue
+                            ? Icons.check_circle_outline
+                            : Icons.cancel_outlined,
+                        allowed: (o) => o.status != s,
+                        onRun: (context, rows) =>
+                            _bulkStatus(context, repo, rows, s),
+                      ),
+                ],
+              ),
+            if (canDelete)
+              GridBulkAction<Order>(
+                label: 'Delete',
+                icon: Icons.delete_outline,
+                destructive: true,
+                onRun: (context, rows) => _bulkDelete(context, repo, rows),
+              ),
+          ],
+          emptyTitle: 'No orders yet',
+          emptyIcon: Icons.receipt_long_outlined,
           emptyMessage: canCreate
               ? 'Record your first order to start tracking revenue.'
               : 'Orders will appear here once added.',
-          emptyAction: canCreate
-              ? ElevatedButton.icon(
-                  onPressed: () => OrdersScreen.openForm(context, null, bizId),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add Order'),
-                )
-              : null,
+          emptyAction: addButton,
           columns: [
-            AppColumn(
+            GridColumn(
+              id: 'id',
               label: 'Order ID',
+              pinned: true,
+              cardRole: CardRole.subtitle,
+              minWidth: 110,
               cell: (o) => Text(o.id,
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               sortValue: (o) => o.id,
+              exportValue: (o) => o.id,
             ),
-            AppColumn(
+            GridColumn(
+              id: 'product',
               label: 'Product',
-              cell: (o) => Text(o.productName),
+              flex: 2,
+              cardRole: CardRole.title,
+              cell: (o) => Text(o.productName,
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
               sortValue: (o) => o.productName.toLowerCase(),
+              exportValue: (o) => o.productName,
+              filter: GridFilter.choice((o) => o.productName),
             ),
-            AppColumn(
+            GridColumn(
+              id: 'customer',
+              label: 'Customer',
+              flex: 2,
+              cardRole: CardRole.meta,
+              cell: (o) {
+                final name = customerOf(o);
+                return Text(name.isEmpty ? '—' : name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: name.isEmpty
+                        ? TextStyle(color: context.tokens.textTertiary)
+                        : null);
+              },
+              sortValue: (o) => customerOf(o).toLowerCase(),
+              exportValue: customerOf,
+              filter: GridFilter.choice(
+                  (o) => customerOf(o).isEmpty ? 'No customer' : customerOf(o)),
+            ),
+            GridColumn(
+              id: 'business',
+              label: 'Business',
+              visibleByDefault: false,
+              cardRole: CardRole.meta,
+              cell: (o) => Text(businessOf(o),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              sortValue: (o) => businessOf(o).toLowerCase(),
+              exportValue: businessOf,
+              filter: GridFilter.choice(businessOf),
+            ),
+            GridColumn(
+              id: 'date',
               label: 'Date',
-              cell: (o) => Text(AppDate.short(_dateOf(o))),
+              cardRole: CardRole.meta,
+              minWidth: 110,
+              cell: (o) => Text(AppDate.format(_dateOf(o))),
               sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
+              exportValue: (o) => AppDate.format(_dateOf(o)),
+              filter: GridFilter.dateRange((o) => _dateOf(o)),
             ),
-            AppColumn(
+            GridColumn(
+              id: 'qty',
               label: 'Qty',
               numeric: true,
+              minWidth: 64,
+              cardRole: CardRole.meta,
               cell: (o) => Text('${o.quantity}'),
               sortValue: (o) => o.quantity,
+              exportValue: (o) => '${o.quantity}',
+              footer: (rows) => '${rows.fold<int>(0, (n, o) => n + o.quantity)}',
             ),
-            AppColumn(
+            GridColumn(
+              id: 'revenue',
               label: 'Revenue',
               numeric: true,
-              cell: (o) => _RevenueCell(
-                  order: o, currency: _currencyFor(data, o.businessId)),
+              cardRole: CardRole.metric,
+              tooltip: 'Recognised revenue, net of any refund',
+              cell: (o) => _RevenueCell(order: o, currency: currencyOf(o)),
               sortValue: (o) => o.recognisedRevenue.minor,
+              exportValue: (o) => o.recognisedRevenue.major.toStringAsFixed(2),
+              filter: GridFilter.numberRange((o) => o.recognisedRevenue.major),
+              footer: (rows) =>
+                  money(_service.summariseOrders(rows).revenue),
             ),
-            AppColumn(
+            GridColumn(
+              id: 'cost',
               label: 'Cost',
               numeric: true,
+              cardRole: CardRole.metric,
               cell: (o) => CurrencyText(o.recognisedProductCost,
-                  currency: _currencyFor(data, o.businessId)),
+                  currency: currencyOf(o)),
               sortValue: (o) => o.recognisedProductCost.minor,
+              exportValue: (o) =>
+                  o.recognisedProductCost.major.toStringAsFixed(2),
             ),
-            AppColumn(
+            GridColumn(
+              id: 'profit',
               label: 'Profit',
               numeric: true,
+              cardRole: CardRole.metric,
               cell: (o) => CurrencyText(o.recognisedGrossProfit,
-                  currency: _currencyFor(data, o.businessId)),
+                  currency: currencyOf(o)),
               sortValue: (o) => o.recognisedGrossProfit.minor,
+              exportValue: (o) =>
+                  o.recognisedGrossProfit.major.toStringAsFixed(2),
+              filter: GridFilter.numberRange(
+                  (o) => o.recognisedGrossProfit.major),
+              footer: (rows) =>
+                  money(_service.summariseOrders(rows).grossProfit),
             ),
-            AppColumn(
+            GridColumn(
+              id: 'status',
               label: 'Status',
+              cardRole: CardRole.badge,
+              minWidth: 120,
               cell: (o) => StatusBadge.order(o.status),
               sortValue: (o) => o.status.label,
+              exportValue: (o) => o.status.label,
+              filter: GridFilter.choice((o) => o.status.label,
+                  options: [for (final s in OrderStatus.values) s.label]),
             ),
-            AppColumn(
+            GridColumn(
+              id: 'actions',
               label: '',
+              pinned: true,
+              cardRole: CardRole.actions,
+              // Edit, More and Delete (48 px each) plus the cell padding.
+              minWidth: 2 * AppSpacing.md +
+                  48 * [canEdit, canEdit || canCreate, canDelete].where((b) => b).length,
               cell: (o) => _RowActions(
                 order: o,
+                canCreate: canCreate,
                 canEdit: canEdit,
                 canDelete: canDelete,
               ),
@@ -201,16 +389,86 @@ class _OrdersScreenState extends State<OrdersScreen> {
 
   static CurrencyCode _currencyFor(DataController data, String businessId) =>
       data.businessById(businessId)?.currency ?? CurrencyCode.inr;
+
+  static Future<void> _bulkStatus(BuildContext context, Repository repo,
+      List<Order> rows, OrderStatus status) async {
+    if (!status.contributesToRevenue) {
+      final ok = await showConfirmDialog(
+        context,
+        title: 'Cancel ${_plural(rows.length)}?',
+        message: 'Their revenue and product cost will be excluded from all '
+            'profit calculations.',
+        confirmLabel: 'Cancel orders',
+      );
+      if (!ok || !context.mounted) return;
+    }
+    await runGridBulk<Order>(
+      context,
+      rows: rows,
+      verb: 'Updating',
+      noun: 'orders',
+      describe: (o) => o.id,
+      task: (o) {
+        var updated = o.copyWith(status: status);
+        // A returned order moved to another status loses its refund.
+        if (o.isRefunded) updated = _withoutRefund(updated);
+        return repo.saveOrder(updated, isNew: false);
+      },
+    );
+  }
+
+  static Future<void> _bulkDelete(
+      BuildContext context, Repository repo, List<Order> rows) async {
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Delete ${_plural(rows.length)}?',
+      message: 'This removes them for everyone and cannot be easily undone.',
+    );
+    if (!ok || !context.mounted) return;
+    await runGridBulk<Order>(
+      context,
+      rows: rows,
+      verb: 'Deleting',
+      noun: 'orders',
+      describe: (o) => o.id,
+      task: (o) => repo.deleteOrder(o.id, known: o),
+    );
+  }
+
+  static String _plural(int n) => n == 1 ? '1 order' : '$n orders';
 }
+
+/// [order] without its recorded refund (copyWith can't null a field).
+Order _withoutRefund(Order order) => Order(
+      id: order.id,
+      businessId: order.businessId,
+      productId: order.productId,
+      productName: order.productName,
+      orderDate: order.orderDate,
+      quantity: order.quantity,
+      sellingCost: order.sellingCost,
+      discount: order.discount,
+      shippingRevenue: order.shippingRevenue,
+      otherRevenue: order.otherRevenue,
+      buyingCost: order.buyingCost,
+      marketingAllocation: order.marketingAllocation,
+      status: order.status,
+      customerReference: order.customerReference,
+      notes: order.notes,
+      comments: order.comments,
+      audit: order.audit,
+    );
 
 class _Loading extends StatelessWidget {
   const _Loading();
   @override
   Widget build(BuildContext context) => const AppPage(
         children: [
-          PageHeader(title: 'Orders'),
-          SizedBox(height: 48),
-          LoadingView(),
+          PageHeader(title: 'Orders', icon: Icons.receipt_long_outlined),
+          SizedBox(height: AppSpacing.lg),
+          SkeletonCard(lines: 1, height: 88),
+          SizedBox(height: AppSpacing.lg),
+          SkeletonCard(lines: 8),
         ],
       );
 }
@@ -218,22 +476,24 @@ class _Loading extends StatelessWidget {
 class _RowActions extends StatelessWidget {
   const _RowActions({
     required this.order,
+    required this.canCreate,
     required this.canEdit,
     required this.canDelete,
   });
 
   final Order order;
+  final bool canCreate;
   final bool canEdit;
   final bool canDelete;
 
   @override
   Widget build(BuildContext context) {
-    if (!canEdit && !canDelete) return const SizedBox.shrink();
+    if (!canEdit && !canDelete && !canCreate) return const SizedBox.shrink();
     // Statuses that remove the order from recognised revenue/cost.
     final canCancel = canEdit && order.status != OrderStatus.cancelled;
     final canReturn = canEdit && order.status != OrderStatus.returned;
     final canReinstate = canEdit && !order.status.contributesToRevenue;
-    final hasMenu = canCancel || canReturn || canReinstate;
+    final hasMenu = canCreate || canCancel || canReturn || canReinstate;
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
@@ -251,6 +511,12 @@ class _RowActions extends StatelessWidget {
             icon: const Icon(Icons.more_vert, size: 18),
             onSelected: (action) => _runAction(context, action),
             itemBuilder: (_) => [
+              if (canCreate)
+                const PopupMenuItem(
+                  value: _OrderAction.duplicate,
+                  child: _ActionRow(
+                      icon: Icons.copy_all_outlined, label: 'Duplicate'),
+                ),
               if (canCancel)
                 const PopupMenuItem(
                   value: _OrderAction.cancel,
@@ -284,34 +550,57 @@ class _RowActions extends StatelessWidget {
 
   Future<void> _runAction(BuildContext context, _OrderAction action) async {
     switch (action) {
+      case _OrderAction.duplicate:
+        await OrderActions.duplicate(context, order);
       case _OrderAction.cancel:
-        await _changeStatus(
-          context,
-          OrderStatus.cancelled,
-          title: 'Cancel order?',
-          message: 'Cancel order ${order.id}? Its revenue and product cost '
-              'will be excluded from all profit calculations.',
-          success: 'Order cancelled — excluded from revenue',
-        );
+        await OrderActions.cancel(context, order);
       case _OrderAction.returnRefund:
-        await _returnRefund(context);
+        await OrderActions.returnRefund(context, order);
       case _OrderAction.reinstate:
-        // Clear any recorded refund so reinstated revenue/cost count in full.
-        await _changeStatus(
-          context,
-          OrderStatus.confirmed,
-          title: 'Reinstate order?',
-          message: 'Reinstate order ${order.id} as confirmed? Its revenue and '
-              'product cost will count towards profit calculations again.',
-          success: 'Order reinstated — counted in revenue',
-          clearRefund: true,
-        );
+        await OrderActions.reinstate(context, order);
     }
   }
 
+  Future<void> _delete(BuildContext context) =>
+      OrderActions.delete(context, order);
+}
+
+/// The single-order actions, shared by the list rows and the detail page.
+/// Each asks for confirmation, saves, and reports the outcome in a snack.
+class OrderActions {
+  OrderActions._();
+
+  static Future<void> duplicate(BuildContext context, Order order) =>
+      OrdersScreen.openForm(context, null, order.businessId,
+          duplicateOf: order);
+
+  static Future<void> cancel(BuildContext context, Order order) =>
+      _changeStatus(
+        context,
+        order,
+        OrderStatus.cancelled,
+        title: 'Cancel order?',
+        message: 'Cancel order ${order.id}? Its revenue and product cost '
+            'will be excluded from all profit calculations.',
+        success: 'Order cancelled — excluded from revenue',
+      );
+
+  /// Clears any recorded refund so reinstated revenue/cost count in full.
+  static Future<void> reinstate(BuildContext context, Order order) =>
+      _changeStatus(
+        context,
+        order,
+        OrderStatus.confirmed,
+        title: 'Reinstate order?',
+        message: 'Reinstate order ${order.id} as confirmed? Its revenue and '
+            'product cost will count towards profit calculations again.',
+        success: 'Order reinstated — counted in revenue',
+        clearRefund: true,
+      );
+
   /// Opens the refund dialog and, if confirmed, marks the order returned with
   /// the captured refund amount and date.
-  Future<void> _returnRefund(BuildContext context) async {
+  static Future<void> returnRefund(BuildContext context, Order order) async {
     final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final currency =
@@ -343,8 +632,9 @@ class _RowActions extends StatelessWidget {
     }
   }
 
-  Future<void> _changeStatus(
+  static Future<void> _changeStatus(
     BuildContext context,
+    Order order,
     OrderStatus status, {
     required String title,
     required String message,
@@ -362,27 +652,7 @@ class _RowActions extends StatelessWidget {
     if (ok != true) return;
     try {
       var updated = order.copyWith(status: status);
-      if (clearRefund) {
-        // copyWith can't null a field, so rebuild without the refund.
-        updated = Order(
-          id: updated.id,
-          businessId: updated.businessId,
-          productId: updated.productId,
-          productName: updated.productName,
-          orderDate: updated.orderDate,
-          quantity: updated.quantity,
-          sellingCost: updated.sellingCost,
-          discount: updated.discount,
-          shippingRevenue: updated.shippingRevenue,
-          otherRevenue: updated.otherRevenue,
-          buyingCost: updated.buyingCost,
-          marketingAllocation: updated.marketingAllocation,
-          status: updated.status,
-          customerReference: updated.customerReference,
-          notes: updated.notes,
-          audit: updated.audit,
-        );
-      }
+      if (clearRefund) updated = _withoutRefund(updated);
       await repo.saveOrder(updated, isNew: false);
       if (context.mounted) showSuccessSnack(context, success);
     } catch (e) {
@@ -390,25 +660,28 @@ class _RowActions extends StatelessWidget {
     }
   }
 
-  Future<void> _delete(BuildContext context) async {
+  /// Returns true when the order was deleted.
+  static Future<bool> delete(BuildContext context, Order order) async {
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
       title: 'Delete order?',
       message: 'Delete order ${order.id}? This action cannot be easily undone.',
     );
-    if (ok != true) return;
+    if (ok != true) return false;
     try {
       await repo.deleteOrder(order.id, known: order);
       if (context.mounted) showSuccessSnack(context, 'Order deleted');
+      return true;
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);
+      return false;
     }
   }
 }
 
 /// Quick status changes available from the orders row overflow menu.
-enum _OrderAction { cancel, returnRefund, reinstate }
+enum _OrderAction { duplicate, cancel, returnRefund, reinstate }
 
 /// A leading-icon + label row used inside the order actions popup menu.
 class _ActionRow extends StatelessWidget {
@@ -528,6 +801,7 @@ class _RefundDialogState extends State<_RefundDialog> {
             const FormGap(),
             FormRow([
               AppMoneyField(
+                symbol: c.symbol,
                 label: 'Refund Amount',
                 controller: _amount,
                 isRequired: true,
@@ -598,6 +872,7 @@ class _RefundDialogState extends State<_RefundDialog> {
 class _OrderFormDialog extends StatefulWidget {
   const _OrderFormDialog({
     required this.existing,
+    this.template,
     required this.repo,
     required this.allProducts,
     required this.allCustomers,
@@ -605,6 +880,9 @@ class _OrderFormDialog extends StatefulWidget {
   });
 
   final Order? existing;
+
+  /// A new order copies this one's product, figures, customer and notes.
+  final Order? template;
   final Repository repo;
   final List<Product> allProducts;
   final List<Customer> allCustomers;
@@ -634,10 +912,12 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
 
   Order? get _existing => widget.existing;
 
+  static const _suggest = DartSuggestionProvider();
+
   @override
   void initState() {
     super.initState();
-    final o = _existing;
+    final o = _existing ?? widget.template;
     _quantity = TextEditingController(text: '${o?.quantity ?? 1}');
     _selling = TextEditingController(
         text: o == null || o.sellingCost.isZero
@@ -660,8 +940,10 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
             ? ''
             : o.buyingCost.major.toString());
     _notes = TextEditingController(text: o?.notes ?? '');
-    _status = o?.status ?? OrderStatus.confirmed;
-    _orderDate = o?.orderDate ?? _existing?.audit.createdAt;
+    _status = _existing?.status ?? OrderStatus.confirmed;
+    _orderDate = _existing == null
+        ? (widget.template == null ? null : DateTime.now())
+        : _existing!.orderDate ?? _existing!.audit.createdAt;
     _productId = o?.productId ?? _initialProductId();
     // Resolve the stored customer reference against known customers. If it
     // matches a customer id, preselect it; otherwise keep it as raw text so a
@@ -755,118 +1037,198 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isNew = _existing == null;
+    final bizId = _selectedBusinessId;
+    final currency = context.select<DataController, CurrencyCode>((d) =>
+        (bizId == null ? null : d.businessById(bizId))?.currency ??
+        CurrencyCode.inr);
+    final symbol = currency.symbol;
+    final orders =
+        context.select<DataController, List<Order>>((d) => d.ordersFor(null));
+    final productId = _productId;
+    final prices = isNew && productId != null
+        ? _suggest.orderPrice(productId: productId, history: orders)
+        : const <Suggestion<Money>>[];
     return FormDialog(
-      title: isNew ? 'Add Order' : 'Edit Order',
+      title: isNew
+          ? (widget.template == null ? 'Add Order' : 'Duplicate Order')
+          : 'Edit Order',
+      subtitle: widget.template == null
+          ? null
+          : 'A new order, copied from ${widget.template!.id}',
+      icon: Icons.receipt_long_outlined,
+      draftKey: isNew && widget.template == null ? 'order.new' : null,
       onSubmit: _submit,
       child: Form(
         key: _formKey,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AppSearchableDropdown<String>(
-              label: 'Product',
-              isRequired: true,
-              value: _productId,
-              items: [for (final p in _scopedProducts()) p.id],
-              itemLabel: (id) => widget.allProducts
-                  .firstWhere((p) => p.id == id)
-                  .name,
-              onChanged: (v) {
-                setState(() {
-                  final prevBiz = _selectedBusinessId;
-                  _productId = v;
-                  // The product's business drives customer scoping — if it
-                  // changed, a previously picked customer may no longer belong.
-                  if (_selectedBusinessId != prevBiz &&
-                      _customerId != null &&
-                      !_scopedCustomers.any((c) => c.id == _customerId)) {
-                    _customerId = null;
-                  }
-                  if (isNew && v != null) {
-                    // Reset prefilled prices, then apply the new product's.
-                    _selling.clear();
-                    _buying.clear();
-                    _applyProductDefaults(v);
-                  }
-                });
-              },
+            FormSection(
+              title: 'Product & customer',
+              icon: Icons.inventory_2_outlined,
+              first: true,
+              children: [
+                AppSearchableDropdown<String>(
+                  label: 'Product',
+                  isRequired: true,
+                  value: _productId,
+                  items: [for (final p in _scopedProducts()) p.id],
+                  itemLabel: (id) => widget.allProducts
+                      .firstWhere((p) => p.id == id)
+                      .name,
+                  helper: isNew ? 'Prices are prefilled from the product.' : null,
+                  onChanged: (v) {
+                    setState(() {
+                      final prevBiz = _selectedBusinessId;
+                      _productId = v;
+                      // The product's business drives customer scoping — if it
+                      // changed, a previously picked customer may no longer belong.
+                      if (_selectedBusinessId != prevBiz &&
+                          _customerId != null &&
+                          !_scopedCustomers.any((c) => c.id == _customerId)) {
+                        _customerId = null;
+                      }
+                      if (isNew && v != null) {
+                        // Reset prefilled prices, then apply the new product's.
+                        _selling.clear();
+                        _buying.clear();
+                        _applyProductDefaults(v);
+                      }
+                    });
+                  },
+                ),
+                const FormGap(),
+                AppSearchableDropdown<String>(
+                  label: 'Customer Reference',
+                  // Optional — empty sentinel maps to "no customer".
+                  value: _customerId ?? '',
+                  items: ['', for (final c in _scopedCustomers) c.id],
+                  itemLabel: _customerLabel,
+                  onChanged: (v) => setState(
+                      () => _customerId = (v == null || v.isEmpty) ? null : v),
+                  helper: _customerHelper(),
+                ),
+              ],
             ),
-            const FormGap(),
-            FormRow([
-              AppTextField(
-                label: 'Quantity',
-                controller: _quantity,
-                isRequired: true,
-                keyboardType: TextInputType.number,
-                validator: (v) => Validators.positiveInteger(v),
-              ),
-              AppDateField(
-                label: 'Order Date',
-                value: _orderDate,
-                onChanged: (v) => setState(() => _orderDate = v),
-              ),
-            ]),
-            const FormGap(),
-            FormRow([
-              AppMoneyField(
-                label: 'Selling Cost (per unit)',
-                controller: _selling,
-                isRequired: true,
-                validator: (v) =>
-                    Validators.nonNegativeNumber(v, field: 'Selling cost'),
-              ),
-              AppMoneyField(
-                label: 'Buying Cost (per unit)',
-                controller: _buying,
-                validator: (v) => Validators.optionalNonNegativeNumber(v),
-                helper: 'Captured at time of order for accurate history.',
-              ),
-            ]),
-            const FormGap(),
-            FormRow([
-              AppMoneyField(
-                label: 'Discount',
-                controller: _discount,
-                validator: (v) => Validators.optionalNonNegativeNumber(v),
-              ),
-              AppMoneyField(
-                label: 'Shipping Revenue',
-                controller: _shipping,
-                validator: (v) => Validators.optionalNonNegativeNumber(v),
-              ),
-              AppMoneyField(
-                label: 'Other Revenue',
-                controller: _other,
-                validator: (v) => Validators.optionalNonNegativeNumber(v),
-              ),
-            ]),
-            const FormGap(),
-            FormRow([
-              AppDropdown<OrderStatus>(
-                label: 'Status',
-                value: _status,
-                items: OrderStatus.values,
-                itemLabel: (s) => s.label,
-                onChanged: (v) => setState(() => _status = v ?? _status),
-              ),
-              AppSearchableDropdown<String>(
-                label: 'Customer Reference',
-                // Optional — empty sentinel maps to "no customer".
-                value: _customerId ?? '',
-                items: ['', for (final c in _scopedCustomers) c.id],
-                itemLabel: _customerLabel,
-                onChanged: (v) => setState(
-                    () => _customerId = (v == null || v.isEmpty) ? null : v),
-                helper: _customerHelper(),
-              ),
-            ]),
-            const FormGap(),
-            AppTextField(label: 'Notes', controller: _notes, maxLines: 2),
+            FormSection(
+              title: 'Pricing',
+              icon: Icons.payments_outlined,
+              children: [
+                FormRow([
+                  AppTextField(
+                    label: 'Quantity',
+                    controller: _quantity,
+                    isRequired: true,
+                    keyboardType: TextInputType.number,
+                    validator: (v) => Validators.positiveInteger(v),
+                  ),
+                  AppMoneyField(
+                    symbol: symbol,
+                    label: 'Selling Cost (per unit)',
+                    controller: _selling,
+                    isRequired: true,
+                    validator: (v) =>
+                        Validators.nonNegativeNumber(v, field: 'Selling cost'),
+                  ),
+                ]),
+                if (prices.isNotEmpty)
+                  ListenableBuilder(
+                    listenable: _selling,
+                    builder: (context, _) => SuggestionChips<Money>(
+                      suggestions: prices,
+                      labelOf: (m) => MoneyFormatter.format(m, currency),
+                      current: Money.parse(_selling.text),
+                      onSelected: (m) => _selling.text = m.major.toString(),
+                    ),
+                  ),
+                const FormGap(),
+                FormRow([
+                  AppMoneyField(
+                    symbol: symbol,
+                    label: 'Buying Cost (per unit)',
+                    controller: _buying,
+                    validator: (v) => Validators.optionalNonNegativeNumber(v),
+                    helper: 'Captured at time of order for accurate history.',
+                  ),
+                  AppMoneyField(
+                    symbol: symbol,
+                    label: 'Discount',
+                    controller: _discount,
+                    validator: (v) => Validators.optionalNonNegativeNumber(v),
+                  ),
+                ]),
+                const FormGap(),
+                FormRow([
+                  AppMoneyField(
+                    symbol: symbol,
+                    label: 'Shipping Revenue',
+                    controller: _shipping,
+                    validator: (v) => Validators.optionalNonNegativeNumber(v),
+                  ),
+                  AppMoneyField(
+                    symbol: symbol,
+                    label: 'Other Revenue',
+                    controller: _other,
+                    validator: (v) => Validators.optionalNonNegativeNumber(v),
+                  ),
+                ]),
+                const FormGap(),
+                _LiveTotals(
+                  listenable: Listenable.merge(
+                      [_quantity, _selling, _buying, _discount, _shipping, _other]),
+                  preview: _preview,
+                  currency: currency,
+                ),
+              ],
+            ),
+            FormSection(
+              title: 'Status & date',
+              icon: Icons.flag_outlined,
+              children: [
+                FormRow([
+                  AppDropdown<OrderStatus>(
+                    label: 'Status',
+                    value: _status,
+                    items: OrderStatus.values,
+                    itemLabel: (s) => s.label,
+                    onChanged: (v) => setState(() => _status = v ?? _status),
+                  ),
+                  AppDateField(
+                    label: 'Order Date',
+                    value: _orderDate,
+                    onChanged: (v) => setState(() => _orderDate = v),
+                  ),
+                ]),
+              ],
+            ),
+            FormSection(
+              title: 'Notes',
+              icon: Icons.notes_outlined,
+              children: [
+                AppTextField(label: 'Notes', controller: _notes, maxLines: 3),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
+
+  /// The order as currently typed, for the live totals (status aside: the
+  /// preview shows what the order is worth when it counts).
+  Order _preview() => Order(
+        id: '',
+        businessId: '',
+        productId: '',
+        productName: '',
+        quantity: int.tryParse(_quantity.text.trim()) ?? 0,
+        sellingCost: Money.parse(_selling.text),
+        discount: Money.parse(_discount.text),
+        shippingRevenue: Money.parse(_shipping.text),
+        otherRevenue: Money.parse(_other.text),
+        buyingCost: Money.parse(_buying.text),
+        status: OrderStatus.confirmed,
+      );
 
   Future<bool> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return false;
@@ -905,5 +1267,70 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
       if (mounted) showErrorSnack(context, e);
       return false;
     }
+  }
+}
+
+/// Revenue, cost and profit of the order being typed, updated as you type.
+class _LiveTotals extends StatelessWidget {
+  const _LiveTotals({
+    required this.listenable,
+    required this.preview,
+    required this.currency,
+  });
+
+  final Listenable listenable;
+  final Order Function() preview;
+  final CurrencyCode currency;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return ListenableBuilder(
+      listenable: listenable,
+      builder: (context, _) {
+        final o = preview();
+        String fmt(Money m) => MoneyFormatter.format(m, currency);
+        Widget figure(String label, Money value, {Color? tone}) => Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(fontSize: 11.5, color: t.textSecondary)),
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(fmt(value),
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: tone ?? t.textPrimary,
+                            fontFeatures: const [
+                              FontFeature.tabularFigures()
+                            ])),
+                  ),
+                ],
+              ),
+            );
+        return Container(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: t.primarySurface,
+            borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+            border: Border.all(color: t.primary.withValues(alpha: 0.15)),
+          ),
+          child: Row(
+            children: [
+              figure('Total revenue', o.recognisedRevenue),
+              figure('Product cost', o.recognisedProductCost),
+              figure('Gross profit', o.recognisedGrossProfit,
+                  tone: o.recognisedGrossProfit.isNegative
+                      ? t.error
+                      : t.success),
+            ],
+          ),
+        );
+      },
+    );
   }
 }

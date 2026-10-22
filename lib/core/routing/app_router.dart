@@ -26,7 +26,6 @@ import '../../screens/users/users_screen.dart' deferred as users;
 import '../../screens/whats_new/whats_new_screen.dart';
 import '../../state/app_state.dart';
 import '../../widgets/common/state_views.dart';
-import '../../widgets/layout/app_page.dart';
 import '../../widgets/layout/app_shell.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_x.dart';
@@ -107,38 +106,33 @@ GoRouter buildRouter(AppState appState) {
           section(Routes.alerts, (_) => const AlertsScreen()),
           section(
             Routes.businesses,
-            (_) => const LegacyScroll(child: BusinessesScreen()),
-            detail: (id) =>
-                LegacyScroll(child: BusinessDetailScreen(businessId: id)),
+            (_) => const BusinessesScreen(),
+            detail: (id) => BusinessDetailScreen(businessId: id),
           ),
           section(
             Routes.products,
-            (_) => const LegacyScroll(child: ProductsScreen()),
-            detail: (id) =>
-                LegacyScroll(child: ProductDetailScreen(productId: id)),
+            (_) => const ProductsScreen(),
+            detail: (id) => ProductDetailScreen(productId: id),
           ),
           section(
             Routes.campaigns,
-            (_) => const LegacyScroll(child: CampaignsScreen()),
-            detail: (id) =>
-                LegacyScroll(child: CampaignDetailScreen(campaignId: id)),
+            (_) => const CampaignsScreen(),
+            detail: (id) => CampaignDetailScreen(campaignId: id),
           ),
           section(
             Routes.orders,
             (_) => const OrdersScreen(),
-            detail: (id) => LegacyScroll(child: OrderDetailScreen(orderId: id)),
+            detail: (id) => OrderDetailScreen(orderId: id),
           ),
           section(
             Routes.expenses,
-            (_) => const LegacyScroll(child: ExpensesScreen()),
-            detail: (id) =>
-                LegacyScroll(child: ExpenseDetailScreen(expenseId: id)),
+            (_) => const ExpensesScreen(),
+            detail: (id) => ExpenseDetailScreen(expenseId: id),
           ),
           section(
             Routes.dealers,
-            (_) => const LegacyScroll(child: DealersScreen()),
-            detail: (id) =>
-                LegacyScroll(child: DealerDetailScreen(dealerId: id)),
+            (_) => const DealersScreen(),
+            detail: (id) => DealerDetailScreen(dealerId: id),
           ),
           section(
             Routes.customers,
@@ -149,23 +143,22 @@ GoRouter buildRouter(AppState appState) {
             Routes.reports,
             (state) => DeferredPage(
               loader: reports.loadLibrary,
-              builder: () => LegacyScroll(
-                  child: reports.ReportsScreen(
-                      initialTab: state.uri.queryParameters['tab'])),
+              builder: () => reports.ReportsScreen(
+                  initialTab: state.uri.queryParameters['tab']),
             ),
           ),
           section(
             Routes.users,
             (_) => DeferredPage(
               loader: users.loadLibrary,
-              builder: () => LegacyScroll(child: users.UsersScreen()),
+              builder: () => users.UsersScreen(),
             ),
           ),
           section(
             Routes.settings,
             (_) => DeferredPage(
               loader: settings.loadLibrary,
-              builder: () => LegacyScroll(child: settings.SettingsScreen()),
+              builder: () => settings.SettingsScreen(),
             ),
           ),
           section(Routes.whatsNew, (_) => const WhatsNewScreen()),

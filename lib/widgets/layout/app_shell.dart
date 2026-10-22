@@ -66,7 +66,7 @@ class _AppShellState extends State<AppShell> {
       children: [
         AppTopBar(location: location, mobile: type == ScreenType.mobile),
         const WhatsNewPrompt(),
-        // Each page owns its scrolling (AppPage, or LegacyScroll).
+        // Each page owns its scrolling (AppPage / DetailPage).
         Expanded(child: widget.navigationShell),
       ],
     );

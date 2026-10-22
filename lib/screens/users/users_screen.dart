@@ -8,8 +8,6 @@ import '../../core/routing/create_requests.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
-import '../../core/validators.dart';
-import '../../data/repository.dart';
 import '../../models/access_request.dart';
 import '../../models/app_user.dart';
 import '../../models/business.dart';
@@ -17,15 +15,16 @@ import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/confirm_dialog.dart';
-import '../../widgets/common/data_table_card.dart';
-import '../../widgets/common/detail_widgets.dart';
 import '../../widgets/common/initials_avatar.dart';
 import '../../widgets/common/page_header.dart';
-import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
-import '../../widgets/forms/form_dialog.dart';
-import '../../widgets/forms/form_fields.dart';
+import '../../widgets/data/app_data_grid.dart';
+import '../../widgets/forms/app_form.dart';
+import '../../widgets/layout/app_page.dart';
+import '../../widgets/layout/kpi_strip.dart';
+import 'user_form_dialog.dart';
+import 'user_view_dialog.dart';
 
 /// Owner-only user management: approve pending access requests, create
 /// Admin/User accounts, edit profiles, assign businesses, tune per-user
@@ -39,12 +38,16 @@ class UsersScreen extends StatefulWidget {
 }
 
 class _UsersScreenState extends State<UsersScreen> {
-  late Future<_UsersData> _future;
+  _UsersData? _data;
+  Object? _error;
+
+  /// Bumped per load, so a slow older load never overwrites a newer one.
+  int _loadId = 0;
 
   @override
   void initState() {
     super.initState();
-    _future = _load();
+    _load();
     // "New user" from the top bar / palette / N key lands here.
     CreateRequests.instance.addListener(_onCreateRequest);
     WidgetsBinding.instance.addPostFrameCallback((_) => _onCreateRequest());
@@ -61,25 +64,35 @@ class _UsersScreenState extends State<UsersScreen> {
     _openForm(null, context.read<DataController>().selectableBusinesses);
   }
 
-  Future<_UsersData> _load() async {
+  Future<void> _load() async {
+    final id = ++_loadId;
     final repo = context.read<AppState>().repository;
-    final users = await repo.fetchUsers();
-    // Access requests are best-effort: a backend or ruleset without the
-    // collection should not break the whole screen.
-    var requests = const <AccessRequest>[];
     try {
-      requests = await repo.fetchAccessRequests();
-    } catch (_) {
-      requests = const [];
+      final users = await repo.fetchUsers();
+      // Access requests are best-effort: a backend or ruleset without the
+      // collection should not break the whole screen.
+      var requests = const <AccessRequest>[];
+      try {
+        requests = await repo.fetchAccessRequests();
+      } catch (_) {
+        requests = const [];
+      }
+      if (!mounted || id != _loadId) return;
+      setState(() {
+        _data = _UsersData(users: users, requests: requests);
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted || id != _loadId) return;
+      setState(() => _error = e);
     }
-    return _UsersData(users: users, requests: requests);
   }
 
-  // Use a block body: `setState(() => _future = _load())` would *return* the
-  // assigned Future from the closure, which setState rejects at runtime.
-  void _reload() => setState(() {
-        _future = _load();
-      });
+  /// Reloads in the background: the current list stays on screen meanwhile.
+  void _reload() {
+    setState(() => _error = null);
+    _load();
+  }
 
   bool _rebuildingIndex = false;
 
@@ -107,100 +120,316 @@ class _UsersScreenState extends State<UsersScreen> {
     final canManage = user?.can(Permission.manageUsers) ?? false;
 
     if (!canManage) {
-      return const Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          PageHeader(title: 'Users'),
-          SizedBox(height: 48),
-          EmptyView(
-            title: 'Restricted',
-            message: 'Only the owner can manage users.',
-            icon: Icons.lock_outline,
-          ),
-        ],
-      );
+      return const AppPage(children: [
+        PageHeader(title: 'Users', icon: Icons.group_outlined),
+        SizedBox(height: 48),
+        EmptyView(
+          title: 'Restricted',
+          message: 'Only the owner can manage users.',
+          icon: Icons.lock_outline,
+        ),
+      ]);
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        PageHeader(
-          title: 'Users',
-          subtitle: 'Manage team members, roles and access',
-          actions: [
-            if (appState.isFirebaseMode)
-              Tooltip(
-                message: 'Lets everyone sign in with their login ID. Run it '
-                    'once after deploying the latest security rules.',
-                child: OutlinedButton.icon(
-                  onPressed: _rebuildingIndex ? null : _rebuildSignInIndex,
-                  icon: const Icon(Icons.manage_search, size: 18),
-                  label: const Text('Rebuild sign-in index'),
-                ),
-              ),
-            ElevatedButton.icon(
-              onPressed: () => _openForm(null, data.selectableBusinesses),
-              icon: const Icon(Icons.person_add_alt, size: 18),
-              label: const Text('Add User'),
+    final loaded = _data;
+    final addButton = FilledButton.icon(
+      onPressed: () => _openForm(null, data.selectableBusinesses),
+      icon: const Icon(Icons.person_add_alt, size: 18),
+      label: const Text('Add User'),
+    );
+    final header = PageHeader(
+      title: 'Users',
+      icon: Icons.group_outlined,
+      count: loaded?.users.length,
+      subtitle: 'Manage team members, roles and access',
+      actions: [
+        if (appState.isFirebaseMode)
+          Tooltip(
+            message: 'Lets everyone sign in with their login ID. Run it '
+                'once after deploying the latest security rules.',
+            child: OutlinedButton.icon(
+              onPressed: _rebuildingIndex ? null : _rebuildSignInIndex,
+              icon: const Icon(Icons.manage_search, size: 18),
+              label: const Text('Rebuild sign-in index'),
+            ),
+          ),
+        addButton,
+      ],
+    );
+
+    if (loaded == null) {
+      return AppPage(children: [
+        header,
+        const SizedBox(height: AppSpacing.lg),
+        if (_error != null)
+          ErrorView(message: _error.toString(), onRetry: _reload)
+        else
+          const Padding(
+            padding: EdgeInsets.only(top: 32),
+            child: LoadingView(),
+          ),
+      ]);
+    }
+
+    final users = loaded.users;
+    final requests = loaded.requests;
+    final currentUid = user?.uid;
+    final businesses = data.businesses;
+
+    return AppPage.slivers(
+      slivers: [
+        SliverToBoxAdapter(child: header),
+        const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+        if (_error != null) ...[
+          SliverToBoxAdapter(
+            child: ErrorView(message: _error.toString(), onRetry: _reload),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+        ],
+        SliverToBoxAdapter(
+            child: KpiStrip(items: _kpis(context, users, requests))),
+        const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+        if (requests.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: _AccessRequestsSection(
+              requests: requests,
+              onApprove: (r) => _approveRequest(r, data.selectableBusinesses),
+              onDeny: _denyRequest,
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.lg)),
+        ],
+        SliverAppDataGrid<AppUser>(
+          gridId: 'users',
+          rows: users,
+          rowKey: (u) => u.uid,
+          exportName: 'users',
+          searchHint: 'Search by name, login ID, email, role, status or '
+              'business…',
+          searchText: (u) => '${u.name} ${u.email} ${u.loginId} '
+              '${u.role.label} ${u.status.label} '
+              '${_accessNames(u, businesses).join(' ')}',
+          onRowTap: (u) => _openView(u, businesses),
+          initialSort: const [GridSort('name')],
+          quickFilters: [
+            GridQuickFilter<AppUser>(
+              id: 'active',
+              label: 'Active',
+              icon: Icons.check_circle_outline,
+              test: (u) => u.isActive,
+            ),
+            GridQuickFilter<AppUser>(
+              id: 'disabled',
+              label: 'Disabled',
+              icon: Icons.block,
+              test: (u) => !u.isActive,
+            ),
+            GridQuickFilter<AppUser>(
+              id: 'admins',
+              label: 'Admins',
+              test: (u) => u.role == UserRole.admin,
+            ),
+            GridQuickFilter<AppUser>(
+              id: 'users',
+              label: 'Users',
+              test: (u) => u.role == UserRole.user,
             ),
           ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        FutureBuilder<_UsersData>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Padding(
-                padding: EdgeInsets.only(top: 32),
-                child: LoadingView(),
-              );
-            }
-            if (snapshot.hasError) {
-              return Padding(
-                padding: const EdgeInsets.only(top: 32),
-                child: ErrorView(
-                  message: snapshot.error.toString(),
-                  onRetry: _reload,
-                ),
-              );
-            }
-            final result = snapshot.data ?? const _UsersData(users: [], requests: []);
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (result.requests.isNotEmpty) ...[
-                  _AccessRequestsCard(
-                    requests: result.requests,
-                    businesses: data.selectableBusinesses,
-                    onApprove: (r) =>
-                        _approveRequest(r, data.selectableBusinesses),
-                    onDeny: _denyRequest,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                ],
-                _UsersTable(
-                  users: result.users,
-                  currentUid: user?.uid,
-                  businesses: data.businesses,
-                  onView: (u) => _openView(u, data.businesses),
-                  onEdit: (u) => _openForm(u, data.selectableBusinesses),
-                  onToggleStatus: _toggleStatus,
-                  onResetPassword: _resetPassword,
-                  onDelete: _deleteUser,
-                ),
-              ],
-            );
-          },
+          bulkActions: [
+            GridBulkAction<AppUser>(
+              label: 'Disable',
+              icon: Icons.block,
+              allowed: (u) => _mayChange(u, currentUid) && u.isActive,
+              onRun: (context, rows) => _bulkStatus(context, rows, false),
+            ),
+            GridBulkAction<AppUser>(
+              label: 'Enable',
+              icon: Icons.check_circle_outline,
+              allowed: (u) => _mayChange(u, currentUid) && !u.isActive,
+              onRun: (context, rows) => _bulkStatus(context, rows, true),
+            ),
+            GridBulkAction<AppUser>(
+              label: 'Delete',
+              icon: Icons.delete_outline,
+              destructive: true,
+              allowed: (u) => _mayChange(u, currentUid),
+              onRun: _bulkDelete,
+            ),
+          ],
+          emptyTitle: 'No users found',
+          emptyIcon: Icons.group_outlined,
+          emptyMessage: 'Add the people who work with you and choose what '
+              'they can see.',
+          emptyAction: addButton,
+          columns: [
+            GridColumn<AppUser>(
+              id: 'name',
+              label: 'User',
+              pinned: true,
+              flex: 3,
+              minWidth: 220,
+              cardRole: CardRole.title,
+              cell: (u) => _UserCell(user: u),
+              sortValue: (u) => u.name.toLowerCase(),
+              exportValue: (u) => u.name,
+            ),
+            GridColumn<AppUser>(
+              id: 'email',
+              label: 'Email',
+              visibleByDefault: false,
+              cardRole: CardRole.hidden,
+              cell: (u) => Text(u.email),
+              sortValue: (u) => u.email.toLowerCase(),
+              exportValue: (u) => u.email,
+            ),
+            GridColumn<AppUser>(
+              id: 'loginId',
+              label: 'Login ID',
+              cardRole: CardRole.meta,
+              cell: (u) => Text(u.loginId,
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              sortValue: (u) => u.loginId.toLowerCase(),
+              exportValue: (u) => u.loginId,
+            ),
+            GridColumn<AppUser>(
+              id: 'role',
+              label: 'Role',
+              minWidth: 100,
+              cardRole: CardRole.meta,
+              cell: (u) => StatusBadge.role(u.role),
+              sortValue: (u) => u.role.label,
+              exportValue: (u) => u.role.label,
+              filter: GridFilter.choice((u) => u.role.label,
+                  options: [for (final r in UserRole.values) r.label]),
+            ),
+            GridColumn<AppUser>(
+              id: 'access',
+              label: 'Businesses',
+              flex: 2,
+              minWidth: 180,
+              cardRole: CardRole.meta,
+              cell: (u) => _AccessChips(user: u, businesses: businesses),
+              sortValue: (u) => _accessLabel(u, businesses).toLowerCase(),
+              exportValue: (u) => _accessLabel(u, businesses),
+            ),
+            GridColumn<AppUser>(
+              id: 'lastLogin',
+              label: 'Last Login',
+              minWidth: 110,
+              cardRole: CardRole.meta,
+              cell: (u) => u.lastLoginAt == null
+                  ? Text('Never',
+                      style: TextStyle(color: context.tokens.textTertiary))
+                  : Text(AppDate.format(u.lastLoginAt)),
+              sortValue: (u) => u.lastLoginAt?.millisecondsSinceEpoch ?? 0,
+              exportValue: (u) =>
+                  u.lastLoginAt == null ? '' : AppDate.format(u.lastLoginAt),
+              filter: GridFilter.dateRange((u) => u.lastLoginAt),
+            ),
+            GridColumn<AppUser>(
+              id: 'status',
+              label: 'Status',
+              minWidth: 110,
+              cardRole: CardRole.badge,
+              cell: (u) => StatusBadge.account(u.status),
+              sortValue: (u) => u.status.label,
+              exportValue: (u) => u.status.label,
+              filter: GridFilter.choice((u) => u.status.label,
+                  options: [for (final s in AccountStatus.values) s.label]),
+            ),
+            GridColumn<AppUser>(
+              id: 'actions',
+              label: '',
+              pinned: true,
+              cardRole: CardRole.actions,
+              // View/Edit + More (48 px each) plus the cell padding.
+              minWidth: 2 * AppSpacing.md + 48 * 3,
+              cell: (u) => _RowActions(
+                user: u,
+                isSelf: u.uid == currentUid,
+                onView: () => _openView(u, businesses),
+                onEdit: () => _openForm(u, data.selectableBusinesses),
+                onToggleStatus: () => _toggleStatus(u),
+                onResetPassword: () => _resetPassword(u),
+                onDelete: () => _deleteUser(u),
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
 
+  /// The owner account and your own account are protected from bulk and
+  /// single disable/delete.
+  static bool _mayChange(AppUser u, String? currentUid) =>
+      !u.isOwner && u.uid != currentUid;
+
+  static List<String> _accessNames(AppUser u, List<Business> businesses) =>
+      u.isOwner
+          ? const ['All businesses']
+          : UserViewDialog.accessNames(u, businesses);
+
+  static String _accessLabel(AppUser u, List<Business> businesses) {
+    final names = _accessNames(u, businesses);
+    return names.isEmpty ? 'None' : names.join(', ');
+  }
+
+  List<KpiItem> _kpis(
+      BuildContext context, List<AppUser> users, List<AccessRequest> requests) {
+    final t = context.tokens;
+    final active = users.where((u) => u.isActive).length;
+    final disabled = users.length - active;
+    final admins = users.where((u) => u.role == UserRole.admin).length;
+    final owners = users.where((u) => u.role == UserRole.owner).length;
+    final staff = users.where((u) => u.role == UserRole.user).length;
+    final cutoff = DateTime.now().subtract(const Duration(days: 30));
+    final recent = users
+        .where((u) => u.lastLoginAt != null && u.lastLoginAt!.isAfter(cutoff))
+        .length;
+    return [
+      KpiItem(
+        label: 'Users',
+        value: '${users.length}',
+        icon: Icons.group_outlined,
+        caption: '$recent signed in this month',
+      ),
+      KpiItem(
+        label: 'Active',
+        value: '$active',
+        icon: Icons.check_circle_outline,
+        tone: t.success,
+        tooltip: 'Accounts that can sign in.',
+      ),
+      KpiItem(
+        label: 'Disabled',
+        value: '$disabled',
+        icon: Icons.block,
+        tone: disabled > 0 ? t.warning : null,
+        tooltip: 'Accounts blocked from signing in until re-enabled.',
+      ),
+      KpiItem(
+        label: 'Pending requests',
+        value: '${requests.length}',
+        icon: Icons.how_to_reg_outlined,
+        tone: requests.isNotEmpty ? t.primary : null,
+        caption: requests.isEmpty ? 'Nothing waiting' : 'Waiting for approval',
+        tooltip: 'People who signed in but have no profile yet.',
+      ),
+      KpiItem(
+        label: 'Admins',
+        value: '$admins',
+        icon: Icons.shield_outlined,
+        caption: '$owners owner · $staff users',
+      ),
+    ];
+  }
+
   Future<void> _openForm(AppUser? existing, List<Business> businesses) async {
     final repo = context.read<AppState>().repository;
-    final saved = await showDialog<bool>(
+    final saved = await showAppForm<bool>(
       context: context,
-      builder: (_) => _UserFormDialog(
+      builder: (_) => UserFormDialog(
         existing: existing,
         repo: repo,
         businesses: businesses,
@@ -218,25 +447,31 @@ class _UsersScreenState extends State<UsersScreen> {
     }
   }
 
-  /// Read-only detail modal. Owner-only screen, so it shows the full profile;
-  /// from here the owner can jump straight into editing (except for the owner
-  /// account itself, which isn't editable from this screen).
+  /// Read-only detail dialog. Owner-only screen, so it shows the full
+  /// profile; from here the owner can jump straight into editing (except for
+  /// the owner account itself, which isn't editable from this screen).
   Future<void> _openView(AppUser u, List<Business> businesses) async {
-    final action = await showDialog<_UserViewAction>(
+    final action = await showDialog<UserViewAction>(
       context: context,
       builder: (_) => UserViewDialog(user: u, businesses: businesses),
     );
-    if (action == _UserViewAction.edit && mounted) {
-      await _openForm(u, context.read<DataController>().selectableBusinesses);
+    if (!mounted) return;
+    switch (action) {
+      case UserViewAction.edit:
+        await _openForm(u, context.read<DataController>().selectableBusinesses);
+      case UserViewAction.resetPassword:
+        await _resetPassword(u);
+      case null:
+        break;
     }
   }
 
   Future<void> _approveRequest(
       AccessRequest request, List<Business> businesses) async {
     final repo = context.read<AppState>().repository;
-    final saved = await showDialog<bool>(
+    final saved = await showAppForm<bool>(
       context: context,
-      builder: (_) => _UserFormDialog(
+      builder: (_) => UserFormDialog(
         existing: null,
         request: request,
         repo: repo,
@@ -331,78 +566,246 @@ class _UsersScreenState extends State<UsersScreen> {
       if (mounted) showErrorSnack(context, e);
     }
   }
+
+  Future<void> _bulkStatus(
+      BuildContext context, List<AppUser> rows, bool enable) async {
+    final repo = this.context.read<AppState>().repository;
+    final ok = await showConfirmDialog(
+      context,
+      title: enable
+          ? 'Enable ${rows.length} user${rows.length == 1 ? '' : 's'}?'
+          : 'Disable ${rows.length} user${rows.length == 1 ? '' : 's'}?',
+      message: enable
+          ? 'They will be able to sign in again.'
+          : 'They will be signed out and blocked from logging in until '
+              're-enabled.',
+      confirmLabel: enable ? 'Enable' : 'Disable',
+      destructive: !enable,
+    );
+    if (!ok || !context.mounted) return;
+    await runGridBulk<AppUser>(
+      context,
+      rows: rows,
+      verb: enable ? 'Enabling' : 'Disabling',
+      noun: 'users',
+      describe: (u) => u.name,
+      task: (u) => repo.setUserStatus(
+          u.uid, enable ? AccountStatus.active : AccountStatus.disabled),
+    );
+    if (mounted) _reload();
+  }
+
+  Future<void> _bulkDelete(BuildContext context, List<AppUser> rows) async {
+    final repo = this.context.read<AppState>().repository;
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Delete ${rows.length} user${rows.length == 1 ? '' : 's'}?',
+      message: 'Permanently delete the selected profiles? This removes their '
+          'access. This action cannot be undone.',
+      confirmLabel: 'Delete',
+    );
+    if (!ok || !context.mounted) return;
+    await runGridBulk<AppUser>(
+      context,
+      rows: rows,
+      verb: 'Deleting',
+      noun: 'users',
+      describe: (u) => u.name,
+      task: (u) => repo.deleteUser(u.uid),
+    );
+    if (mounted) _reload();
+  }
 }
 
-/// Combined payload for the screen's single future.
+/// Combined payload for the screen's loads.
 class _UsersData {
   const _UsersData({required this.users, required this.requests});
   final List<AppUser> users;
   final List<AccessRequest> requests;
 }
 
+/// Avatar, name and email: the user's identity cell.
+class _UserCell extends StatelessWidget {
+  const _UserCell({required this.user});
+
+  final AppUser user;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final name = user.name.trim().isEmpty ? 'Unnamed user' : user.name;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InitialsAvatar(name: name, size: 34),
+        const SizedBox(width: AppSpacing.md),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(user.email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w400,
+                      color: t.textSecondary)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The businesses a user can open, as small chips (the first two, then "+n").
+class _AccessChips extends StatelessWidget {
+  const _AccessChips({required this.user, required this.businesses});
+
+  final AppUser user;
+  final List<Business> businesses;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    if (user.isOwner) {
+      return const _MiniChip('All businesses', primary: true);
+    }
+    final names = UserViewDialog.accessNames(user, businesses);
+    if (names.isEmpty) {
+      return Text('None', style: TextStyle(color: t.textTertiary));
+    }
+    const shown = 2;
+    return Wrap(
+      spacing: AppSpacing.xs,
+      runSpacing: AppSpacing.xs,
+      children: [
+        for (final n in names.take(shown)) _MiniChip(n),
+        if (names.length > shown)
+          Tooltip(
+            message: names.skip(shown).join(', '),
+            child: _MiniChip('+${names.length - shown}'),
+          ),
+      ],
+    );
+  }
+}
+
+class _MiniChip extends StatelessWidget {
+  const _MiniChip(this.label, {this.primary = false});
+
+  final String label;
+  final bool primary;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 150),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: primary ? t.primarySurface : t.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        border: Border.all(color: primary ? Colors.transparent : t.border),
+      ),
+      child: Text(label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: primary ? t.primary : t.textSecondary)),
+    );
+  }
+}
+
 /// Highlights identities that have signed in but have no profile yet, letting
 /// the Owner grant access against the *existing* account (avoiding the
 /// "email already in use" collision that blocks re-creating the account).
-class _AccessRequestsCard extends StatelessWidget {
-  const _AccessRequestsCard({
+class _AccessRequestsSection extends StatelessWidget {
+  const _AccessRequestsSection({
     required this.requests,
-    required this.businesses,
     required this.onApprove,
     required this.onDeny,
   });
 
   final List<AccessRequest> requests;
-  final List<Business> businesses;
   final ValueChanged<AccessRequest> onApprove;
   final ValueChanged<AccessRequest> onDeny;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.how_to_reg_outlined,
-                  size: 20, color: context.tokens.primary),
-              const SizedBox(width: AppSpacing.sm),
-              Text('Pending access requests',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600)),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: t.primarySurface,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                ),
+                child: Icon(Icons.how_to_reg_outlined,
+                    size: 18, color: t.primary),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Flexible(
+                child: Text('Pending access requests',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+              ),
               const SizedBox(width: AppSpacing.sm),
               StatusBadge(
                   label: '${requests.length}', tone: BadgeTone.primary),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: AppSpacing.xs),
           Text(
             'These people signed in but have no profile yet. Approve to grant '
             'access to their existing account.',
-            style: TextStyle(color: context.tokens.textSecondary, fontSize: 12.5),
+            style: TextStyle(color: t.textSecondary, fontSize: 12.5),
           ),
-          const SizedBox(height: AppSpacing.md),
-          for (final r in requests) ...[
-            Divider(height: 1, color: context.tokens.border),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: _RequestRow(
-                request: r,
-                onApprove: () => onApprove(r),
-                onDeny: () => onDeny(r),
-              ),
-            ),
-          ],
+          const SizedBox(height: AppSpacing.lg),
+          LayoutBuilder(builder: (context, c) {
+            const gap = AppSpacing.md;
+            final columns =
+                ((c.maxWidth + gap) / (340 + gap)).floor().clamp(1, 3);
+            final width = (c.maxWidth - gap * (columns - 1)) / columns;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: [
+                for (final r in requests)
+                  SizedBox(
+                    width: width,
+                    child: _RequestCard(
+                      request: r,
+                      onApprove: () => onApprove(r),
+                      onDeny: () => onDeny(r),
+                    ),
+                  ),
+              ],
+            );
+          }),
         ],
       ),
     );
   }
 }
 
-class _RequestRow extends StatelessWidget {
-  const _RequestRow({
+class _RequestCard extends StatelessWidget {
+  const _RequestCard({
     required this.request,
     required this.onApprove,
     required this.onDeny,
@@ -414,161 +817,68 @@ class _RequestRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = request.displayName.trim().isNotEmpty
+    final t = context.tokens;
+    final name = request.displayName.trim().isNotEmpty
         ? request.displayName.trim()
         : request.email;
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: t.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppSpacing.radius),
+        border: Border.all(color: t.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
-              Text(title,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text(
-                '${request.email} · requested ${AppDate.format(request.requestedAt)}',
-                style: TextStyle(
-                    fontSize: 12, color: context.tokens.textSecondary),
+              InitialsAvatar(name: name, size: 36),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(request.email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            TextStyle(fontSize: 12, color: t.textSecondary)),
+                    Text('Requested ${AppDate.format(request.requestedAt)}',
+                        style:
+                            TextStyle(fontSize: 11.5, color: t.textTertiary)),
+                  ],
+                ),
               ),
             ],
           ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        TextButton(onPressed: onDeny, child: const Text('Deny')),
-        const SizedBox(width: AppSpacing.sm),
-        ElevatedButton.icon(
-          onPressed: onApprove,
-          icon: const Icon(Icons.check, size: 16),
-          label: const Text('Approve'),
-        ),
-      ],
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(onPressed: onDeny, child: const Text('Deny')),
+              const SizedBox(width: AppSpacing.sm),
+              FilledButton.icon(
+                onPressed: onApprove,
+                icon: const Icon(Icons.check, size: 16),
+                label: const Text('Approve'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _UsersTable extends StatefulWidget {
-  const _UsersTable({
-    required this.users,
-    required this.currentUid,
-    required this.businesses,
-    required this.onView,
-    required this.onEdit,
-    required this.onToggleStatus,
-    required this.onResetPassword,
-    required this.onDelete,
-  });
+enum _UserMenuAction { view, resetPassword, toggleStatus, delete }
 
-  final List<AppUser> users;
-  final String? currentUid;
-  final List<Business> businesses;
-  final ValueChanged<AppUser> onView;
-  final ValueChanged<AppUser> onEdit;
-  final ValueChanged<AppUser> onToggleStatus;
-  final ValueChanged<AppUser> onResetPassword;
-  final ValueChanged<AppUser> onDelete;
-
-  @override
-  State<_UsersTable> createState() => _UsersTableState();
-}
-
-class _UsersTableState extends State<_UsersTable> {
-  String _search = '';
-
-  String _accessLabel(AppUser u) {
-    if (u.isOwner) return 'All businesses';
-    if (u.assignedBusinessIds.isEmpty) return 'None';
-    return u.assignedBusinessIds
-        .map((id) =>
-            widget.businesses
-                .where((b) => b.id == id)
-                .map((b) => b.name)
-                .firstOrNull ??
-            id)
-        .join(', ');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SearchField(
-          hintText: 'Search users by name, login ID, email, role or status…',
-          onChanged: (v) => setState(() => _search = v),
-        ),
-        const SizedBox(height: AppSpacing.md),
-        AppDataTable<AppUser>(
-          rows: widget.users,
-          searchText: _search,
-          searchableText: (u) =>
-              '${u.name} ${u.email} ${u.loginId} ${u.role.label} '
-              '${u.status.label} ${_accessLabel(u)}',
-          emptyTitle: 'No users found',
-          onRowTap: widget.onView,
-          columns: [
-            AppColumn(
-              label: 'Name',
-              cell: (u) => Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(u.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  Text(u.email,
-                      style: TextStyle(
-                          fontSize: 12, color: context.tokens.textSecondary)),
-                ],
-              ),
-              sortValue: (u) => u.name.toLowerCase(),
-            ),
-            AppColumn(
-              label: 'Login ID',
-              cell: (u) => Text(u.loginId),
-              sortValue: (u) => u.loginId.toLowerCase(),
-            ),
-            AppColumn(
-              label: 'Role',
-              cell: (u) => StatusBadge.role(u.role),
-              sortValue: (u) => u.role.label,
-            ),
-            AppColumn(
-              label: 'Access',
-              cell: (u) => ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 220),
-                child: Text(_accessLabel(u),
-                    maxLines: 2, overflow: TextOverflow.ellipsis),
-              ),
-              sortValue: (u) => _accessLabel(u),
-            ),
-            AppColumn(
-              label: 'Last Login',
-              cell: (u) => Text(AppDate.format(u.lastLoginAt)),
-              sortValue: (u) => u.lastLoginAt?.millisecondsSinceEpoch ?? 0,
-            ),
-            AppColumn(
-              label: 'Status',
-              cell: (u) => StatusBadge.account(u.status),
-              sortValue: (u) => u.status.label,
-            ),
-            AppColumn(
-              label: '',
-              cell: (u) => _RowActions(
-                user: u,
-                isSelf: u.uid == widget.currentUid,
-                onView: () => widget.onView(u),
-                onEdit: () => widget.onEdit(u),
-                onToggleStatus: () => widget.onToggleStatus(u),
-                onResetPassword: () => widget.onResetPassword(u),
-                onDelete: () => widget.onDelete(u),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
+/// A row's actions: Edit up front, the rest in a menu. The owner account is
+/// read-only (view only); you can't disable or delete your own account.
 class _RowActions extends StatelessWidget {
   const _RowActions({
     required this.user,
@@ -590,6 +900,7 @@ class _RowActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     // The owner account is not editable/disable-able from this screen, but it
     // can still be viewed.
     if (user.isOwner) {
@@ -597,15 +908,14 @@ class _RowActions extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
         children: [
+          Tooltip(
+            message: 'Owner account — read-only',
+            child: Icon(Icons.lock_outline, size: 16, color: t.textTertiary),
+          ),
           IconButton(
             tooltip: 'View',
             icon: const Icon(Icons.visibility_outlined, size: 18),
             onPressed: onView,
-          ),
-          Padding(
-            padding: EdgeInsets.only(left: AppSpacing.xs, right: AppSpacing.sm),
-            child: Text('Owner',
-                style: TextStyle(fontSize: 12, color: context.tokens.textTertiary)),
           ),
         ],
       );
@@ -615,606 +925,76 @@ class _RowActions extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          tooltip: 'View',
-          icon: const Icon(Icons.visibility_outlined, size: 18),
-          onPressed: onView,
-        ),
-        IconButton(
           tooltip: 'Edit',
           icon: const Icon(Icons.edit_outlined, size: 18),
           onPressed: onEdit,
         ),
-        IconButton(
-          tooltip: 'Send password reset',
-          icon: const Icon(Icons.lock_reset, size: 18),
-          onPressed: onResetPassword,
-        ),
-        IconButton(
-          tooltip: user.isActive ? 'Disable' : 'Enable',
-          icon: Icon(
-            user.isActive ? Icons.block : Icons.check_circle_outline,
-            size: 18,
-            color: user.isActive ? context.tokens.error : context.tokens.success,
-          ),
-          // Guard against disabling yourself.
-          onPressed: isSelf ? null : onToggleStatus,
-        ),
-        IconButton(
-          tooltip: isSelf ? 'You cannot delete your own account' : 'Delete',
-          icon: const Icon(Icons.delete_outline, size: 18),
-          color: context.tokens.error,
-          // Guard against deleting yourself.
-          onPressed: isSelf ? null : onDelete,
-        ),
-      ],
-    );
-  }
-}
-
-class _UserFormDialog extends StatefulWidget {
-  const _UserFormDialog({
-    required this.existing,
-    required this.repo,
-    required this.businesses,
-    this.request,
-  });
-
-  final AppUser? existing;
-
-  /// When set (and [existing] is null) the dialog is in "approve" mode: it
-  /// provisions a profile for an already-authenticated identity rather than
-  /// creating a fresh auth account.
-  final AccessRequest? request;
-  final Repository repo;
-  final List<Business> businesses;
-
-  @override
-  State<_UserFormDialog> createState() => _UserFormDialogState();
-}
-
-class _UserFormDialogState extends State<_UserFormDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _name;
-  late final TextEditingController _email;
-  late final TextEditingController _loginId;
-  late final TextEditingController _password;
-  late UserRole _role;
-  late Set<String> _assigned;
-  late Set<Permission> _granted;
-  late Set<Permission> _revoked;
-
-  AppUser? get _existing => widget.existing;
-  AccessRequest? get _request => widget.request;
-
-  /// Editing an existing profile.
-  bool get _isEdit => _existing != null;
-
-  /// Approving a pending request (auth account already exists).
-  bool get _isApprove => _existing == null && _request != null;
-
-  /// Creating a brand-new user (and a new auth account).
-  bool get _isCreate => _existing == null && _request == null;
-
-  @override
-  void initState() {
-    super.initState();
-    final u = _existing;
-    final r = _request;
-    _name = TextEditingController(text: u?.name ?? r?.displayName ?? '');
-    _email = TextEditingController(text: u?.email ?? r?.email ?? '');
-    _loginId = TextEditingController(text: u?.loginId ?? r?.email ?? '');
-    _password = TextEditingController();
-    _role = u?.role ?? UserRole.user;
-    _assigned = {...?u?.assignedBusinessIds};
-    _granted = {...?u?.grantedPermissions};
-    _revoked = {...?u?.revokedPermissions};
-  }
-
-  @override
-  void dispose() {
-    _name.dispose();
-    _email.dispose();
-    _loginId.dispose();
-    _password.dispose();
-    super.dispose();
-  }
-
-  /// Permissions that can be toggled as overrides — excludes owner-only
-  /// administration flags, which never apply to Admin/User accounts.
-  static const _tunable = <Permission>[
-    Permission.editProduct,
-    Permission.deleteProduct,
-    Permission.editCampaign,
-    Permission.deleteCampaign,
-    Permission.editOrder,
-    Permission.deleteOrder,
-    Permission.createExpense,
-    Permission.editExpense,
-    Permission.deleteExpense,
-    Permission.createDealer,
-    Permission.editDealer,
-    Permission.deleteDealer,
-    Permission.exportData,
-  ];
-
-  static const _permLabels = <Permission, String>{
-    Permission.editProduct: 'Edit products',
-    Permission.deleteProduct: 'Delete products',
-    Permission.editCampaign: 'Edit campaigns',
-    Permission.deleteCampaign: 'Delete campaigns',
-    Permission.editOrder: 'Edit orders',
-    Permission.deleteOrder: 'Delete orders',
-    Permission.createExpense: 'Add expenses',
-    Permission.editExpense: 'Edit expenses',
-    Permission.deleteExpense: 'Delete expenses',
-    Permission.createDealer: 'Add dealers',
-    Permission.editDealer: 'Edit dealers',
-    Permission.deleteDealer: 'Delete dealers',
-    Permission.exportData: 'Export data',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    // Effective set for preview = role defaults + granted − revoked.
-    final effective = Permissions.resolve(
-      _role,
-      granted: _granted,
-      revoked: _revoked,
-    );
-    final title = _isEdit
-        ? 'Edit User'
-        : _isApprove
-            ? 'Approve Access Request'
-            : 'Add User';
-    return FormDialog(
-      title: title,
-      submitLabel: _isApprove ? 'Grant Access' : 'Save',
-      onSubmit: _submit,
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppTextField(
-              label: 'Full Name',
-              controller: _name,
-              isRequired: true,
-              validator: (v) => Validators.required(v, field: 'Name'),
+        PopupMenuButton<_UserMenuAction>(
+          tooltip: 'More actions',
+          icon: const Icon(Icons.more_vert, size: 18),
+          onSelected: (a) {
+            switch (a) {
+              case _UserMenuAction.view:
+                onView();
+              case _UserMenuAction.resetPassword:
+                onResetPassword();
+              case _UserMenuAction.toggleStatus:
+                onToggleStatus();
+              case _UserMenuAction.delete:
+                onDelete();
+            }
+          },
+          itemBuilder: (_) => [
+            const PopupMenuItem(
+              value: _UserMenuAction.view,
+              child: _MenuRow(Icons.visibility_outlined, 'View'),
             ),
-            const FormGap(),
-            FormRow([
-              AppTextField(
-                label: 'Login ID',
-                controller: _loginId,
-                isRequired: true,
-                helper: 'Username the person types to sign in.',
-                validator: (v) => Validators.required(v, field: 'Login ID'),
-              ),
-              AppTextField(
-                label: 'Email',
-                controller: _email,
-                isRequired: true,
-                keyboardType: TextInputType.emailAddress,
-                enabled: _isCreate,
-                helper: _isCreate ? null : 'Email cannot be changed.',
-                validator: Validators.email,
-              ),
-            ]),
-            const FormGap(),
-            FormRow([
-              AppDropdown<UserRole>(
-                label: 'Role',
-                isRequired: true,
-                value: _role,
-                // Owner is never assignable from this screen.
-                items: const [UserRole.admin, UserRole.user],
-                itemLabel: (r) => r.label,
-                onChanged: (v) => setState(() => _role = v ?? _role),
-              ),
-              if (_isCreate)
-                AppTextField(
-                  label: 'Temporary Password',
-                  controller: _password,
-                  isRequired: true,
-                  obscureText: true,
-                  validator: Validators.password,
-                )
-              else
-                const SizedBox.shrink(),
-            ]),
-            const FormGap(),
-            LabeledField(
-              label: 'Assigned Businesses',
-              helper: 'Which businesses this user can access.',
-              child: widget.businesses.isEmpty
-                  ? Text('No businesses available.',
-                      style: TextStyle(
-                          fontSize: 12, color: context.tokens.textTertiary))
-                  : Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.sm,
-                      children: [
-                        for (final b in widget.businesses)
-                          FilterChip(
-                            label: Text(b.name),
-                            selected: _assigned.contains(b.id),
-                            onSelected: (sel) => setState(() {
-                              if (sel) {
-                                _assigned.add(b.id);
-                              } else {
-                                _assigned.remove(b.id);
-                              }
-                            }),
-                          ),
-                      ],
-                    ),
+            const PopupMenuItem(
+              value: _UserMenuAction.resetPassword,
+              child: _MenuRow(Icons.lock_reset, 'Send password reset'),
             ),
-            const FormGap(),
-            LabeledField(
-              label: 'Permission Overrides',
-              helper: 'Toggle capabilities on top of the role defaults.',
-              child: Wrap(
-                spacing: AppSpacing.sm,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  for (final p in _tunable)
-                    FilterChip(
-                      label: Text(_permLabels[p] ?? p.name),
-                      selected: effective.contains(p),
-                      onSelected: (sel) =>
-                          setState(() => _togglePermission(p, sel)),
-                    ),
-                ],
+            // Guard against disabling or deleting yourself.
+            PopupMenuItem(
+              value: _UserMenuAction.toggleStatus,
+              enabled: !isSelf,
+              child: _MenuRow(
+                user.isActive ? Icons.block : Icons.check_circle_outline,
+                user.isActive ? 'Disable' : 'Enable',
+                color: user.isActive ? t.error : t.success,
+              ),
+            ),
+            PopupMenuItem(
+              value: _UserMenuAction.delete,
+              enabled: !isSelf,
+              child: _MenuRow(
+                Icons.delete_outline,
+                isSelf ? 'You cannot delete your own account' : 'Delete',
+                color: t.error,
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// Records an override relative to the role default: if the desired state
-  /// matches the default we clear any override, otherwise we grant/revoke.
-  void _togglePermission(Permission p, bool desired) {
-    final defaultOn = Permissions.forRole(_role).contains(p);
-    _granted.remove(p);
-    _revoked.remove(p);
-    if (desired && !defaultOn) {
-      _granted.add(p);
-    } else if (!desired && defaultOn) {
-      _revoked.add(p);
-    }
-  }
-
-  Future<bool> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return false;
-    try {
-      if (_isCreate) {
-        final created = await widget.repo.createUser(
-          loginId: _loginId.text.trim(),
-          name: _name.text.trim(),
-          email: _email.text.trim(),
-          role: _role,
-          assignedBusinessIds: _assigned.toList(),
-          password: _password.text,
-        );
-        // Persist any permission overrides chosen at creation time.
-        if (_granted.isNotEmpty || _revoked.isNotEmpty) {
-          await widget.repo.saveUserProfile(
-            created.copyWith(
-              grantedPermissions: _granted,
-              revokedPermissions: _revoked,
-            ),
-            previous: created,
-          );
-        }
-      } else if (_isApprove) {
-        await widget.repo.approveAccessRequest(
-          _request!,
-          loginId: _loginId.text.trim(),
-          name: _name.text.trim(),
-          role: _role,
-          assignedBusinessIds: _assigned.toList(),
-          grantedPermissions: _granted,
-          revokedPermissions: _revoked,
-        );
-      } else {
-        await widget.repo.saveUserProfile(
-          _existing!.copyWith(
-            loginId: _loginId.text.trim(),
-            name: _name.text.trim(),
-            role: _role,
-            assignedBusinessIds: _assigned.toList(),
-            grantedPermissions: _granted,
-            revokedPermissions: _revoked,
-          ),
-          previous: _existing,
-        );
-      }
-      return true;
-    } catch (e) {
-      if (mounted) showErrorSnack(context, e);
-      return false;
-    }
-  }
-}
-
-/// What the owner chose to do from the read-only view modal.
-enum _UserViewAction { edit }
-
-/// Read-only detail modal for a user. Rendered only on the owner-only Users
-/// screen, so the viewer always sees the full profile — identity, role/status,
-/// assigned businesses, effective permissions (role defaults ± overrides) and
-/// the audit trail — with a copy button on every value. Mirrors the approved
-/// `ContactViewDialog` pattern: pure presentation, pops a [_UserViewAction] (or
-/// null) rather than doing any persistence itself.
-class UserViewDialog extends StatelessWidget {
-  const UserViewDialog({
-    super.key,
-    required this.user,
-    required this.businesses,
-  });
-
-  final AppUser user;
-  final List<Business> businesses;
-
-  /// Human-readable business names for the assigned ids, falling back to the
-  /// raw id for any business the roster no longer contains.
-  String _accessValue() {
-    if (user.isOwner) return 'All businesses';
-    if (user.assignedBusinessIds.isEmpty) return 'None';
-    return user.assignedBusinessIds
-        .map((id) =>
-            businesses.where((b) => b.id == id).map((b) => b.name).firstOrNull ??
-            id)
-        .join(', ');
-  }
-
-  /// Turns a `Permission` enum name into a human label, e.g.
-  /// `deleteProduct` → "Delete product".
-  static String _permissionLabel(Permission p) {
-    // Split camelCase into words, lowercase, then capitalise the first letter.
-    final words = p.name
-        .replaceAllMapped(RegExp(r'(?<=[a-z])(?=[A-Z])'), (_) => ' ')
-        .toLowerCase();
-    if (words.isEmpty) return words;
-    return '${words[0].toUpperCase()}${words.substring(1)}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final name = user.name.trim().isEmpty ? 'Unnamed user' : user.name;
-
-    // Effective capabilities = role defaults + granted − revoked.
-    final effective = Permissions.resolve(
-      user.role,
-      granted: user.grantedPermissions,
-      revoked: user.revokedPermissions,
-    );
-    final sortedPerms = effective.toList()
-      ..sort((a, b) => a.index.compareTo(b.index));
-
-    final profileFields = <DetailField>[
-      DetailField('Name', user.name, Icons.person_outline),
-      DetailField('Login ID', user.loginId, Icons.badge_outlined),
-      DetailField('Email', user.email, Icons.mail_outline),
-      DetailField('User ID', user.uid, Icons.tag),
-      DetailField('Role', user.role.label, Icons.shield_outlined),
-      DetailField('Account status', user.status.label, Icons.toggle_on_outlined),
-      DetailField('Assigned businesses', _accessValue(), Icons.business_outlined),
-      DetailField('Last login', AppDate.format(user.lastLoginAt), Icons.login),
-    ];
-
-    final auditFields = <DetailField>[
-      DetailField('Created', AppDate.format(user.audit.createdAt), Icons.schedule),
-      DetailField('Created by', user.audit.createdBy ?? '', Icons.person_add_alt),
-      DetailField('Updated', AppDate.format(user.audit.updatedAt), Icons.update),
-      DetailField('Updated by', user.audit.updatedBy ?? '', Icons.manage_accounts_outlined),
-    ];
-
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Header: avatar + name + role/status badges + close.
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl, AppSpacing.lg, AppSpacing.md, AppSpacing.lg),
-          child: Row(
-            children: [
-              InitialsAvatar(name: name, size: 52),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(name,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.xs,
-                      children: [
-                        StatusBadge.role(user.role),
-                        StatusBadge.account(user.status),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: Icon(Icons.close, color: context.tokens.textSecondary),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        // Body: every field with a copy button, then permissions + audit.
-        Flexible(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (var i = 0; i < profileFields.length; i++) ...[
-                  if (i > 0) const SizedBox(height: AppSpacing.lg),
-                  DetailFieldTile(field: profileFields[i]),
-                ],
-                const SizedBox(height: AppSpacing.xl),
-                _SectionLabel('Effective permissions (${sortedPerms.length})'),
-                const SizedBox(height: AppSpacing.sm),
-                if (sortedPerms.isEmpty)
-                  Text('No permissions.',
-                      style: TextStyle(
-                          fontSize: 13, color: context.tokens.textTertiary))
-                else
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: [
-                      for (final p in sortedPerms)
-                        _PermissionChip(
-                          label: _permissionLabel(p),
-                          isOverride: user.grantedPermissions.contains(p),
-                        ),
-                    ],
-                  ),
-                if (user.revokedPermissions.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  _SectionLabel(
-                      'Revoked from role default (${user.revokedPermissions.length})'),
-                  const SizedBox(height: AppSpacing.sm),
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.sm,
-                    children: [
-                      for (final p in (user.revokedPermissions.toList()
-                        ..sort((a, b) => a.index.compareTo(b.index))))
-                        _PermissionChip(
-                            label: _permissionLabel(p), isRevoked: true),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: AppSpacing.xl),
-                _SectionLabel('Audit'),
-                const SizedBox(height: AppSpacing.md),
-                for (var i = 0; i < auditFields.length; i++) ...[
-                  if (i > 0) const SizedBox(height: AppSpacing.lg),
-                  DetailFieldTile(field: auditFields[i]),
-                ],
-              ],
-            ),
-          ),
-        ),
-        // The owner account is not editable from this screen; every other
-        // account offers a jump straight into the edit form.
-        if (!user.isOwner) ...[
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () =>
-                      Navigator.of(context).pop(_UserViewAction.edit),
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Edit'),
-                ),
-              ],
-            ),
-          ),
-        ],
       ],
     );
-
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 540,
-          maxHeight: MediaQuery.sizeOf(context).height * 0.9,
-        ),
-        child: content,
-      ),
-    );
   }
 }
 
-/// Small uppercase section heading used inside [UserViewDialog].
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
-  final String text;
+class _MenuRow extends StatelessWidget {
+  const _MenuRow(this.icon, this.label, {this.color});
 
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text.toUpperCase(),
-      style: TextStyle(
-        fontSize: 11,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.6,
-        color: context.tokens.textSecondary,
-      ),
-    );
-  }
-}
-
-/// A read-only permission pill. [isOverride] flags a capability granted on top
-/// of the role default; [isRevoked] flags one removed from it.
-class _PermissionChip extends StatelessWidget {
-  const _PermissionChip({
-    required this.label,
-    this.isOverride = false,
-    this.isRevoked = false,
-  });
-
+  final IconData icon;
   final String label;
-  final bool isOverride;
-  final bool isRevoked;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
-    final Color bg;
-    final Color fg;
-    if (isRevoked) {
-      bg = context.tokens.errorSurface;
-      fg = context.tokens.error;
-    } else if (isOverride) {
-      bg = context.tokens.primarySurface;
-      fg = context.tokens.primary;
-    } else {
-      bg = context.tokens.surfaceAlt;
-      fg = context.tokens.textSecondary;
-    }
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 5),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isOverride)
-            const Padding(
-              padding: EdgeInsets.only(right: 4),
-              child: Icon(Icons.add, size: 13),
-            ),
-          if (isRevoked)
-            const Padding(
-              padding: EdgeInsets.only(right: 4),
-              child: Icon(Icons.remove, size: 13),
-            ),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w600, color: fg)),
-        ],
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: color ?? context.tokens.textSecondary),
+        const SizedBox(width: AppSpacing.md),
+        Flexible(child: Text(label, style: TextStyle(color: color))),
+      ],
     );
   }
 }

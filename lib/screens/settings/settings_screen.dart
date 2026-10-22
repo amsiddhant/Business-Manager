@@ -15,6 +15,7 @@ import '../../widgets/common/page_header.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
+import '../../widgets/layout/app_page.dart';
 
 /// Application settings: general preferences, the Firebase setup wizard,
 /// connection status, profile/password management and demo-data reset.
@@ -32,11 +33,11 @@ class SettingsScreen extends StatelessWidget {
     final canConfigureFirebase = user?.can(Permission.configureFirebase) ?? false;
     final canManageSettings = user?.can(Permission.manageSettings) ?? false;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return AppPage(
       children: [
         const PageHeader(
           title: 'Settings',
+          icon: Icons.settings_outlined,
           subtitle: 'Preferences, Firebase configuration and your profile',
         ),
         const SizedBox(height: AppSpacing.lg),

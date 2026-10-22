@@ -35,6 +35,10 @@ Future<(DataController, FilterController)> _pump(
   await tester.runAsync(() async {
     appState = await AppState.create();
     await appState.signIn(DemoSeed.ownerEmail, DemoSeed.password);
+    // The profile lands just after sign-in; a load before it is discarded.
+    while (appState.repository.currentUser == null) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
     data = DataController(appState.repository);
     await data.load();
   });
