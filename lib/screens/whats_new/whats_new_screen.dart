@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_info.dart';
 import '../../core/release_notes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/layout/app_page.dart';
@@ -34,10 +34,10 @@ class WhatsNewScreen extends StatelessWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.only(top: 2),
                           child: Icon(Icons.check_circle_outline,
-                              size: 16, color: AppColors.success),
+                              size: 16, color: context.tokens.success),
                         ),
                         const SizedBox(width: AppSpacing.sm),
                         Expanded(child: Text(line)),

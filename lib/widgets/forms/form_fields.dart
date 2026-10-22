@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 
 /// A labelled wrapper placing a field label above its input, with an optional
@@ -29,14 +29,14 @@ class LabeledField extends StatelessWidget {
         RichText(
           text: TextSpan(
             text: label,
-            style: const TextStyle(
-                color: AppColors.textSecondary,
+            style: TextStyle(
+                color: context.tokens.textSecondary,
                 fontSize: 13,
                 fontWeight: FontWeight.w500),
             children: [
               if (isRequired)
-                const TextSpan(
-                    text: ' *', style: TextStyle(color: AppColors.error)),
+                TextSpan(
+                    text: ' *', style: TextStyle(color: context.tokens.error)),
             ],
           ),
         ),
@@ -45,8 +45,8 @@ class LabeledField extends StatelessWidget {
         if (helper != null) ...[
           const SizedBox(height: 4),
           Text(helper!,
-              style: const TextStyle(
-                  color: AppColors.textTertiary, fontSize: 11.5)),
+              style: TextStyle(
+                  color: context.tokens.textTertiary, fontSize: 11.5)),
         ],
       ],
     );
@@ -71,6 +71,13 @@ class AppTextField extends StatelessWidget {
     this.inputFormatters,
     this.prefixText,
     this.enabled = true,
+    this.prefixIcon,
+    this.suffixIcon,
+    this.textInputAction,
+    this.onFieldSubmitted,
+    this.autofillHints,
+    this.focusNode,
+    this.autofocus = false,
   });
 
   final String label;
@@ -87,6 +94,13 @@ class AppTextField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final String? prefixText;
   final bool enabled;
+  final Widget? prefixIcon;
+  final Widget? suffixIcon;
+  final TextInputAction? textInputAction;
+  final ValueChanged<String>? onFieldSubmitted;
+  final Iterable<String>? autofillHints;
+  final FocusNode? focusNode;
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
@@ -104,7 +118,17 @@ class AppTextField extends StatelessWidget {
         onChanged: onChanged,
         inputFormatters: inputFormatters,
         enabled: enabled,
-        decoration: InputDecoration(hintText: hintText, prefixText: prefixText),
+        textInputAction: textInputAction,
+        onFieldSubmitted: onFieldSubmitted,
+        autofillHints: autofillHints,
+        focusNode: focusNode,
+        autofocus: autofocus,
+        decoration: InputDecoration(
+          hintText: hintText,
+          prefixText: prefixText,
+          prefixIcon: prefixIcon,
+          suffixIcon: suffixIcon,
+        ),
       ),
     );
   }
@@ -319,8 +343,8 @@ class AppDateField extends StatelessWidget {
             value == null ? 'Select date' : AppDate.format(value),
             style: TextStyle(
               color: value == null
-                  ? AppColors.textTertiary
-                  : AppColors.textPrimary,
+                  ? context.tokens.textTertiary
+                  : context.tokens.textPrimary,
             ),
           ),
         ),

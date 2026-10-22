@@ -3,8 +3,10 @@ import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/routing/app_routes.dart';
+import '../../core/routing/create_requests.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
@@ -43,6 +45,20 @@ class _UsersScreenState extends State<UsersScreen> {
   void initState() {
     super.initState();
     _future = _load();
+    // "New user" from the top bar / palette / N key lands here.
+    CreateRequests.instance.addListener(_onCreateRequest);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onCreateRequest());
+  }
+
+  @override
+  void dispose() {
+    CreateRequests.instance.removeListener(_onCreateRequest);
+    super.dispose();
+  }
+
+  void _onCreateRequest() {
+    if (!mounted || !CreateRequests.instance.take(Routes.users)) return;
+    _openForm(null, context.read<DataController>().selectableBusinesses);
   }
 
   Future<_UsersData> _load() async {
@@ -348,8 +364,8 @@ class _AccessRequestsCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.how_to_reg_outlined,
-                  size: 20, color: AppColors.primary),
+              Icon(Icons.how_to_reg_outlined,
+                  size: 20, color: context.tokens.primary),
               const SizedBox(width: AppSpacing.sm),
               Text('Pending access requests',
                   style: Theme.of(context)
@@ -362,14 +378,14 @@ class _AccessRequestsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'These people signed in but have no profile yet. Approve to grant '
             'access to their existing account.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
+            style: TextStyle(color: context.tokens.textSecondary, fontSize: 12.5),
           ),
           const SizedBox(height: AppSpacing.md),
           for (final r in requests) ...[
-            const Divider(height: 1, color: AppColors.border),
+            Divider(height: 1, color: context.tokens.border),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
               child: _RequestRow(
@@ -411,8 +427,8 @@ class _RequestRow extends StatelessWidget {
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               Text(
                 '${request.email} · requested ${AppDate.format(request.requestedAt)}',
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary),
+                style: TextStyle(
+                    fontSize: 12, color: context.tokens.textSecondary),
               ),
             ],
           ),
@@ -499,8 +515,8 @@ class _UsersTableState extends State<_UsersTable> {
                   Text(u.name,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   Text(u.email,
-                      style: const TextStyle(
-                          fontSize: 12, color: AppColors.textSecondary)),
+                      style: TextStyle(
+                          fontSize: 12, color: context.tokens.textSecondary)),
                 ],
               ),
               sortValue: (u) => u.name.toLowerCase(),
@@ -586,10 +602,10 @@ class _RowActions extends StatelessWidget {
             icon: const Icon(Icons.visibility_outlined, size: 18),
             onPressed: onView,
           ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.only(left: AppSpacing.xs, right: AppSpacing.sm),
             child: Text('Owner',
-                style: TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+                style: TextStyle(fontSize: 12, color: context.tokens.textTertiary)),
           ),
         ],
       );
@@ -618,7 +634,7 @@ class _RowActions extends StatelessWidget {
           icon: Icon(
             user.isActive ? Icons.block : Icons.check_circle_outline,
             size: 18,
-            color: user.isActive ? AppColors.error : AppColors.success,
+            color: user.isActive ? context.tokens.error : context.tokens.success,
           ),
           // Guard against disabling yourself.
           onPressed: isSelf ? null : onToggleStatus,
@@ -626,7 +642,7 @@ class _RowActions extends StatelessWidget {
         IconButton(
           tooltip: isSelf ? 'You cannot delete your own account' : 'Delete',
           icon: const Icon(Icons.delete_outline, size: 18),
-          color: AppColors.error,
+          color: context.tokens.error,
           // Guard against deleting yourself.
           onPressed: isSelf ? null : onDelete,
         ),
@@ -812,9 +828,9 @@ class _UserFormDialogState extends State<_UserFormDialog> {
               label: 'Assigned Businesses',
               helper: 'Which businesses this user can access.',
               child: widget.businesses.isEmpty
-                  ? const Text('No businesses available.',
+                  ? Text('No businesses available.',
                       style: TextStyle(
-                          fontSize: 12, color: AppColors.textTertiary))
+                          fontSize: 12, color: context.tokens.textTertiary))
                   : Wrap(
                       spacing: AppSpacing.sm,
                       runSpacing: AppSpacing.sm,
@@ -1031,7 +1047,7 @@ class UserViewDialog extends StatelessWidget {
               ),
               IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                icon: Icon(Icons.close, color: context.tokens.textSecondary),
               ),
             ],
           ),
@@ -1052,9 +1068,9 @@ class UserViewDialog extends StatelessWidget {
                 _SectionLabel('Effective permissions (${sortedPerms.length})'),
                 const SizedBox(height: AppSpacing.sm),
                 if (sortedPerms.isEmpty)
-                  const Text('No permissions.',
+                  Text('No permissions.',
                       style: TextStyle(
-                          fontSize: 13, color: AppColors.textTertiary))
+                          fontSize: 13, color: context.tokens.textTertiary))
                 else
                   Wrap(
                     spacing: AppSpacing.sm,
@@ -1137,11 +1153,11 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text.toUpperCase(),
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.6,
-        color: AppColors.textSecondary,
+        color: context.tokens.textSecondary,
       ),
     );
   }
@@ -1165,14 +1181,14 @@ class _PermissionChip extends StatelessWidget {
     final Color bg;
     final Color fg;
     if (isRevoked) {
-      bg = AppColors.errorSurface;
-      fg = AppColors.error;
+      bg = context.tokens.errorSurface;
+      fg = context.tokens.error;
     } else if (isOverride) {
-      bg = AppColors.primarySurface;
-      fg = AppColors.primary;
+      bg = context.tokens.primarySurface;
+      fg = context.tokens.primary;
     } else {
-      bg = AppColors.surfaceAlt;
-      fg = AppColors.textSecondary;
+      bg = context.tokens.surfaceAlt;
+      fg = context.tokens.textSecondary;
     }
     return Container(
       padding:

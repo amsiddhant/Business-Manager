@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
@@ -451,8 +451,8 @@ class _RevenueCell extends StatelessWidget {
         children: [
           net,
           const SizedBox(width: 4),
-          const Icon(Icons.info_outline,
-              size: 13, color: AppColors.textTertiary),
+          Icon(Icons.info_outline,
+              size: 13, color: context.tokens.textTertiary),
         ],
       ),
     );
@@ -524,7 +524,7 @@ class _RefundDialogState extends State<_RefundDialog> {
                     fontWeight: FontWeight.w600, fontSize: 13.5)),
             const SizedBox(height: 4),
             Text('Order revenue: ${MoneyFormatter.format(_total, c)}',
-                style: const TextStyle(color: AppColors.textSecondary)),
+                style: TextStyle(color: context.tokens.textSecondary)),
             const FormGap(),
             FormRow([
               AppMoneyField(
@@ -553,9 +553,9 @@ class _RefundDialogState extends State<_RefundDialog> {
               width: double.infinity,
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: AppColors.background,
+                color: context.tokens.background,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-                border: Border.all(color: AppColors.border),
+                border: Border.all(color: context.tokens.border),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,8 +571,8 @@ class _RefundDialogState extends State<_RefundDialog> {
                     '${MoneyFormatter.format(retained.isNegative ? Money.zero : retained, c)}. '
                     'Returned units are treated as restocked, so product cost '
                     'is reversed proportionally.',
-                    style: const TextStyle(
-                        color: AppColors.textSecondary, fontSize: 12.5),
+                    style: TextStyle(
+                        color: context.tokens.textSecondary, fontSize: 12.5),
                   ),
                 ],
               ),

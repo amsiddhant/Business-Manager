@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../common/responsive.dart';
 
 /// A responsive modal shell used by all create/edit forms. On desktop/tablet it
@@ -67,20 +69,29 @@ class _FormDialogState extends State<FormDialog> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              if (!isMobile)
+                Expanded(
+                  child: Text(
+                    '${defaultTargetPlatform == TargetPlatform.macOS ? '⌘' : 'Ctrl'}'
+                    ' + Enter to save',
+                    style: TextStyle(
+                        fontSize: 12, color: context.tokens.textTertiary),
+                  ),
+                ),
               TextButton(
                 onPressed:
                     _submitting ? null : () => Navigator.of(context).pop(false),
                 child: const Text('Cancel'),
               ),
               const SizedBox(width: AppSpacing.sm),
-              ElevatedButton(
+              FilledButton(
                 onPressed: _submitting ? null : _submit,
                 child: _submitting
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2, color: context.tokens.textOnPrimary),
                       )
                     : Text(widget.submitLabel),
               ),
@@ -90,10 +101,22 @@ class _FormDialogState extends State<FormDialog> {
       ],
     );
 
+    // Ctrl/⌘ + Enter or S saves from anywhere in the form.
+    final save = _submitting ? () {} : _submit;
+    final shortcuts = CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): save,
+        const SingleActivator(LogicalKeyboardKey.enter, meta: true): save,
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): save,
+        const SingleActivator(LogicalKeyboardKey.keyS, meta: true): save,
+      },
+      child: content,
+    );
+
     if (isMobile) {
       return Dialog(
         insetPadding: const EdgeInsets.all(AppSpacing.md),
-        child: content,
+        child: shortcuts,
       );
     }
     return Dialog(
@@ -102,7 +125,7 @@ class _FormDialogState extends State<FormDialog> {
           maxWidth: widget.width,
           maxHeight: MediaQuery.sizeOf(context).height * 0.9,
         ),
-        child: content,
+        child: shortcuts,
       ),
     );
   }
@@ -120,7 +143,7 @@ class _FormDialogState extends State<FormDialog> {
             IconButton(
               onPressed:
                   _submitting ? null : () => Navigator.of(context).pop(false),
-              icon: const Icon(Icons.close, color: AppColors.textSecondary),
+              icon: Icon(Icons.close, color: context.tokens.textSecondary),
             ),
           ],
         ),

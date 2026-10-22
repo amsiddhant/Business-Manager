@@ -71,8 +71,9 @@ Create a premium, modern SaaS dashboard.
 
 The design must be:
 
-* Light theme only
-* No dark mode
+* Light and dark themes. The Owner/Admin sets the brand colour, the default
+  mode, density and animation level; each user may pick Light, Dark or
+  "Match my device" (unless the admin turns that off)
 * Clean
 * Professional
 * Minimal
@@ -82,12 +83,16 @@ The design must be:
 * Suitable for business/finance management
 * Easy to understand
 * Visually polished
+* Keyboard-friendly (command palette, shortcuts) and accessible (focus
+  rings, 44 px touch targets, screen-reader labels, works at 1.3× text)
 
 Use:
 
-* White backgrounds
-* Very light grey surfaces
-* Purple/indigo primary accent
+* Design tokens only (`context.tokens`) — never hard-coded colours — so every
+  screen follows the theme and the admin's brand
+* Light: white cards on a very light grey canvas. Dark: muted charcoal
+  surfaces (never pure black, never neon), brand tone-shifted for AA contrast
+* The admin's brand colour as the primary accent (purple/indigo by default)
 * Subtle shadows
 * Rounded cards
 * Clean typography
@@ -98,24 +103,25 @@ Use:
 * Clear status badges
 * Tooltips
 * Hover effects
-* Smooth transitions
-* Loading states
+* Smooth, restrained motion that respects "Reduce motion" (fades only) and
+  the operating system setting; animate on change, never loop
+* Loading states (skeletons)
 * Empty states
 * Error states
 * Confirmation dialogs
 
 Do NOT use:
 
-* Dark theme
 * Excessive gradients
-* Excessive animations
+* Excessive or looping animations
 * Neon colours
 * Cluttered layouts
-* Tiny fonts
+* Tiny fonts (12 px minimum)
 * Excessive rounded elements
 * Generic template-looking UI
 
-Use a modern typography system such as **Inter**.
+Use a modern typography system such as **Inter**, with tabular figures for
+money.
 
 ---
 
@@ -123,35 +129,34 @@ Use a modern typography system such as **Inter**.
 
 ## Desktop
 
-Use a persistent left sidebar.
+Use a persistent, collapsible left sidebar, grouped:
 
-Sidebar:
+* Overview: Dashboard, Reports
+* Sales: Orders, Customers, Campaigns
+* Catalog: Products, Businesses
+* Spend: Expenses, Dealers
+* Admin: Users, Settings
 
-* Dashboard
-* Businesses
-* Products
-* Campaigns
-* Orders
-* Expenses
-* Dealers
-* Reports
-* Users
-* Settings
+Plus a "Pinned" group for the user's favourite records, and badges (e.g.
+pending orders).
 
 Bottom of sidebar:
 
 * Current user
 * Role
-* Profile
+* Theme toggle
 * Logout
+* App version / What's new
 
 Top application bar:
 
-* Business selector
-* Global date/FY selector
-* Search
+* Breadcrumbs (section › record)
+* Business selector and global date/FY selector (only on pages that use them)
+* Search / command palette (Ctrl/⌘ K)
+* Quick create ("New")
+* Sync status
 * Notifications
-* User profile
+* User profile menu (Settings, What's new, Shortcuts, Theme, Sign out)
 
 ---
 
@@ -172,7 +177,8 @@ Use:
 
 Use:
 
-* Collapsible sidebar
+* An icon rail (the collapsed sidebar); its menu button opens the full
+  sidebar as a drawer
 * Responsive cards
 * Responsive tables
 * Horizontal scrolling only where absolutely necessary
@@ -181,7 +187,9 @@ Use:
 
 Use:
 
-* Navigation drawer
+* Bottom navigation (four sections + "More", which lists the rest)
+* A floating "new" button on list pages
+* The business/period scope as a pill that opens a sheet
 * Single-column dashboard
 * Responsive cards
 * Compact tables

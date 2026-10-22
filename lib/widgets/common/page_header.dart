@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import 'responsive.dart';
 
 /// A page title block with an optional subtitle and trailing actions. Wraps
@@ -31,8 +31,8 @@ class PageHeader extends StatelessWidget {
         if (subtitle != null) ...[
           const SizedBox(height: 4),
           Text(subtitle!,
-              style: const TextStyle(
-                  color: AppColors.textSecondary, fontSize: 13.5)),
+              style: TextStyle(
+                  color: context.tokens.textSecondary, fontSize: 13.5)),
         ],
       ],
     );

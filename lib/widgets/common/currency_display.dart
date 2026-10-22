@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/enums.dart';
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 
 /// Renders a [Money] value with the correct currency symbol and grouping.
@@ -29,7 +29,7 @@ class CurrencyText extends StatelessWidget {
         : MoneyFormatter.format(money, currency);
     final effective = (style ?? const TextStyle()).copyWith(
       color: colorNegative && money.isNegative
-          ? AppColors.error
+          ? context.tokens.error
           : style?.color,
     );
     return Text(text, style: effective);

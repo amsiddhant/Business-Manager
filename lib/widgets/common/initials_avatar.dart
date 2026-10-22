@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/theme_x.dart';
 
 /// An auto-generated "logo" for a named entity: the initials on a deterministic
 /// colour derived from the name, so the same customer always gets the same
@@ -28,9 +28,8 @@ class InitialsAvatar extends StatelessWidget {
     return (parts.first[0] + parts.last[0]).toUpperCase();
   }
 
-  /// A stable colour for [name] chosen from the chart palette.
-  static Color colorOf(String name) {
-    final palette = AppColors.chartSeries;
+  /// A stable colour for [name] chosen from [palette] (the chart colours).
+  static Color colorOf(String name, List<Color> palette) {
     final key = name.trim().toLowerCase();
     // A small, stable string hash (avoids String.hashCode's per-run seed).
     var h = 0;
@@ -42,13 +41,14 @@ class InitialsAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final base = colorOf(name);
+    final t = context.tokens;
+    final base = colorOf(name, t.chartSeries);
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: Color.alphaBlend(base.withValues(alpha: 0.16), Colors.white),
+        color: Color.alphaBlend(base.withValues(alpha: 0.16), t.card),
         shape: BoxShape.circle,
         border: Border.all(color: base.withValues(alpha: 0.35)),
       ),

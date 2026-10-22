@@ -3,8 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/csv_export.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
@@ -644,8 +644,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: p.netProfit.isNegative
-                        ? AppColors.error
-                        : AppColors.success,
+                        ? context.tokens.error
+                        : context.tokens.success,
                   ),
                 ),
                 sortValue: (p) => p.netProfit.minor,
@@ -804,8 +804,8 @@ class _ReportsScreenState extends State<ReportsScreen>
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     color: r.summary.netProfit.isNegative
-                        ? AppColors.error
-                        : AppColors.success,
+                        ? context.tokens.error
+                        : context.tokens.success,
                   ),
                 ),
                 sortValue: (r) => r.summary.netProfit.minor,
@@ -838,9 +838,9 @@ class _ReportTabs extends StatelessWidget {
         controller: controller,
         isScrollable: true,
         tabAlignment: TabAlignment.start,
-        labelColor: AppColors.primary,
-        unselectedLabelColor: AppColors.textSecondary,
-        indicatorColor: AppColors.primary,
+        labelColor: context.tokens.primary,
+        unselectedLabelColor: context.tokens.textSecondary,
+        indicatorColor: context.tokens.primary,
         indicatorSize: TabBarIndicatorSize.label,
         dividerColor: Colors.transparent,
         labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),

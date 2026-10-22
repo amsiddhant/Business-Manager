@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
 import '../../models/business.dart';
@@ -35,6 +35,11 @@ class CustomersScreen extends StatefulWidget {
 
   @override
   State<CustomersScreen> createState() => _CustomersScreenState();
+
+  /// Opens the add/edit form (also used by quick-create and the palette).
+  static Future<void> openForm(
+          BuildContext context, Customer? existing, String? selectedBizId) =>
+      _CustomersScreenState._openForm(context, existing, selectedBizId);
 }
 
 class _CustomersScreenState extends State<CustomersScreen> {
@@ -146,8 +151,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
                               const TextStyle(fontWeight: FontWeight.w600)),
                       Text(
                         c.businessType.isEmpty ? c.id : c.businessType,
-                        style: const TextStyle(
-                            fontSize: 12, color: AppColors.textSecondary),
+                        style: TextStyle(
+                            fontSize: 12, color: context.tokens.textSecondary),
                       ),
                     ],
                   ),
@@ -170,8 +175,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   Text(c.contactNo.isEmpty ? '—' : c.contactNo),
                   if (c.email.isNotEmpty)
                     Text(c.email,
-                        style: const TextStyle(
-                            fontSize: 12, color: AppColors.textSecondary)),
+                        style: TextStyle(
+                            fontSize: 12, color: context.tokens.textSecondary)),
                 ],
               ),
               sortValue: (c) => c.email.toLowerCase(),
@@ -299,9 +304,9 @@ class _DealStatusFilter extends StatelessWidget {
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.card,
+        color: context.tokens.card,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.tokens.border),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<DealStatus?>(
@@ -633,8 +638,8 @@ class _BusinessMultiSelectState extends State<_BusinessMultiSelect> {
   @override
   Widget build(BuildContext context) {
     if (widget.businesses.isEmpty) {
-      return const Text('No businesses available.',
-          style: TextStyle(fontSize: 12, color: AppColors.textTertiary));
+      return Text('No businesses available.',
+          style: TextStyle(fontSize: 12, color: context.tokens.textTertiary));
     }
     final q = _query.trim().toLowerCase();
     final filtered = q.isEmpty
@@ -646,9 +651,9 @@ class _BusinessMultiSelectState extends State<_BusinessMultiSelect> {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.card,
+        color: context.tokens.card,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.tokens.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -668,12 +673,12 @@ class _BusinessMultiSelectState extends State<_BusinessMultiSelect> {
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 196),
             child: filtered.isEmpty
-                ? const Padding(
+                ? Padding(
                     padding: EdgeInsets.symmetric(vertical: AppSpacing.lg),
                     child: Text('No matching businesses.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                            fontSize: 12, color: AppColors.textTertiary)),
+                            fontSize: 12, color: context.tokens.textTertiary)),
                   )
                 : ListView(
                     shrinkWrap: true,
@@ -688,9 +693,9 @@ class _BusinessMultiSelectState extends State<_BusinessMultiSelect> {
                           title: Text(b.name,
                               style: const TextStyle(fontSize: 14)),
                           subtitle: Text(b.id,
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 11,
-                                  color: AppColors.textTertiary)),
+                                  color: context.tokens.textTertiary)),
                         ),
                     ],
                   ),
@@ -704,8 +709,8 @@ class _BusinessMultiSelectState extends State<_BusinessMultiSelect> {
                 '${widget.selected.length} '
                 '${widget.selected.length == 1 ? 'business' : 'businesses'} '
                 'selected',
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary),
+                style: TextStyle(
+                    fontSize: 12, color: context.tokens.textSecondary),
               ),
             ),
           ],

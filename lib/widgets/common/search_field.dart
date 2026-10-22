@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
+import '../../core/theme/theme_x.dart';
 
 /// A debounced search input. Emits [onChanged] after the user stops typing.
 class SearchField extends StatefulWidget {
@@ -57,7 +57,7 @@ class _SearchFieldState extends State<SearchField> {
                   _onChanged('');
                 },
               ),
-        fillColor: AppColors.card,
+        fillColor: context.tokens.card,
       ),
     );
     return SizedBox(width: widget.width, child: field);

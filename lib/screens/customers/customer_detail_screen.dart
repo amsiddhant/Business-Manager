@@ -8,8 +8,8 @@ import '../../core/app_exception.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
@@ -253,8 +253,8 @@ Future<Business?> _pickBusiness(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
-                  const Icon(Icons.storefront_outlined,
-                      size: 20, color: AppColors.textSecondary),
+                  Icon(Icons.storefront_outlined,
+                      size: 20, color: context.tokens.textSecondary),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(b.name,
@@ -345,8 +345,8 @@ class _ProfileCard extends StatelessWidget {
                       customer.businessType.isEmpty
                           ? customer.id
                           : '${customer.businessType} · ${customer.id}',
-                      style: const TextStyle(
-                          color: AppColors.textSecondary, fontSize: 13),
+                      style: TextStyle(
+                          color: context.tokens.textSecondary, fontSize: 13),
                     ),
                   ],
                 ),
@@ -385,9 +385,9 @@ class _ProfileCard extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
             Row(
               children: [
-                const Text('Description',
+                Text('Description',
                     style: TextStyle(
-                        fontSize: 12, color: AppColors.textSecondary)),
+                        fontSize: 12, color: context.tokens.textSecondary)),
                 _CopyButton(label: 'description', value: customer.description),
               ],
             ),
@@ -432,15 +432,16 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
   bool _busy = false;
 
   ({Color fg, Color bg}) _colorsFor(DealStatus status) {
+    final t = context.tokens;
     switch (status) {
       case DealStatus.successful:
-        return (fg: AppColors.success, bg: AppColors.successSurface);
+        return (fg: t.success, bg: t.successSurface);
       case DealStatus.inProgress:
-        return (fg: AppColors.info, bg: AppColors.infoSurface);
+        return (fg: t.info, bg: t.infoSurface);
       case DealStatus.pending:
-        return (fg: AppColors.warning, bg: AppColors.warningSurface);
+        return (fg: t.warning, bg: t.warningSurface);
       case DealStatus.cancelled:
-        return (fg: AppColors.error, bg: AppColors.errorSurface);
+        return (fg: t.error, bg: t.errorSurface);
     }
   }
 
@@ -615,7 +616,7 @@ class _StatusMenuItem extends StatelessWidget {
           ),
         ),
         if (selected)
-          const Icon(Icons.check, size: 16, color: AppColors.primary),
+          Icon(Icons.check, size: 16, color: context.tokens.primary),
       ],
     );
   }
@@ -639,11 +640,11 @@ class _SubscriptionHighlight extends StatelessWidget {
       padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.lg, vertical: AppSpacing.md),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primary, AppColors.primaryDark],
+        gradient: LinearGradient(
+          colors: [context.tokens.primary, context.tokens.primaryDark],
         ),
         borderRadius: BorderRadius.circular(AppSpacing.radius),
-        boxShadow: AppTheme.cardShadow,
+        boxShadow: context.tokens.cardShadow,
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -655,13 +656,13 @@ class _SubscriptionHighlight extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.workspace_premium_outlined,
-                        color: Colors.white70, size: 18),
+                    Icon(Icons.workspace_premium_outlined,
+                        color: context.tokens.textOnPrimary.withValues(alpha: 0.7), size: 18),
                     const SizedBox(width: 6),
                     Text(
                       '${contract.plan.label} · Total Subscription',
-                      style: const TextStyle(
-                          color: Colors.white70,
+                      style: TextStyle(
+                          color: context.tokens.textOnPrimary.withValues(alpha: 0.7),
                           fontSize: 12.5,
                           fontWeight: FontWeight.w500),
                     ),
@@ -671,8 +672,8 @@ class _SubscriptionHighlight extends StatelessWidget {
                 Text(
                   '${MoneyFormatter.format(contract.total, currency)} '
                   '/${contract.billingCycle.unit}',
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: context.tokens.textOnPrimary,
                       fontSize: 26,
                       fontWeight: FontWeight.w800,
                       height: 1.1),
@@ -681,16 +682,16 @@ class _SubscriptionHighlight extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${MoneyFormatter.format(contract.annualTotal, currency)} / year',
-                    style: const TextStyle(
-                        color: Colors.white60, fontSize: 12),
+                    style: TextStyle(
+                        color: context.tokens.textOnPrimary.withValues(alpha: 0.6), fontSize: 12),
                   ),
                 ],
                 if (contract.hasOneTimeCharge) ...[
                   const SizedBox(height: 2),
                   Text(
                     '+ ${MoneyFormatter.format(contract.oneTimeTotal, currency)} one-time',
-                    style: const TextStyle(
-                        color: Colors.white60, fontSize: 12),
+                    style: TextStyle(
+                        color: context.tokens.textOnPrimary.withValues(alpha: 0.6), fontSize: 12),
                   ),
                 ],
               ],
@@ -721,8 +722,8 @@ class _RemainingPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: expired
-            ? AppColors.error.withValues(alpha: 0.9)
-            : Colors.white.withValues(alpha: 0.18),
+            ? context.tokens.error.withValues(alpha: 0.9)
+            : context.tokens.textOnPrimary.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
       ),
       child: Column(
@@ -731,8 +732,8 @@ class _RemainingPill extends StatelessWidget {
         children: [
           Text(
             remaining.isToday ? 'Today' : remaining.shortLabel,
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: context.tokens.textOnPrimary,
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
                 height: 1.1),
@@ -742,7 +743,7 @@ class _RemainingPill extends StatelessWidget {
             remaining.isToday
                 ? 'expires'
                 : (expired ? 'overdue' : 'remaining'),
-            style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+            style: TextStyle(color: context.tokens.textOnPrimary.withValues(alpha: 0.7), fontSize: 10.5),
           ),
         ],
       ),
@@ -828,7 +829,7 @@ class _ServiceContractCard extends StatelessWidget {
                   icon: const Icon(Icons.edit_outlined, size: 16),
                   label: const Text('Edit'),
                   style: TextButton.styleFrom(
-                      foregroundColor: AppColors.textSecondary),
+                      foregroundColor: context.tokens.textSecondary),
                 ),
               ],
             )
@@ -882,7 +883,7 @@ class _ServiceContractCard extends StatelessWidget {
                   icon: Icons.event_busy_outlined,
                   label: 'Expires',
                   value: AppDate.format(contract.expiryDate),
-                  valueColor: expired ? AppColors.error : null,
+                  valueColor: expired ? context.tokens.error : null,
                 ),
               ),
             ],
@@ -898,7 +899,7 @@ class _ServiceContractCard extends StatelessWidget {
                   ? 'Expires today'
                   : '${remaining.shortLabel}'
                       '${remaining.isPast ? ' overdue' : ' remaining'}',
-              valueColor: remaining.isPast ? AppColors.error : AppColors.primary,
+              valueColor: remaining.isPast ? context.tokens.error : context.tokens.primary,
             ),
           ],
           const SizedBox(height: AppSpacing.lg),
@@ -944,20 +945,20 @@ class _ServiceContractCard extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
-                color: AppColors.surfaceAlt,
+                color: context.tokens.surfaceAlt,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Row(
+                  Row(
                     children: [
                       Icon(Icons.notes_outlined,
-                          size: 15, color: AppColors.textTertiary),
+                          size: 15, color: context.tokens.textTertiary),
                       SizedBox(width: 6),
                       Text('Comment',
                           style: TextStyle(
-                              fontSize: 12, color: AppColors.textSecondary)),
+                              fontSize: 12, color: context.tokens.textSecondary)),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -996,11 +997,11 @@ class _RenewalHistory extends StatelessWidget {
       child: ExpansionTile(
         tilePadding: EdgeInsets.zero,
         childrenPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.history, size: 20, color: AppColors.textTertiary),
+        leading: Icon(Icons.history, size: 20, color: context.tokens.textTertiary),
         title: Text('Renewal History (${history.length})',
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-        subtitle: const Text('Previous terms, most recent first',
-            style: TextStyle(fontSize: 11.5, color: AppColors.textTertiary)),
+        subtitle: Text('Previous terms, most recent first',
+            style: TextStyle(fontSize: 11.5, color: context.tokens.textTertiary)),
         children: [
           for (var i = 0; i < history.length; i++) ...[
             if (i > 0) const SizedBox(height: AppSpacing.sm),
@@ -1038,7 +1039,7 @@ class _RenewalHistoryEntry extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
+        color: context.tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
       ),
       child: Column(
@@ -1050,14 +1051,14 @@ class _RenewalHistoryEntry extends StatelessWidget {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: AppColors.primaryLight,
+                  color: context.tokens.primaryLight,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
                 ),
                 child: Text('Term $ordinal',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.primary)),
+                        color: context.tokens.primary)),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -1069,39 +1070,39 @@ class _RenewalHistoryEntry extends StatelessWidget {
               ),
               Text(
                 '${MoneyFormatter.format(contract.total, currency)} /${contract.billingCycle.unit}',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.primary),
+                    color: context.tokens.primary),
               ),
             ],
           ),
           const SizedBox(height: 4),
           Row(
             children: [
-              const Icon(Icons.date_range_outlined,
-                  size: 13, color: AppColors.textTertiary),
+              Icon(Icons.date_range_outlined,
+                  size: 13, color: context.tokens.textTertiary),
               const SizedBox(width: 4),
               Text(window,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
+                  style: TextStyle(
+                      fontSize: 12, color: context.tokens.textSecondary)),
             ],
           ),
           if (contract.hasOneTimeCharge) ...[
             const SizedBox(height: 2),
             Text(
               '+ ${MoneyFormatter.format(contract.oneTimeTotal, currency)} one-time',
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textTertiary),
+              style: TextStyle(
+                  fontSize: 12, color: context.tokens.textTertiary),
             ),
           ],
           if (contract.comment.trim().isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(contract.comment,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12,
                     height: 1.4,
-                    color: AppColors.textSecondary)),
+                    color: context.tokens.textSecondary)),
           ],
         ],
       ),
@@ -1122,26 +1123,26 @@ class _ContractChip extends StatelessWidget {
   final String label;
   final BadgeTone tone;
 
-  ({Color fg, Color bg}) get _colors {
+  ({Color fg, Color bg}) _colors(AppTokens t) {
     switch (tone) {
       case BadgeTone.success:
-        return (fg: AppColors.success, bg: AppColors.successSurface);
+        return (fg: t.success, bg: t.successSurface);
       case BadgeTone.error:
-        return (fg: AppColors.error, bg: AppColors.errorSurface);
+        return (fg: t.error, bg: t.errorSurface);
       case BadgeTone.info:
-        return (fg: AppColors.info, bg: AppColors.infoSurface);
+        return (fg: t.info, bg: t.infoSurface);
       case BadgeTone.primary:
-        return (fg: AppColors.primary, bg: AppColors.primaryLight);
+        return (fg: t.primary, bg: t.primaryLight);
       case BadgeTone.warning:
-        return (fg: AppColors.warning, bg: AppColors.warningSurface);
+        return (fg: t.warning, bg: t.warningSurface);
       case BadgeTone.neutral:
-        return (fg: AppColors.textSecondary, bg: AppColors.surfaceAlt);
+        return (fg: t.textSecondary, bg: t.surfaceAlt);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = _colors;
+    final c = _colors(context.tokens);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -1181,15 +1182,15 @@ class _ContractStat extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: AppColors.textTertiary),
+        Icon(icon, size: 18, color: context.tokens.textTertiary),
         const SizedBox(width: AppSpacing.sm),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(label,
-                style: const TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
+                style: TextStyle(
+                    fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: 2),
             Text(value,
                 style: TextStyle(
@@ -1228,12 +1229,12 @@ class _ContractLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final valueColor = isTotal
-        ? AppColors.primary
-        : (muted ? AppColors.textTertiary : AppColors.textPrimary);
+        ? context.tokens.primary
+        : (muted ? context.tokens.textTertiary : context.tokens.textPrimary);
     return Row(
       children: [
         if (leadingIcon != null) ...[
-          Icon(leadingIcon, size: 16, color: AppColors.textTertiary),
+          Icon(leadingIcon, size: 16, color: context.tokens.textTertiary),
           const SizedBox(width: 6),
         ],
         Expanded(
@@ -1241,7 +1242,7 @@ class _ContractLine extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: isTotal ? 14.5 : 13.5,
-              color: isTotal ? AppColors.textPrimary : AppColors.textSecondary,
+              color: isTotal ? context.tokens.textPrimary : context.tokens.textSecondary,
               fontWeight: isTotal
                   ? FontWeight.w700
                   : (emphasise ? FontWeight.w600 : FontWeight.w400),
@@ -1282,7 +1283,7 @@ class _DetailRow extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(detail.icon, size: 18, color: AppColors.textTertiary),
+        Icon(detail.icon, size: 18, color: context.tokens.textTertiary),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Column(
@@ -1290,8 +1291,8 @@ class _DetailRow extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(detail.label,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
+                  style: TextStyle(
+                      fontSize: 12, color: context.tokens.textSecondary)),
               const SizedBox(height: 2),
               if (detail.isLink && hasValue && _looksLikeUrl(value))
                 _LinkButton(value: value)
@@ -1321,7 +1322,7 @@ class _CopyButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       icon: const Icon(Icons.copy_outlined, size: 15),
-      color: AppColors.textTertiary,
+      color: context.tokens.textTertiary,
       tooltip: 'Copy $label',
       visualDensity: VisualDensity.compact,
       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -1434,10 +1435,10 @@ class _TeamAccessCardState extends State<_TeamAccessCard> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (businesses.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Text('Not tagged to any accessible business.',
-                  style: TextStyle(color: AppColors.textSecondary)),
+                  style: TextStyle(color: context.tokens.textSecondary)),
             )
           else if (!isOwnerViewer)
             _TeamTree(businesses: businesses, roster: const [], gated: true)
@@ -1462,8 +1463,8 @@ class _TeamAccessCardState extends State<_TeamAccessCard> {
                     padding:
                         const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                     child: Text(ErrorMapper.friendly(snap.error!),
-                        style: const TextStyle(
-                            fontSize: 13, color: AppColors.textSecondary)),
+                        style: TextStyle(
+                            fontSize: 13, color: context.tokens.textSecondary)),
                   );
                 }
                 return _TeamTree(
@@ -1548,15 +1549,15 @@ class _BusinessNode extends StatelessWidget {
       child: ExpansionTile(
         tilePadding: EdgeInsets.zero,
         childrenPadding: const EdgeInsets.only(left: AppSpacing.md),
-        leading: const Icon(Icons.business_outlined,
-            size: 20, color: AppColors.textTertiary),
+        leading: Icon(Icons.business_outlined,
+            size: 20, color: context.tokens.textTertiary),
         title: Text(business.name,
             style: const TextStyle(fontWeight: FontWeight.w600)),
         subtitle: Text(business.id,
-            style: const TextStyle(
-                fontSize: 11, color: AppColors.textTertiary)),
+            style: TextStyle(
+                fontSize: 11, color: context.tokens.textTertiary)),
         children: gated
-            ? const [
+            ? [
                 Padding(
                   padding: EdgeInsets.only(
                       left: AppSpacing.md, bottom: AppSpacing.sm),
@@ -1564,7 +1565,7 @@ class _BusinessNode extends StatelessWidget {
                     'The team roster (admins & users) is visible to Owners '
                     'only.',
                     style: TextStyle(
-                        fontSize: 12, color: AppColors.textTertiary),
+                        fontSize: 12, color: context.tokens.textTertiary),
                   ),
                 ),
               ]
@@ -1606,12 +1607,12 @@ class _RoleGroup extends StatelessWidget {
         tilePadding: EdgeInsets.zero,
         childrenPadding: const EdgeInsets.only(left: AppSpacing.lg),
         dense: true,
-        leading: Icon(icon, size: 18, color: AppColors.textTertiary),
+        leading: Icon(icon, size: 18, color: context.tokens.textTertiary),
         title: Text('$label (${people.length})',
             style: const TextStyle(
                 fontSize: 13, fontWeight: FontWeight.w600)),
         children: people.isEmpty
-            ? const [
+            ? [
                 Padding(
                   padding: EdgeInsets.only(
                       left: AppSpacing.lg, bottom: AppSpacing.sm),
@@ -1619,7 +1620,7 @@ class _RoleGroup extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     child: Text('None',
                         style: TextStyle(
-                            fontSize: 12, color: AppColors.textTertiary)),
+                            fontSize: 12, color: context.tokens.textTertiary)),
                   ),
                 ),
               ]
@@ -1653,8 +1654,8 @@ class _PersonTile extends StatelessWidget {
                         fontSize: 13, fontWeight: FontWeight.w500)),
                 if (person.email.isNotEmpty)
                   Text(person.email,
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textTertiary)),
+                      style: TextStyle(
+                          fontSize: 11, color: context.tokens.textTertiary)),
               ],
             ),
           ),
@@ -1781,7 +1782,7 @@ class _ContactsCardState extends State<_ContactsCard> {
                     ? 'No contacts yet. Add the people on the customer side '
                         '(e.g. CEO, Tech Lead, CSM).'
                     : 'No contacts recorded for this customer.',
-                style: const TextStyle(color: AppColors.textSecondary),
+                style: TextStyle(color: context.tokens.textSecondary),
               ),
             )
           : Column(
@@ -1801,7 +1802,7 @@ class _ContactsCardState extends State<_ContactsCard> {
                     padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
                     child: Text('No contacts match “${_query.trim()}”.',
                         style:
-                            const TextStyle(color: AppColors.textSecondary)),
+                            TextStyle(color: context.tokens.textSecondary)),
                   )
                 else
                   for (var i = 0; i < filtered.length; i++) ...[
@@ -1863,16 +1864,16 @@ class _ContactTile extends StatelessWidget {
                     Text(designation,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 12.5,
-                            color: AppColors.primary,
+                            color: context.tokens.primary,
                             fontWeight: FontWeight.w600)),
                   ],
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right,
-                size: 20, color: AppColors.textTertiary),
+            Icon(Icons.chevron_right,
+                size: 20, color: context.tokens.textTertiary),
           ],
         ),
       ),
@@ -1930,9 +1931,9 @@ class ContactViewDialog extends StatelessWidget {
                     if (designation.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(designation,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 13,
-                              color: AppColors.primary,
+                              color: context.tokens.primary,
                               fontWeight: FontWeight.w600)),
                     ],
                   ],
@@ -1940,7 +1941,7 @@ class ContactViewDialog extends StatelessWidget {
               ),
               IconButton(
                 onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close, color: AppColors.textSecondary),
+                icon: Icon(Icons.close, color: context.tokens.textSecondary),
               ),
             ],
           ),
@@ -1981,7 +1982,7 @@ class ContactViewDialog extends StatelessWidget {
                   icon: const Icon(Icons.delete_outline, size: 18),
                   label: const Text('Delete'),
                   style:
-                      TextButton.styleFrom(foregroundColor: AppColors.error),
+                      TextButton.styleFrom(foregroundColor: context.tokens.error),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 ElevatedButton.icon(
@@ -2310,8 +2311,8 @@ class _ActivityColumn extends StatelessWidget {
           title: 'Last Activity',
           child: Row(
             children: [
-              const Icon(Icons.schedule,
-                  size: 18, color: AppColors.textTertiary),
+              Icon(Icons.schedule,
+                  size: 18, color: context.tokens.textTertiary),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
@@ -2414,11 +2415,11 @@ class _CommentThreadState extends State<_CommentThread> {
               child: ElevatedButton.icon(
                 onPressed: _posting ? null : _post,
                 icon: _posting
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2, color: context.tokens.textOnPrimary),
                       )
                     : const Icon(Icons.send, size: 16),
                 label: const Text('Post'),
@@ -2427,11 +2428,11 @@ class _CommentThreadState extends State<_CommentThread> {
             const SizedBox(height: AppSpacing.md),
           ],
           if (comments.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Text(
                 'No comments yet.',
-                style: TextStyle(color: AppColors.textSecondary),
+                style: TextStyle(color: context.tokens.textSecondary),
               ),
             )
           else
@@ -2473,8 +2474,8 @@ class _CommentTile extends StatelessWidget {
                   if (comment.createdAt != null)
                     Text(
                       AppDate.short(comment.createdAt!),
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textTertiary),
+                      style: TextStyle(
+                          fontSize: 11, color: context.tokens.textTertiary),
                     ),
                 ],
               ),

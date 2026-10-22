@@ -6,8 +6,8 @@ import '../../core/app_exception.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../models/app_user.dart';
@@ -190,8 +190,8 @@ class _TenureBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final closed = business.isClosed;
     final tenure = business.tenure(DateTime.now());
-    final accent = closed ? AppColors.warning : AppColors.primary;
-    final surface = closed ? AppColors.warningSurface : AppColors.primarySurface;
+    final accent = closed ? context.tokens.warning : context.tokens.primary;
+    final surface = closed ? context.tokens.warningSurface : context.tokens.primarySurface;
 
     final headline = tenure == null
         ? 'Not set'
@@ -238,19 +238,19 @@ class _TenureBanner extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   headline,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.w800,
                     height: 1.05,
-                    color: AppColors.textPrimary,
+                    color: context.tokens.textPrimary,
                   ),
                 ),
                 if (caption != null) ...[
                   const SizedBox(height: 4),
                   Text(
                     caption,
-                    style: const TextStyle(
-                        fontSize: 13, color: AppColors.textSecondary),
+                    style: TextStyle(
+                        fontSize: 13, color: context.tokens.textSecondary),
                   ),
                 ],
               ],
@@ -312,8 +312,8 @@ class _TenureBreakdown extends StatelessWidget {
                 ),
                 Text(
                   label,
-                  style: const TextStyle(
-                      fontSize: 11, color: AppColors.textSecondary),
+                  style: TextStyle(
+                      fontSize: 11, color: context.tokens.textSecondary),
                 ),
               ],
             ),
@@ -382,8 +382,8 @@ class _ProfileCard extends StatelessWidget {
                             fontSize: 18, fontWeight: FontWeight.w700)),
                     if (business.type.isNotEmpty)
                       Text(business.type,
-                          style: const TextStyle(
-                              fontSize: 13, color: AppColors.textSecondary)),
+                          style: TextStyle(
+                              fontSize: 13, color: context.tokens.textSecondary)),
                   ],
                 ),
               ),
@@ -396,17 +396,17 @@ class _ProfileCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.notes_outlined,
-                    size: 18, color: AppColors.textTertiary),
+                Icon(Icons.notes_outlined,
+                    size: 18, color: context.tokens.textTertiary),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text('Description',
+                      Text('Description',
                           style: TextStyle(
-                              fontSize: 12, color: AppColors.textSecondary)),
+                              fontSize: 12, color: context.tokens.textSecondary)),
                       const SizedBox(height: 2),
                       Text(business.description,
                           style: const TextStyle(
@@ -420,9 +420,9 @@ class _ProfileCard extends StatelessWidget {
           ],
           if (social.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
-            const Text('Social Media',
+            Text('Social Media',
                 style: TextStyle(
-                    fontSize: 12, color: AppColors.textSecondary)),
+                    fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: AppSpacing.sm),
             Wrap(
               spacing: AppSpacing.sm,
@@ -434,8 +434,8 @@ class _ProfileCard extends StatelessWidget {
                     icon: const Icon(Icons.open_in_new, size: 15),
                     label: Text(label),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primary),
+                      foregroundColor: context.tokens.primary,
+                      side: BorderSide(color: context.tokens.primary),
                       padding: const EdgeInsets.symmetric(
                           horizontal: AppSpacing.md, vertical: AppSpacing.sm),
                     ),
@@ -473,12 +473,12 @@ class _FinancialSummaryCard extends StatelessWidget {
       _Metric('Gross Profit',
           MoneyFormatter.format(summary.grossProfit, currency),
           tone: summary.grossProfit.isNegative
-              ? AppColors.error
-              : AppColors.success),
+              ? context.tokens.error
+              : context.tokens.success),
       _Metric('Net Profit', MoneyFormatter.format(summary.netProfit, currency),
           tone: summary.netProfit.isNegative
-              ? AppColors.error
-              : AppColors.success),
+              ? context.tokens.error
+              : context.tokens.success),
       _Metric('Net Margin', PercentFormatter.format(summary.netMargin)),
       _Metric('Orders', '${summary.orderCount}'),
     ];
@@ -522,7 +522,7 @@ class _MetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
+        color: context.tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
       ),
       child: Column(
@@ -530,15 +530,15 @@ class _MetricTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(metric.label,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textSecondary)),
+              style: TextStyle(
+                  fontSize: 12, color: context.tokens.textSecondary)),
           const SizedBox(height: 4),
           Text(
             metric.value,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: metric.tone ?? AppColors.textPrimary,
+              color: metric.tone ?? context.tokens.textPrimary,
             ),
           ),
         ],
@@ -960,12 +960,12 @@ class _TeamAccessCardState extends State<_TeamAccessCard> {
       title: 'Team Access',
       subtitle: 'Owners, admins & users with access to this business',
       child: !isOwnerViewer
-          ? const Padding(
+          ? Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
               child: Text(
                 'The team roster (admins & users) is visible to Owners only.',
                 style:
-                    TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                    TextStyle(fontSize: 12, color: context.tokens.textTertiary),
               ),
             )
           : FutureBuilder<List<AppUser>>(
@@ -988,8 +988,8 @@ class _TeamAccessCardState extends State<_TeamAccessCard> {
                     padding:
                         const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                     child: Text(ErrorMapper.friendly(snap.error!),
-                        style: const TextStyle(
-                            fontSize: 13, color: AppColors.textSecondary)),
+                        style: TextStyle(
+                            fontSize: 13, color: context.tokens.textSecondary)),
                   );
                 }
                 final roster = snap.data ?? const <AppUser>[];
@@ -1048,12 +1048,12 @@ class _RoleGroup extends StatelessWidget {
         tilePadding: EdgeInsets.zero,
         childrenPadding: const EdgeInsets.only(left: AppSpacing.lg),
         dense: true,
-        leading: Icon(icon, size: 18, color: AppColors.textTertiary),
+        leading: Icon(icon, size: 18, color: context.tokens.textTertiary),
         title: Text('$label (${people.length})',
             style:
                 const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
         children: people.isEmpty
-            ? const [
+            ? [
                 Padding(
                   padding: EdgeInsets.only(
                       left: AppSpacing.lg, bottom: AppSpacing.sm),
@@ -1061,7 +1061,7 @@ class _RoleGroup extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     child: Text('None',
                         style: TextStyle(
-                            fontSize: 12, color: AppColors.textTertiary)),
+                            fontSize: 12, color: context.tokens.textTertiary)),
                   ),
                 ),
               ]
@@ -1094,8 +1094,8 @@ class _PersonTile extends StatelessWidget {
                         fontSize: 13, fontWeight: FontWeight.w500)),
                 if (person.email.isNotEmpty)
                   Text(person.email,
-                      style: const TextStyle(
-                          fontSize: 11, color: AppColors.textTertiary)),
+                      style: TextStyle(
+                          fontSize: 11, color: context.tokens.textTertiary)),
               ],
             ),
           ),

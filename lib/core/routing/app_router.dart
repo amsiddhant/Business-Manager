@@ -18,13 +18,17 @@ import '../../screens/orders/order_detail_screen.dart';
 import '../../screens/orders/orders_screen.dart';
 import '../../screens/products/product_detail_screen.dart';
 import '../../screens/products/products_screen.dart';
-import '../../screens/reports/reports_screen.dart';
-import '../../screens/settings/settings_screen.dart';
-import '../../screens/users/users_screen.dart';
+// Rarely-opened, heavy screens load on first visit (smaller main.dart.js).
+import '../../screens/reports/reports_screen.dart' deferred as reports;
+import '../../screens/settings/settings_screen.dart' deferred as settings;
+import '../../screens/users/users_screen.dart' deferred as users;
 import '../../screens/whats_new/whats_new_screen.dart';
 import '../../state/app_state.dart';
+import '../../widgets/common/state_views.dart';
 import '../../widgets/layout/app_page.dart';
 import '../../widgets/layout/app_shell.dart';
+import '../theme/app_theme.dart';
+import '../theme/theme_x.dart';
 import 'app_routes.dart';
 
 /// Builds the application router, wiring authentication redirects and the
@@ -32,7 +36,40 @@ import 'app_routes.dart';
 ///
 /// [appState] is used as the router's [refreshListenable] so navigation
 /// re-evaluates whenever the auth status changes.
+///
+/// Each section is its own shell branch with its own navigator, so switching
+/// sections and coming back keeps the list's scroll, search and sort.
 GoRouter buildRouter(AppState appState) {
+  Widget guard(GoRouterState state, Widget child) => PermissionGuard(
+        appState: appState,
+        location: state.matchedLocation,
+        child: child,
+      );
+
+  /// A section branch: its list page and (optionally) its `:id` detail page.
+  StatefulShellBranch section(
+    String path,
+    Widget Function() list, {
+    Widget Function(String id)? detail,
+  }) {
+    return StatefulShellBranch(
+      routes: [
+        GoRoute(
+          path: path,
+          builder: (_, state) => guard(state, list()),
+          routes: [
+            if (detail != null)
+              GoRoute(
+                path: ':id',
+                builder: (_, state) =>
+                    guard(state, detail(state.pathParameters['id']!)),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
   return GoRouter(
     initialLocation: Routes.dashboard,
     refreshListenable: appState,
@@ -48,8 +85,8 @@ GoRouter buildRouter(AppState appState) {
       if (!signedIn) {
         return isAuthRoute ? null : Routes.login;
       }
-      // Signed in but sitting on an auth route → go to the dashboard.
-      if (isAuthRoute) return Routes.dashboard;
+      // Signed in but sitting on an auth route (or the bare root) → dashboard.
+      if (isAuthRoute || loc == '/') return Routes.dashboard;
       return null;
     },
     routes: [
@@ -58,117 +95,117 @@ GoRouter buildRouter(AppState appState) {
         path: Routes.forgotPassword,
         builder: (_, _) => const ForgotPasswordScreen(),
       ),
-      // Authenticated shell.
-      ShellRoute(
-        builder: (context, state, child) => AppShell(
-          currentRoute: state.matchedLocation,
-          child: PermissionGuard(
-            appState: appState,
-            location: state.matchedLocation,
-            child: child,
-          ),
+      // Authenticated shell. Branches must follow [kShellBranches].
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) => AppShell(
+          navigationShell: navigationShell,
+          location: state.uri.toString(),
         ),
-        routes: [
-          GoRoute(
-            path: Routes.dashboard,
-            builder: (_, _) => const DashboardScreen(),
+        branches: [
+          section(Routes.dashboard, () => const DashboardScreen()),
+          section(
+            Routes.businesses,
+            () => const LegacyScroll(child: BusinessesScreen()),
+            detail: (id) =>
+                LegacyScroll(child: BusinessDetailScreen(businessId: id)),
           ),
-          GoRoute(
-            path: Routes.businesses,
-            builder: (_, _) => const LegacyScroll(child: BusinessesScreen()),
+          section(
+            Routes.products,
+            () => const LegacyScroll(child: ProductsScreen()),
+            detail: (id) =>
+                LegacyScroll(child: ProductDetailScreen(productId: id)),
           ),
-          GoRoute(
-            path: Routes.businessDetail,
-            builder: (_, state) => LegacyScroll(
-              child: BusinessDetailScreen(
-                businessId: state.pathParameters['id']!,
-              ),
+          section(
+            Routes.campaigns,
+            () => const LegacyScroll(child: CampaignsScreen()),
+            detail: (id) =>
+                LegacyScroll(child: CampaignDetailScreen(campaignId: id)),
+          ),
+          section(
+            Routes.orders,
+            () => const OrdersScreen(),
+            detail: (id) => LegacyScroll(child: OrderDetailScreen(orderId: id)),
+          ),
+          section(
+            Routes.expenses,
+            () => const LegacyScroll(child: ExpensesScreen()),
+            detail: (id) =>
+                LegacyScroll(child: ExpenseDetailScreen(expenseId: id)),
+          ),
+          section(
+            Routes.dealers,
+            () => const LegacyScroll(child: DealersScreen()),
+            detail: (id) =>
+                LegacyScroll(child: DealerDetailScreen(dealerId: id)),
+          ),
+          section(
+            Routes.customers,
+            () => const CustomersScreen(),
+            detail: (id) => CustomerDetailScreen(customerId: id),
+          ),
+          section(
+            Routes.reports,
+            () => DeferredPage(
+              loader: reports.loadLibrary,
+              builder: () => LegacyScroll(child: reports.ReportsScreen()),
             ),
           ),
-          GoRoute(
-            path: Routes.products,
-            builder: (_, _) => const LegacyScroll(child: ProductsScreen()),
-          ),
-          GoRoute(
-            path: Routes.productDetail,
-            builder: (_, state) => LegacyScroll(
-              child: ProductDetailScreen(
-                productId: state.pathParameters['id']!,
-              ),
+          section(
+            Routes.users,
+            () => DeferredPage(
+              loader: users.loadLibrary,
+              builder: () => LegacyScroll(child: users.UsersScreen()),
             ),
           ),
-          GoRoute(
-            path: Routes.campaigns,
-            builder: (_, _) => const LegacyScroll(child: CampaignsScreen()),
-          ),
-          GoRoute(
-            path: Routes.campaignDetail,
-            builder: (_, state) => LegacyScroll(
-              child: CampaignDetailScreen(
-                campaignId: state.pathParameters['id']!,
-              ),
+          section(
+            Routes.settings,
+            () => DeferredPage(
+              loader: settings.loadLibrary,
+              builder: () => LegacyScroll(child: settings.SettingsScreen()),
             ),
           ),
-          GoRoute(path: Routes.orders, builder: (_, _) => const OrdersScreen()),
-          GoRoute(
-            path: Routes.orderDetail,
-            builder: (_, state) => LegacyScroll(
-              child: OrderDetailScreen(orderId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: Routes.expenses,
-            builder: (_, _) => const LegacyScroll(child: ExpensesScreen()),
-          ),
-          GoRoute(
-            path: Routes.expenseDetail,
-            builder: (_, state) => LegacyScroll(
-              child: ExpenseDetailScreen(
-                expenseId: state.pathParameters['id']!,
-              ),
-            ),
-          ),
-          GoRoute(
-            path: Routes.dealers,
-            builder: (_, _) => const LegacyScroll(child: DealersScreen()),
-          ),
-          GoRoute(
-            path: Routes.dealerDetail,
-            builder: (_, state) => LegacyScroll(
-              child: DealerDetailScreen(dealerId: state.pathParameters['id']!),
-            ),
-          ),
-          GoRoute(
-            path: Routes.customers,
-            builder: (_, _) => const CustomersScreen(),
-          ),
-          GoRoute(
-            path: Routes.customerDetail,
-            builder: (_, state) =>
-                CustomerDetailScreen(customerId: state.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: Routes.reports,
-            builder: (_, _) => const LegacyScroll(child: ReportsScreen()),
-          ),
-          GoRoute(
-            path: Routes.users,
-            builder: (_, _) => const LegacyScroll(child: UsersScreen()),
-          ),
-          GoRoute(
-            path: Routes.settings,
-            builder: (_, _) => const LegacyScroll(child: SettingsScreen()),
-          ),
-          GoRoute(
-            path: Routes.whatsNew,
-            builder: (_, _) => const WhatsNewScreen(),
-          ),
+          section(Routes.whatsNew, () => const WhatsNewScreen()),
         ],
       ),
     ],
     errorBuilder: (context, state) =>
         _RouteError(message: state.error?.message),
   );
+}
+
+/// Shows [builder]'s page once its deferred library ([loader]) has loaded.
+class DeferredPage extends StatefulWidget {
+  const DeferredPage({super.key, required this.loader, required this.builder});
+
+  final Future<void> Function() loader;
+  final Widget Function() builder;
+
+  @override
+  State<DeferredPage> createState() => _DeferredPageState();
+}
+
+class _DeferredPageState extends State<DeferredPage> {
+  late Future<void> _load = widget.loader();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _load,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          return ErrorView(
+            message: "This page couldn't be loaded. Check your connection "
+                'and try again.',
+            onRetry: () => setState(() => _load = widget.loader()),
+          );
+        }
+        if (snap.connectionState != ConnectionState.done) {
+          return const LoadingView();
+        }
+        return widget.builder();
+      },
+    );
+  }
 }
 
 /// Guards a shell route by the rule in [Routes.accessFor], rendering an
@@ -202,26 +239,13 @@ class _AccessDenied extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(48),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.lock_outline, size: 48, color: Color(0xFF9CA3AF)),
-            SizedBox(height: 16),
-            Text(
-              'Access denied',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            SizedBox(height: 8),
-            Text(
-              "You don't have permission to view this page.",
-              style: TextStyle(color: Color(0xFF6B7280)),
-            ),
-          ],
-        ),
-      ),
+    return _Notice(
+      icon: Icons.lock_outline,
+      color: context.tokens.warning,
+      surface: context.tokens.warningSurface,
+      title: 'You don’t have access to this page',
+      message: 'Ask the owner to grant you access, or head back to the '
+          'dashboard.',
     );
   }
 }
@@ -233,27 +257,70 @@ class _RouteError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, size: 48, color: Color(0xFFDC2626)),
-            const SizedBox(height: 16),
-            const Text(
-              'Page not found',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message ?? 'The requested page could not be found.',
-              style: const TextStyle(color: Color(0xFF6B7280)),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () => GoRouter.of(context).go(Routes.dashboard),
-              child: const Text('Go to dashboard'),
-            ),
-          ],
+      body: _Notice(
+        icon: Icons.explore_off_outlined,
+        color: context.tokens.error,
+        surface: context.tokens.errorSurface,
+        title: 'Page not found',
+        message: message ?? 'The page you asked for doesn’t exist.',
+      ),
+    );
+  }
+}
+
+class _Notice extends StatelessWidget {
+  const _Notice({
+    required this.icon,
+    required this.color,
+    required this.surface,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final Color color;
+  final Color surface;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration:
+                    BoxDecoration(color: surface, shape: BoxShape.circle),
+                child: Icon(icon, size: 30, color: color),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    color: context.tokens.textSecondary, height: 1.4),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              FilledButton.icon(
+                onPressed: () => GoRouter.of(context).go(Routes.dashboard),
+                icon: const Icon(Icons.dashboard_outlined, size: 18),
+                label: const Text('Go to dashboard'),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
@@ -24,21 +24,21 @@ class PeriodSelector extends StatelessWidget {
         padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md, vertical: 9),
         decoration: BoxDecoration(
-          color: AppColors.card,
-          border: Border.all(color: AppColors.border),
+          color: context.tokens.card,
+          border: Border.all(color: context.tokens.border),
           borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.calendar_month_outlined,
-                size: 18, color: AppColors.textSecondary),
+            Icon(Icons.calendar_month_outlined,
+                size: 18, color: context.tokens.textSecondary),
             const SizedBox(width: AppSpacing.sm),
             Text(filter.periodLabel,
                 style: const TextStyle(
                     fontSize: 13.5, fontWeight: FontWeight.w500)),
             const SizedBox(width: 4),
-            const Icon(Icons.arrow_drop_down, color: AppColors.textSecondary),
+            Icon(Icons.arrow_drop_down, color: context.tokens.textSecondary),
           ],
         ),
       ),
@@ -165,8 +165,8 @@ class _PeriodDialogState extends State<_PeriodDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text('Within ${filter.financialYear.label}',
-                style: const TextStyle(
-                    color: AppColors.textSecondary, fontSize: 12.5)),
+                style: TextStyle(
+                    color: context.tokens.textSecondary, fontSize: 12.5)),
             const SizedBox(height: AppSpacing.sm),
             for (final q in FinancialQuarter.values)
               _SelectTile(
@@ -266,7 +266,7 @@ class _SelectTile extends StatelessWidget {
                   ? Icons.radio_button_checked
                   : Icons.radio_button_unchecked,
               size: 20,
-              color: selected ? AppColors.primary : AppColors.textTertiary,
+              color: selected ? context.tokens.primary : context.tokens.textTertiary,
             ),
             const SizedBox(width: AppSpacing.md),
             Text(label,

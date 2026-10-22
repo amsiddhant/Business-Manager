@@ -6,8 +6,8 @@ import 'package:universal_html/html.dart' as html;
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
@@ -147,8 +147,8 @@ class _DealersScreenState extends State<DealersScreen> {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   if (d.contactName.isNotEmpty)
                     Text(d.contactName,
-                        style: const TextStyle(
-                            fontSize: 12, color: Color(0xFF6B7280))),
+                        style: TextStyle(
+                            fontSize: 12, color: context.tokens.textSecondary)),
                 ],
               ),
               sortValue: (d) => d.name.toLowerCase(),
@@ -426,16 +426,16 @@ class _DealerFormDialogState extends State<_DealerFormDialog> {
             const FormGap(),
             AppTextField(label: 'Notes', controller: _notes, maxLines: 2),
             const SizedBox(height: AppSpacing.sm),
-            const Row(
+            Row(
               children: [
-                Icon(Icons.info_outline, size: 14, color: AppColors.info),
+                Icon(Icons.info_outline, size: 14, color: context.tokens.info),
                 SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     'This cost is mirrored automatically into Business '
                     'Expenses under the Dealer category.',
                     style:
-                        TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        TextStyle(fontSize: 12, color: context.tokens.textSecondary),
                   ),
                 ),
               ],

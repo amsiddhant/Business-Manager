@@ -8,7 +8,7 @@
 
 ## 0. THE ONE LAYOUT RULE (do not violate)
 
-Screens rendered inside `ShellRoute`/`AppShell` **own their scrolling** through `AppPage` (`lib/widgets/layout/app_page.dart`):
+Screens rendered inside the shell (`StatefulShellRoute.indexedStack` → `AppShell`) **own their scrolling** through `AppPage` (`lib/widgets/layout/app_page.dart`):
 
 ```dart
 AppPage(children: [PageHeader(...), SectionCard(...), ...])
@@ -69,6 +69,11 @@ final filter   = context.watch<FilterController>();
 final repo      = context.read<AppState>().repository;   // for CRUD
 final user      = context.read<AppState>().currentUser;  // AppUser?  (gate UI with user.can(...))
 ```
+
+### ThemeController / UserPrefs (ChangeNotifier, since 1.2.0)
+- `ThemeController(prefs, userPrefs)`: `mode` (ThemeMode), `density`, `motion` (MotionLevel), `light` / `dark` (memoised ThemeData), `canChooseMode`, `org` (`OrgTheme{brand, defaultMode, allowUserOverride, density, motion}`), `applyOrgTheme(OrgTheme)`. The org theme is cached in prefs (`sbm_org_theme_v1`), so the first frame (and the `web/index.html` splash) already uses it.
+- `UserPrefs(prefs)` — per-user device preferences under `sbm.u.<uid>.*` (call `bindUser(uid)`; null = signed out): `themeMode`, `reduceMotion`, `density`, `sidebarCollapsed`, `favourites` (`PinnedPage{path, label}`, `toggleFavourite`), `recentCommands` (newest first, `maxRecent = 8`), `scope` (the remembered business + period, `FilterController.toJson()`), plus `readJson` / `writeJson` for new features. Device-wide: `lastLoginId`, and the last theme picked (styles the sign-in screen). Never written to Firestore.
+- `FilterController.toJson()` / `restore(json)` — tolerant round-trip of the scope; unreadable values fall back to the defaults.
 
 ### AppState (ChangeNotifier)
 - `Repository repository`
@@ -312,6 +317,7 @@ Methods: `withRenewedContract(ServiceContract renewal)` (moves the current activ
 `Routes.{login, forgotPassword, dashboard, businesses, businessDetail, products, productDetail, campaigns, campaignDetail, orders, orderDetail, expenses, expenseDetail, dealers, dealerDetail, customers, customerDetail, reports, users, settings, whatsNew}`. Path helpers for every detail route: `Routes.businessDetailPath(id)`, `productDetailPath(id)`, `campaignDetailPath(id)`, `orderDetailPath(id)`, `expenseDetailPath(id)`, `dealerDetailPath(id)`, `customerDetailPath(id)`.
 `kNavDestinations` (List<NavDestination>) already drives the sidebar (Users is `ownerOnly`; Customers gated on `viewCustomer`). Navigate with `context.go(Routes.x)` (import `go_router`).
 **Route guard:** every shell route is wrapped in `PermissionGuard` (`app_router.dart`), which shows an access-denied message when `Routes.canOpen(user, location)` is false — so a pasted URL can't open a screen the sidebar hides. `Routes.sectionOf(location)` → the top-level section (`/orders/ORD-000001` → `/orders`); `Routes.accessFor(location)` → the `NavDestination` whose rule applies (detail pages inherit their list's rule; `null` for Settings and What's new, which every signed-in user can open — Settings gates its own sections). The sidebar highlights by `sectionOf`, so detail pages keep their section selected. A new route needs a `kNavDestinations` entry (or is open to all signed-in users).
+**Shell & navigation (`lib/core/routing/nav_registry.dart`, since 1.2.0):** one `StatefulShellBranch` per section, in `kShellBranches` order (`test/nav_registry_test.dart` checks the router matches); each section keeps its own navigator, so lists keep their place. A new section needs: a `kNavDestinations` entry, a `kShellBranches` entry + branch in `app_router.dart` (same position), and a `kNavGroups` group. `NavRegistry`: `visible(user)`, `groupsFor(user)` (sidebar groups, empty ones dropped), `mobilePrimary(user)` (≤ 4 bottom-bar items), `branchIndexOf(location)`, `scopeFor(location)` → `ScopeUse` (which scope selectors the top bar shows: dashboard/reports both, list pages business, product/business detail period), `isSectionRoot`, `titleFor`. Navigate between sections with `ShellNav.go(context, route)` (returns to where the section was left); `context.go` still works for deep links.
 
 ### id_generator (`lib/core/utils/id_generator.dart`)
 Sequential prefixes: `PROD, ORD, CMP, EXP, DLR, BIZ, USR, CUST` (customers → `CUST-00001`). Repo calls this; don't set ids yourself on create.
@@ -322,7 +328,10 @@ Sequential prefixes: `PROD, ORD, CMP, EXP, DLR, BIZ, USR, CUST` (customers → `
 
 ### Layout
 - `PageHeader({required String title, String? subtitle, List<Widget> actions = const []})` — `lib/widgets/common/page_header.dart`
-- `AppShell` / `AppHeader` / `AppSidebar` — already wired; screens don't touch these.
+- `AppShell` — already wired; screens don't touch it. Desktop (≥ 1024): `AppSidebar` (grouped, collapsible 248 ↔ 72 px, Pinned pages, footer with theme toggle + version) + `AppTopBar`. Tablet (640–1023): the collapsed `AppSidebar` as an icon rail, its menu button opens the full sidebar in a drawer. Phone (< 640): `AppTopBar(mobile: true)` + `AppBottomNav` (≤ 4 sections + More sheet) + a "new" FAB on list pages (`createActionForLocation`).
+- `AppTopBar` — breadcrumbs (with a pin button), the scope selectors the page uses (`ScopeSelectors`, or the compact `ScopePill` that opens `showScopeSheet` when space is short), the palette trigger, quick-create menu, `SyncStatus`, `NotificationsButton`, `ProfileMenu` (Settings, What's new, Shortcuts, Theme, Sign out).
+- `CommandPalette.show(context, {initialQuery})` — `lib/widgets/command_palette/`. Commands come from `CommandRegistry` (Navigate, Create — permission-gated, Records, Actions); records from `SearchIndex.of(data).search(query)` (`lib/services/search_index.dart`; scored exact > prefix > word > substring over the same fields the old search page used — `test/search_index_parity_test.dart`). Recent commands are remembered per user.
+- `AppShortcuts` (`lib/core/shortcuts.dart`, in the shell): Ctrl/⌘ K and `/` open the palette, `N` new, `G` then `D/O/C/…` go to a section, `?` shows `showShortcutsHelp`. Single-key shortcuts are ignored while typing.
 - `AppPage({children, maxWidth = 1400})` / `AppPage.slivers({slivers})` — the page scroll (see §0). `LegacyScroll(child)` — router-only wrapper for unmigrated screens.
 - `SyncStatus` (`lib/widgets/layout/sync_status.dart`) — header "Synced X ago · Sync now"; `syncedAgoLabel(DateTime?, DateTime now)` is the pure label.
 - `WhatsNewPrompt` — in the shell; shows a one-time "Updated to version X" snackbar after an upgrade (`AppState.hasUnseenRelease` / `markReleaseSeen()`).
@@ -333,12 +342,12 @@ Sequential prefixes: `PROD, ORD, CMP, EXP, DLR, BIZ, USR, CUST` (customers → `
 - Releasing: bump pubspec **and** `app_info.dart`, add a `kReleaseNotes` entry at the top.
 
 ### Cards / states — `lib/widgets/common/`
-- `AppCard({required Widget child, EdgeInsetsGeometry padding=EdgeInsets.all(xl), VoidCallback? onTap})`
+- `AppCard({required Widget child, EdgeInsetsGeometry padding=EdgeInsets.all(xl), VoidCallback? onTap, bool raised=false})` — outlined; tappable cards lift slightly on hover (not under reduced motion).
 - `SectionCard({required String title, required Widget child, String? subtitle, Widget? trailing, padding})`
-- `LoadingView({String? label})`, `SkeletonBox({width, height=16, radius})`
+- `LoadingView({String? label})`, `SkeletonBox({width, height=16, radius})` (pulses; still under reduced motion), `SkeletonCard({lines=3, height})` — prefer skeletons to spinners for page content.
 - `EmptyView({required String title, String? message, IconData icon=inbox_outlined, Widget? action})`
 - `ErrorView({required String message, VoidCallback? onRetry})`
-- `Scorecard({required String label, required String value, required IconData icon, Color accent=primary, String? caption, Color? captionTone, String? tooltip})` — self-wraps in AppCard(padding lg)
+- `Scorecard({required String label, required String value, required IconData icon, Color accent=primary, String? caption, Color? captionTone, String? tooltip, VoidCallback? onTap})` — self-wraps in AppCard(padding lg); one Semantics label for the whole tile.
 - `StatusBadge({required String label, BadgeTone tone=neutral})` + factories `.entity(EntityStatus)`, `.account(AccountStatus)`, `.order(OrderStatus)`, `.campaign(CampaignStatus)`, `.role(UserRole)`, `.deal(DealStatus)`. `enum BadgeTone { neutral, success, warning, error, info, primary }`
 - `CurrencyText(Money money, {CurrencyCode currency=inr, TextStyle? style, bool colorNegative=true, bool precise=false})`
 - `SearchField({required ValueChanged<String> onChanged, String hintText='Search…', double? width, Duration debounce})` (debounced)
@@ -349,18 +358,18 @@ Sequential prefixes: `PROD, ORD, CMP, EXP, DLR, BIZ, USR, CUST` (customers → `
 - **Self-wraps in AppCard**, built-in search/sort/pagination/horizontal-scroll. Give a `searchableText` to enable the external `searchText` filter.
 
 ### Forms — `lib/widgets/forms/`
-- `FormDialog({required String title, required Widget child, required Future<bool> Function() onSubmit, String submitLabel='Save', double width=560})` — spinner + no double-submit; **owns the single `Navigator.pop`** — pops(true) when onSubmit returns true. On mobile it renders full-bleed (`Dialog` with `insetPadding: EdgeInsets.all(md)`); desktop caps at `width` × 90% height. Show via `showDialog<bool>(context: ..., builder: (_) => ...)`. **See §11.1 — a child `_submit` must never also call `Navigator.pop`.**
+- `FormDialog({required String title, required Widget child, required Future<bool> Function() onSubmit, String submitLabel='Save', double width=560})` — spinner + no double-submit; **owns the single `Navigator.pop`** — pops(true) when onSubmit returns true. On mobile it renders full-bleed (`Dialog` with `insetPadding: EdgeInsets.all(md)`); desktop caps at `width` × 90% height. Show via `showDialog<bool>(context: ..., builder: (_) => ...)`. **See §11.1 — a child `_submit` must never also call `Navigator.pop`.** Ctrl/⌘ + Enter and Ctrl/⌘ + S submit (hint shown on desktop).
 - `FormRow(List<Widget> children)` — side-by-side desktop / stacked mobile.
 - `FormGap()` — SizedBox(height: lg).
 - `LabeledField({required label, required child, isRequired=false, helper})`
-- `AppTextField({required String label, TextEditingController? controller, String? initialValue, String? Function(String?)? validator, TextInputType? keyboardType, bool isRequired=false, String? hintText, String? helper, int maxLines=1, bool obscureText=false, ValueChanged<String>? onChanged, List<TextInputFormatter>? inputFormatters, String? prefixText, bool enabled=true})`
+- `AppTextField({required String label, TextEditingController? controller, String? initialValue, String? Function(String?)? validator, TextInputType? keyboardType, bool isRequired=false, String? hintText, String? helper, int maxLines=1, bool obscureText=false, ValueChanged<String>? onChanged, List<TextInputFormatter>? inputFormatters, String? prefixText, bool enabled=true, Widget? prefixIcon, Widget? suffixIcon, TextInputAction? textInputAction, ValueChanged<String>? onFieldSubmitted, Iterable<String>? autofillHints, FocusNode? focusNode, bool autofocus=false})`
 - `AppMoneyField({required String label, required TextEditingController controller, bool isRequired=false, String symbol='₹', validator, helper, ValueChanged<String>? onChanged})` — number-only input (allows `[0-9.]`); parse with `Money.parse(controller.text)`; prefill with `money.major.toString()` or `MoneyFormatter` (prefer plain `.major`).
 - `AppDropdown<T>({required String label, required T? value, required List<T> items, required String Function(T) itemLabel, required ValueChanged<T?> onChanged, bool isRequired=false, helper})`
 - `AppSearchableDropdown<T>({required String label, required T? value, required List<T> items, required String Function(T) itemLabel, required ValueChanged<T?> onChanged, bool isRequired=false, helper, hintText, bool enabled=true})` — dropdown with a live search filter, for long lists (products, businesses, customers).
 - `AppDateField({required String label, required DateTime? value, required ValueChanged<DateTime?> onChanged, bool isRequired=false, helper, DateTime? firstDate, DateTime? lastDate})`
 
 ### Dialogs — `lib/widgets/common/confirm_dialog.dart`
-- `Future<bool> showConfirmDialog(context, {title, message, confirmLabel='Delete', cancelLabel='Cancel', bool destructive=true})`
+- `Future<bool> showConfirmDialog(context, {title, message, confirmLabel='Delete', cancelLabel='Cancel', bool destructive=true})` — Cancel has focus for destructive actions.
 - `void showSuccessSnack(context, String)`
 - `void showErrorSnack(context, Object error)` (maps via ErrorMapper)
 
@@ -383,10 +392,15 @@ Used to compose the 7 detail screens and the CRM.
 
 ## 8. Theme tokens — `lib/core/theme/`
 
-`AppColors`: `primary(0xFF582DD3)`, `primaryDark`, `primaryLight`, `primarySurface`, `background`, `card`, `surfaceAlt`, `border`, `borderStrong`, `textPrimary`, `textSecondary`, `textTertiary`, `textOnPrimary`, `success`, `successSurface`, `warning`, `warningSurface`, `error`, `errorSurface`, `info`, `infoSurface`, `List<Color> chartSeries` (10).
+Light **and** dark, branded at runtime (since 1.2.0). **Never use `AppColors` or `Color(0x…)` in widgets** — read colours from the theme (`test/theme_tokens_guard_test.dart` fails otherwise; the login brand panel and the PDF invoice are the only exceptions).
+
+- `context.tokens` (`AppTokens`, a `ThemeExtension`): `primary`, `primaryDark`, `primaryLight`, `primarySurface`, `background`, `card`, `surfaceAlt`, `border`, `borderStrong`, `textPrimary`, `textSecondary`, `textTertiary`, `textOnPrimary`, `success`/`warning`/`error`/`info` + `…Surface`, `focusRing`, `skeletonBase`/`skeletonHighlight`, `chartSeries` (10), `cardShadow`, `raisedShadow`, `isDark`; `AppTokens.contrastRatio(a, b)`, `onColor(bg)`. Falls back to the default palette in a bare `MaterialApp` (tests).
+- `AppPalette.light({brand})` keeps the brand colour exactly (defaults = the old `AppColors`); `AppPalette.dark({brand})` tone-shifts the brand and status colours to ≥ 4.5:1 on dark surfaces (`test/theme_controller_test.dart` checks AA for several brands).
+- `context.motion` (`AppMotion`): `fast` 120, `base` 200, `slow` 320, `chart` 650 ms, `stagger`; `allowsMovement`, `enabled`; `AppMotion.standard` curve. Level = the stricter of the org setting, the user's Reduce motion, and the OS setting. Reduced → fades only; off → zero. No looping animations (skeletons excepted, and they stop when motion is reduced).
+- `context.density` (`AppDensity.compact/comfortable/spacious`: control and row heights).
+- `AppTheme.build({brand, brightness, density, motion})` — Material 3, Inter, every component themed. `ThemeController` builds and memoises it; widgets never call it.
 
 `AppSpacing`: `xs=4, sm=8, md=12, lg=16, xl=24, xxl=32`; `radius=12, radiusSm=8, radiusLg=16`; `mobileMax=640, tabletMax=1024`.
-`AppTheme.light`, `AppTheme.cardShadow`.
 
 `Responsive.isMobile/isTablet/isDesktop(context)`, `.of(context) → ScreenType`, `.showInlineSidebar(context)`. `ResponsiveBuilder({required mobile, tablet, desktop})`.
 

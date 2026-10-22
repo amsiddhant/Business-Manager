@@ -2,20 +2,22 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/enums.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../services/profit_calculation_service.dart';
 
 /// Shared axis/label styling for the dashboard charts.
-const _axisLabelStyle = TextStyle(
-  color: AppColors.textTertiary,
-  fontSize: 10.5,
-  fontWeight: FontWeight.w500,
-);
+TextStyle _axisLabelStyle(BuildContext context) => TextStyle(
+      color: context.tokens.textTertiary,
+      fontSize: 10.5,
+      fontWeight: FontWeight.w500,
+    );
 
-FlLine _gridLine(double _) =>
-    const FlLine(color: AppColors.border, strokeWidth: 1);
+FlLine Function(double) _gridLine(BuildContext context) {
+  final color = context.tokens.border;
+  return (_) => FlLine(color: color, strokeWidth: 1);
+}
 
 /// A grouped bar chart comparing revenue, product cost, marketing, operating
 /// expenses and net profit across time buckets.
@@ -53,7 +55,7 @@ class RevenueExpenseChart extends StatelessWidget {
               gridData: FlGridData(
                 show: true,
                 drawVerticalLine: false,
-                getDrawingHorizontalLine: _gridLine,
+                getDrawingHorizontalLine: _gridLine(context),
               ),
               borderData: FlBorderData(show: false),
               barTouchData: BarTouchData(enabled: true),
@@ -72,7 +74,7 @@ class RevenueExpenseChart extends StatelessWidget {
                       child: Text(
                         MoneyFormatter.compact(
                             Money.fromMajor(value), currency),
-                        style: _axisLabelStyle,
+                        style: _axisLabelStyle(context),
                       ),
                     ),
                   ),
@@ -89,7 +91,7 @@ class RevenueExpenseChart extends StatelessWidget {
                       return SideTitleWidget(
                         meta: meta,
                         child: Text(points[i].label,
-                            style: _axisLabelStyle),
+                            style: _axisLabelStyle(context)),
                       );
                     },
                   ),
@@ -101,11 +103,11 @@ class RevenueExpenseChart extends StatelessWidget {
                     x: i,
                     barsSpace: 2,
                     barRods: [
-                      _rod(points[i].revenue, AppColors.chartSeries[0]),
-                      _rod(points[i].productCost, AppColors.chartSeries[3]),
-                      _rod(points[i].marketingCost, AppColors.chartSeries[6]),
-                      _rod(points[i].operatingExpenses, AppColors.chartSeries[5]),
-                      _rod(points[i].netProfit, AppColors.chartSeries[2]),
+                      _rod(points[i].revenue, context.tokens.chartSeries[0]),
+                      _rod(points[i].productCost, context.tokens.chartSeries[3]),
+                      _rod(points[i].marketingCost, context.tokens.chartSeries[6]),
+                      _rod(points[i].operatingExpenses, context.tokens.chartSeries[5]),
+                      _rod(points[i].netProfit, context.tokens.chartSeries[2]),
                     ],
                   ),
               ],
@@ -117,11 +119,11 @@ class RevenueExpenseChart extends StatelessWidget {
           spacing: AppSpacing.md,
           runSpacing: 6,
           children: [
-            _Legend(color: AppColors.chartSeries[0], label: 'Revenue'),
-            _Legend(color: AppColors.chartSeries[3], label: 'Product Cost'),
-            _Legend(color: AppColors.chartSeries[6], label: 'Marketing'),
-            _Legend(color: AppColors.chartSeries[5], label: 'Operating'),
-            _Legend(color: AppColors.chartSeries[2], label: 'Net Profit'),
+            _Legend(color: context.tokens.chartSeries[0], label: 'Revenue'),
+            _Legend(color: context.tokens.chartSeries[3], label: 'Product Cost'),
+            _Legend(color: context.tokens.chartSeries[6], label: 'Marketing'),
+            _Legend(color: context.tokens.chartSeries[5], label: 'Operating'),
+            _Legend(color: context.tokens.chartSeries[2], label: 'Net Profit'),
           ],
         ),
       ],
@@ -162,14 +164,14 @@ class ExpenseDonutChart extends StatelessWidget {
                 for (var i = 0; i < slices.length; i++)
                   PieChartSectionData(
                     value: slices[i].amount.major,
-                    color: AppColors
-                        .chartSeries[i % AppColors.chartSeries.length],
+                    color: context.tokens.chartSeries[i % context.tokens.chartSeries.length],
                     radius: 48,
                     title: total == 0
                         ? ''
                         : '${(slices[i].amount.major / total * 100).round()}%',
-                    titleStyle: const TextStyle(
-                      color: Colors.white,
+                    titleStyle: TextStyle(
+                      color: context.tokens.onColor(context.tokens
+                          .chartSeries[i % context.tokens.chartSeries.length]),
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                     ),
@@ -194,8 +196,8 @@ class ExpenseDonutChart extends StatelessWidget {
                         width: 10,
                         height: 10,
                         decoration: BoxDecoration(
-                          color: AppColors.chartSeries[
-                              i % AppColors.chartSeries.length],
+                          color: context.tokens.chartSeries[
+                              i % context.tokens.chartSeries.length],
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -203,9 +205,9 @@ class ExpenseDonutChart extends StatelessWidget {
                       Expanded(
                         child: Text(slices[i].label,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 12,
-                                color: AppColors.textSecondary)),
+                                color: context.tokens.textSecondary)),
                       ),
                       const SizedBox(width: 6),
                       Text(
@@ -232,16 +234,18 @@ class CategoryBarChart extends StatelessWidget {
     required this.labels,
     required this.values,
     required this.currency,
-    this.color = AppColors.primary,
+    this.color,
   });
 
   final List<String> labels;
   final List<Money> values;
   final CurrencyCode currency;
-  final Color color;
+  /// Series colour; defaults to the brand colour.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? context.tokens.primary;
     final maxValue = values.fold<double>(
         1, (m, v) => v.major > m ? v.major : m);
     return BarChart(
@@ -251,7 +255,7 @@ class CategoryBarChart extends StatelessWidget {
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          getDrawingHorizontalLine: _gridLine,
+          getDrawingHorizontalLine: _gridLine(context),
         ),
         borderData: FlBorderData(show: false),
         barTouchData: BarTouchData(enabled: true),
@@ -269,7 +273,7 @@ class CategoryBarChart extends StatelessWidget {
                 meta: meta,
                 child: Text(
                   MoneyFormatter.compact(Money.fromMajor(value), currency),
-                  style: _axisLabelStyle,
+                  style: _axisLabelStyle(context),
                 ),
               ),
             ),
@@ -288,7 +292,7 @@ class CategoryBarChart extends StatelessWidget {
                     label.length > 10 ? '${label.substring(0, 9)}…' : label;
                 return SideTitleWidget(
                   meta: meta,
-                  child: Text(short, style: _axisLabelStyle),
+                  child: Text(short, style: _axisLabelStyle(context)),
                 );
               },
             ),
@@ -320,7 +324,7 @@ class TrendLineChart extends StatelessWidget {
     super.key,
     required this.labels,
     required this.values,
-    this.color = AppColors.primary,
+    this.color,
     this.currency,
   });
 
@@ -328,13 +332,15 @@ class TrendLineChart extends StatelessWidget {
 
   /// Y values as plain doubles (orders count) — for money pass major units.
   final List<double> values;
-  final Color color;
+  /// Series colour; defaults to the brand colour.
+  final Color? color;
 
   /// When set, the left axis is formatted as money.
   final CurrencyCode? currency;
 
   @override
   Widget build(BuildContext context) {
+    final color = this.color ?? context.tokens.primary;
     final maxValue =
         values.fold<double>(1, (m, v) => v > m ? v : m);
     return LineChart(
@@ -344,7 +350,7 @@ class TrendLineChart extends StatelessWidget {
         gridData: FlGridData(
           show: true,
           drawVerticalLine: false,
-          getDrawingHorizontalLine: _gridLine,
+          getDrawingHorizontalLine: _gridLine(context),
         ),
         borderData: FlBorderData(show: false),
         lineTouchData: const LineTouchData(enabled: true),
@@ -365,7 +371,7 @@ class TrendLineChart extends StatelessWidget {
                       ? MoneyFormatter.compact(
                           Money.fromMajor(value), currency!)
                       : value.toInt().toString(),
-                  style: _axisLabelStyle,
+                  style: _axisLabelStyle(context),
                 ),
               ),
             ),
@@ -381,7 +387,7 @@ class TrendLineChart extends StatelessWidget {
                 }
                 return SideTitleWidget(
                   meta: meta,
-                  child: Text(labels[i], style: _axisLabelStyle),
+                  child: Text(labels[i], style: _axisLabelStyle(context)),
                 );
               },
             ),
@@ -425,8 +431,8 @@ class _Legend extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         Text(label,
-            style: const TextStyle(
-                fontSize: 12, color: AppColors.textSecondary)),
+            style: TextStyle(
+                fontSize: 12, color: context.tokens.textSecondary)),
       ],
     );
   }

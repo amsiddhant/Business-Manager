@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../models/order.dart';
@@ -171,13 +171,13 @@ class _SummaryCard extends StatelessWidget {
       _Metric('Gross Profit',
           MoneyFormatter.format(order.recognisedGrossProfit, currency),
           tone: order.recognisedGrossProfit.isNegative
-              ? AppColors.error
-              : AppColors.success),
+              ? context.tokens.error
+              : context.tokens.success),
     ];
     if (order.isRefunded) {
       metrics.add(_Metric(
           'Refund', MoneyFormatter.format(order.effectiveRefund, currency),
-          tone: AppColors.error));
+          tone: context.tokens.error));
     }
 
     final fields = <DetailField>[
@@ -235,8 +235,8 @@ class _SummaryCard extends StatelessWidget {
                     icon: const Icon(Icons.open_in_new, size: 16),
                     label: const Text('View product'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primary),
+                      foregroundColor: context.tokens.primary,
+                      side: BorderSide(color: context.tokens.primary),
                     ),
                   ),
                 if (customerId != null)
@@ -246,8 +246,8 @@ class _SummaryCard extends StatelessWidget {
                     icon: const Icon(Icons.open_in_new, size: 16),
                     label: const Text('View customer'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primary),
+                      foregroundColor: context.tokens.primary,
+                      side: BorderSide(color: context.tokens.primary),
                     ),
                   ),
               ],
@@ -255,9 +255,9 @@ class _SummaryCard extends StatelessWidget {
           ),
           if (order.notes.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            const Text('Notes',
+            Text('Notes',
                 style:
-                    TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    TextStyle(fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: 2),
             Text(order.notes,
                 style: const TextStyle(fontSize: 14, height: 1.4)),
@@ -284,7 +284,7 @@ class _MetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
+        color: context.tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
       ),
       child: Column(
@@ -292,14 +292,14 @@ class _MetricTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(metric.label,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textSecondary)),
+              style: TextStyle(
+                  fontSize: 12, color: context.tokens.textSecondary)),
           const SizedBox(height: 4),
           Text(metric.value,
               style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
-                  color: metric.tone ?? AppColors.textPrimary)),
+                  color: metric.tone ?? context.tokens.textPrimary)),
         ],
       ),
     );

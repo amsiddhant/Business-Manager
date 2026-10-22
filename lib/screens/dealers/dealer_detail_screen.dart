@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../models/dealer.dart';
@@ -178,18 +178,18 @@ class _SummaryCard extends StatelessWidget {
           DetailGrid(fields: fields),
           if (dealer.description.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
-            const Text('Description',
+            Text('Description',
                 style:
-                    TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    TextStyle(fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: 2),
             Text(dealer.description,
                 style: const TextStyle(fontSize: 14, height: 1.4)),
           ],
           if (dealer.notes.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            const Text('Notes',
+            Text('Notes',
                 style:
-                    TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    TextStyle(fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: 2),
             Text(dealer.notes,
                 style: const TextStyle(fontSize: 14, height: 1.4)),

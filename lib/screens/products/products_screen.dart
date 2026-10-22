@@ -6,6 +6,7 @@ import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
@@ -32,6 +33,11 @@ class ProductsScreen extends StatefulWidget {
 
   @override
   State<ProductsScreen> createState() => _ProductsScreenState();
+
+  /// Opens the add/edit form (also used by quick-create and the palette).
+  static Future<void> openForm(
+          BuildContext context, Product? existing, String? selectedBizId) =>
+      _ProductsScreenState._openForm(context, existing, selectedBizId);
 }
 
 class _ProductsScreenState extends State<ProductsScreen> {
@@ -135,8 +141,8 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   if (p.category.isNotEmpty)
                     Text(p.category,
-                        style: const TextStyle(
-                            fontSize: 12, color: Color(0xFF6B7280))),
+                        style: TextStyle(
+                            fontSize: 12, color: context.tokens.textSecondary)),
                 ],
               ),
               sortValue: (p) => p.name.toLowerCase(),
@@ -177,10 +183,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
         ),
         if (needsBusiness) ...[
           const SizedBox(height: AppSpacing.md),
-          const Text(
+          Text(
             'Tip: select a single business from the top bar to set which '
             'business new products are created in.',
-            style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+            style: TextStyle(fontSize: 12, color: context.tokens.textTertiary),
           ),
         ],
       ],

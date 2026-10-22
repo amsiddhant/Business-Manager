@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../state/data_controller.dart';
 import '../common/responsive.dart';
 
@@ -24,7 +24,10 @@ String? syncedAgoLabel(DateTime? syncedAt, DateTime now) {
 /// button. Saves update the screen by themselves; syncing picks up changes
 /// other people made.
 class SyncStatus extends StatefulWidget {
-  const SyncStatus({super.key});
+  const SyncStatus({super.key, this.showLabel});
+
+  /// Show "Synced N min ago" next to the button. Defaults to desktop only.
+  final bool? showLabel;
 
   @override
   State<SyncStatus> createState() => _SyncStatusState();
@@ -58,7 +61,8 @@ class _SyncStatusState extends State<SyncStatus> {
     final label = cached
         ? 'Showing saved copy · syncing'
         : syncedAgoLabel(syncedAt, DateTime.now());
-    final showLabel = Responsive.isDesktop(context) && label != null;
+    final showLabel =
+        (widget.showLabel ?? Responsive.isDesktop(context)) && label != null;
 
     return ValueListenableBuilder<bool>(
       valueListenable: data.syncing,
@@ -73,7 +77,7 @@ class _SyncStatusState extends State<SyncStatus> {
                 style: Theme.of(context)
                     .textTheme
                     .bodySmall
-                    ?.copyWith(color: AppColors.textSecondary),
+                    ?.copyWith(color: context.tokens.textSecondary),
               ),
             const SizedBox(width: AppSpacing.xs),
             IconButton(

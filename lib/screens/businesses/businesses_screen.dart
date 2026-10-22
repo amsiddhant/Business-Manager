@@ -6,6 +6,7 @@ import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
 import '../../models/business.dart';
@@ -125,8 +126,8 @@ class _BusinessesScreenState extends State<BusinessesScreen> {
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   if (b.type.isNotEmpty)
                     Text(b.type,
-                        style: const TextStyle(
-                            fontSize: 12, color: Color(0xFF6B7280))),
+                        style: TextStyle(
+                            fontSize: 12, color: context.tokens.textSecondary)),
                 ],
               ),
               sortValue: (b) => b.name.toLowerCase(),
@@ -591,10 +592,10 @@ class _SectionLabel extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: Text(
         text,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w700,
-          color: Color(0xFF6B7280),
+          color: context.tokens.textSecondary,
           letterSpacing: 0.2,
         ),
       ),

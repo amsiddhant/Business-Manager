@@ -20,6 +20,26 @@ class ReleaseNote {
 /// Every release, newest first. Add an entry with each version bump.
 const List<ReleaseNote> kReleaseNotes = [
   ReleaseNote(
+    version: '1.2.0',
+    date: 'October 2026',
+    title: 'New navigation, dark mode and quick search',
+    highlights: [
+      'A dark theme. Switch between Light, Dark and System from your profile '
+          'menu.',
+      'New navigation: sections are grouped in the sidebar, which you can '
+          'collapse. Tablets get an icon rail, and phones a bottom bar.',
+      'Pin any page to the sidebar for one-click access.',
+      'Press Ctrl+K (⌘K on Mac) to search everything or jump anywhere. Press ? '
+          'to see all keyboard shortcuts.',
+      'Each section remembers where you were, and your business and period '
+          'selection is kept when you come back.',
+      'Press Ctrl+Enter in any form to save.',
+      'Sign-in remembers your username and warns you when Caps Lock is on.',
+      'Prefer fewer animations? Press Ctrl+K and choose Reduce motion. Your '
+          "device's reduce-motion setting is respected too.",
+    ],
+  ),
+  ReleaseNote(
     version: '1.1.0',
     date: 'October 2026',
     title: 'Faster, and saves are instant',

@@ -3,8 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_exception.dart';
 import '../../core/permissions.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/csv_export.dart';
 import '../../core/utils/csv_import.dart';
 import '../../core/utils/entity_csv.dart';
@@ -274,14 +274,14 @@ class _ImportResultDialog extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.check_circle,
-                    color: AppColors.success, size: 18),
+                Icon(Icons.check_circle,
+                    color: context.tokens.success, size: 18),
                 const SizedBox(width: AppSpacing.sm),
                 Text('${report.created} imported',
                     style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(width: AppSpacing.lg),
-                const Icon(Icons.error_outline,
-                    color: AppColors.error, size: 18),
+                Icon(Icons.error_outline,
+                    color: context.tokens.error, size: 18),
                 const SizedBox(width: AppSpacing.sm),
                 Text('${report.failed} skipped',
                     style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -290,8 +290,8 @@ class _ImportResultDialog extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             Text(
               'These rows could not be imported:',
-              style: const TextStyle(
-                  fontSize: 13, color: AppColors.textSecondary),
+              style: TextStyle(
+                  fontSize: 13, color: context.tokens.textSecondary),
             ),
             const SizedBox(height: AppSpacing.sm),
             Flexible(
@@ -300,9 +300,9 @@ class _ImportResultDialog extends StatelessWidget {
                 constraints: const BoxConstraints(maxHeight: 260),
                 padding: const EdgeInsets.all(AppSpacing.sm),
                 decoration: BoxDecoration(
-                  color: AppColors.background,
+                  color: context.tokens.background,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(color: context.tokens.border),
                 ),
                 child: Scrollbar(
                   child: ListView.separated(

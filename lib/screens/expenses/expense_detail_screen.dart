@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../models/expense.dart';
@@ -189,20 +189,20 @@ class _SummaryCard extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(AppSpacing.md),
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
+                  color: context.tokens.surfaceAlt,
                   borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.info_outline,
-                        size: 18, color: AppColors.textSecondary),
+                    Icon(Icons.info_outline,
+                        size: 18, color: context.tokens.textSecondary),
                     const SizedBox(width: AppSpacing.sm),
-                    const Expanded(
+                    Expanded(
                       child: Text(
                         'This expense is generated from a dealer and is '
                         'managed via that dealer.',
                         style: TextStyle(
-                            fontSize: 13, color: AppColors.textSecondary),
+                            fontSize: 13, color: context.tokens.textSecondary),
                       ),
                     ),
                   ],
@@ -237,26 +237,26 @@ class _SummaryCard extends StatelessWidget {
                 icon: const Icon(Icons.open_in_new, size: 16),
                 label: const Text('View dealer'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primary),
+                  foregroundColor: context.tokens.primary,
+                  side: BorderSide(color: context.tokens.primary),
                 ),
               ),
             ),
           ],
           if (expense.description.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.lg),
-            const Text('Description',
+            Text('Description',
                 style:
-                    TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    TextStyle(fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: 2),
             Text(expense.description,
                 style: const TextStyle(fontSize: 14, height: 1.4)),
           ],
           if (expense.notes.trim().isNotEmpty) ...[
             const SizedBox(height: AppSpacing.md),
-            const Text('Notes',
+            Text('Notes',
                 style:
-                    TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    TextStyle(fontSize: 12, color: context.tokens.textSecondary)),
             const SizedBox(height: 2),
             Text(expense.notes,
                 style: const TextStyle(fontSize: 14, height: 1.4)),
@@ -282,7 +282,7 @@ class _MetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
+        color: context.tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
       ),
       child: Column(
@@ -290,8 +290,8 @@ class _MetricTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(metric.label,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textSecondary)),
+              style: TextStyle(
+                  fontSize: 12, color: context.tokens.textSecondary)),
           const SizedBox(height: 4),
           Text(metric.value,
               style: const TextStyle(

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../common/app_card.dart';
 import '../common/state_views.dart';
 
@@ -44,9 +44,9 @@ class ChartCard extends StatelessWidget {
                     if (subtitle != null) ...[
                       const SizedBox(height: 2),
                       Text(subtitle!,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 12.5,
-                              color: AppColors.textSecondary)),
+                              color: context.tokens.textSecondary)),
                     ],
                   ],
                 ),
@@ -89,8 +89,8 @@ class ChartLegendDot extends StatelessWidget {
         ),
         const SizedBox(width: 6),
         Text(label,
-            style: const TextStyle(
-                fontSize: 12, color: AppColors.textSecondary)),
+            style: TextStyle(
+                fontSize: 12, color: context.tokens.textSecondary)),
       ],
     );
   }

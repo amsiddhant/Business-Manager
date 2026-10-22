@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../models/business.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
@@ -28,8 +28,8 @@ class BusinessSelector extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        border: Border.all(color: AppColors.border),
+        color: context.tokens.card,
+        border: Border.all(color: context.tokens.border),
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
       ),
       child: DropdownButtonHideUnderline(
@@ -67,7 +67,7 @@ class _Selected extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 18, color: AppColors.textSecondary),
+        Icon(icon, size: 18, color: context.tokens.textSecondary),
         const SizedBox(width: AppSpacing.sm),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 180),

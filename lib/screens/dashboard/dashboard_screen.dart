@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../models/order.dart';
@@ -163,35 +163,35 @@ class _Scorecards extends StatelessWidget {
         label: 'Revenue',
         value: money(summary.revenue),
         icon: Icons.trending_up,
-        accent: AppColors.chartSeries[0],
+        accent: context.tokens.chartSeries[0],
         tooltip: 'Total recognised sales revenue.',
       ),
       Scorecard(
         label: 'Product Cost',
         value: money(summary.productCost),
         icon: Icons.inventory_2_outlined,
-        accent: AppColors.chartSeries[3],
+        accent: context.tokens.chartSeries[3],
         tooltip: 'Total product purchasing cost for recognised orders.',
       ),
       Scorecard(
         label: 'Marketing',
         value: money(summary.marketingCost),
         icon: Icons.campaign_outlined,
-        accent: AppColors.chartSeries[6],
+        accent: context.tokens.chartSeries[6],
         tooltip: 'Total advertising spend in the selected period.',
       ),
       Scorecard(
         label: 'Operating Expenses',
         value: money(summary.operatingExpenses),
         icon: Icons.receipt_long_outlined,
-        accent: AppColors.chartSeries[5],
+        accent: context.tokens.chartSeries[5],
         tooltip: 'Prorated operating costs (excluding advertising).',
       ),
       Scorecard(
         label: 'Gross Profit',
         value: money(summary.grossProfit),
         icon: Icons.savings_outlined,
-        accent: AppColors.success,
+        accent: context.tokens.success,
         caption: 'Margin ${PercentFormatter.format(summary.grossMargin)}',
         tooltip: 'Revenue − Product Cost.',
       ),
@@ -199,7 +199,7 @@ class _Scorecards extends StatelessWidget {
         label: 'Contribution Profit',
         value: money(summary.contributionProfit),
         icon: Icons.stacked_line_chart,
-        accent: AppColors.chartSeries[7],
+        accent: context.tokens.chartSeries[7],
         tooltip: 'Gross Profit − Marketing Cost.',
       ),
       Scorecard(
@@ -207,32 +207,32 @@ class _Scorecards extends StatelessWidget {
         value: money(summary.netProfit),
         icon: Icons.account_balance_wallet_outlined,
         accent: summary.netProfit.isNegative
-            ? AppColors.error
-            : AppColors.success,
+            ? context.tokens.error
+            : context.tokens.success,
         caption: 'Revenue − all costs',
         captionTone:
-            summary.netProfit.isNegative ? AppColors.error : null,
+            summary.netProfit.isNegative ? context.tokens.error : null,
         tooltip: 'Revenue − Product Cost − Marketing − Operating Expenses.',
       ),
       Scorecard(
         label: 'Net Margin',
         value: PercentFormatter.format(summary.netMargin),
         icon: Icons.percent,
-        accent: AppColors.chartSeries[1],
+        accent: context.tokens.chartSeries[1],
         tooltip: 'Net Profit / Revenue × 100.',
       ),
       Scorecard(
         label: 'Total Orders',
         value: summary.orderCount.toString(),
         icon: Icons.shopping_cart_outlined,
-        accent: AppColors.chartSeries[8],
+        accent: context.tokens.chartSeries[8],
         tooltip: 'Number of recognised orders.',
       ),
       Scorecard(
         label: 'Units Sold',
         value: summary.unitsSold.toString(),
         icon: Icons.local_shipping_outlined,
-        accent: AppColors.chartSeries[9],
+        accent: context.tokens.chartSeries[9],
         tooltip: 'Total quantity across recognised orders.',
       ),
     ];
@@ -307,7 +307,7 @@ class _ChartsGrid extends StatelessWidget {
         labels: [for (final p in topRevenue) p.product.name],
         values: [for (final p in topRevenue) p.revenue],
         currency: currency,
-        color: AppColors.chartSeries[0],
+        color: context.tokens.chartSeries[0],
       ),
     );
 
@@ -318,7 +318,7 @@ class _ChartsGrid extends StatelessWidget {
         labels: [for (final p in topProfit) p.product.name],
         values: [for (final p in topProfit) p.netProfit],
         currency: currency,
-        color: AppColors.success,
+        color: context.tokens.success,
       ),
     );
 
@@ -329,7 +329,7 @@ class _ChartsGrid extends StatelessWidget {
       child: TrendLineChart(
         labels: [for (final p in series) p.label],
         values: [for (final p in series) p.marketingCost.major],
-        color: AppColors.chartSeries[6],
+        color: context.tokens.chartSeries[6],
         currency: currency,
       ),
     );
@@ -341,7 +341,7 @@ class _ChartsGrid extends StatelessWidget {
       child: TrendLineChart(
         labels: [for (final p in series) p.label],
         values: [for (final p in series) p.orders.toDouble()],
-        color: AppColors.chartSeries[1],
+        color: context.tokens.chartSeries[1],
       ),
     );
 

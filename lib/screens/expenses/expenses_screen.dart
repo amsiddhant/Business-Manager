@@ -6,6 +6,7 @@ import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
@@ -147,9 +148,9 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                   ),
                   if (e.isFromDealer) ...[
                     const SizedBox(width: 6),
-                    const Tooltip(
+                    Tooltip(
                       message: 'Managed via the linked dealer',
-                      child: Icon(Icons.link, size: 14, color: Color(0xFF9CA3AF)),
+                      child: Icon(Icons.link, size: 14, color: context.tokens.textTertiary),
                     ),
                   ],
                 ],
@@ -228,10 +229,10 @@ class _RowActions extends StatelessWidget {
   Widget build(BuildContext context) {
     // Dealer-mirrored expenses are managed via the dealer, not here.
     if (expense.isFromDealer) {
-      return const Padding(
+      return Padding(
         padding: EdgeInsets.only(right: AppSpacing.sm),
         child: Text('Dealer',
-            style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+            style: TextStyle(fontSize: 12, color: context.tokens.textTertiary)),
       );
     }
     if (!canEdit && !canDelete) return const SizedBox.shrink();

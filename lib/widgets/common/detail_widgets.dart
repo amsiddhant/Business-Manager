@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:universal_html/html.dart' as html;
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import 'confirm_dialog.dart';
 import 'responsive.dart';
 
@@ -83,7 +83,7 @@ class DetailFieldTile extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(field.icon, size: 18, color: AppColors.textTertiary),
+        Icon(field.icon, size: 18, color: context.tokens.textTertiary),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: Column(
@@ -91,8 +91,8 @@ class DetailFieldTile extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(field.label,
-                  style: const TextStyle(
-                      fontSize: 12, color: AppColors.textSecondary)),
+                  style: TextStyle(
+                      fontSize: 12, color: context.tokens.textSecondary)),
               const SizedBox(height: 2),
               if (field.isLink && hasValue && looksLikeUrl(value))
                 LinkButton(value: value)
@@ -122,7 +122,7 @@ class CopyButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       icon: const Icon(Icons.copy_outlined, size: 15),
-      color: AppColors.textTertiary,
+      color: context.tokens.textTertiary,
       tooltip: 'Copy $label',
       visualDensity: VisualDensity.compact,
       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),

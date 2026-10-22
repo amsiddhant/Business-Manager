@@ -6,8 +6,8 @@ import 'package:universal_html/html.dart' as html;
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../models/campaign.dart';
@@ -203,13 +203,13 @@ class _SummaryCard extends StatelessWidget {
       _Metric('Gross Profit',
           MoneyFormatter.format(profit?.grossProfit ?? Money.zero, currency),
           tone: (profit?.grossProfit ?? Money.zero).isNegative
-              ? AppColors.error
-              : AppColors.success),
+              ? context.tokens.error
+              : context.tokens.success),
       _Metric('Net Profit',
           MoneyFormatter.format(profit?.netProfit ?? Money.zero, currency),
           tone: (profit?.netProfit ?? Money.zero).isNegative
-              ? AppColors.error
-              : AppColors.success),
+              ? context.tokens.error
+              : context.tokens.success),
       _Metric('Margin',
           PercentFormatter.format(profit?.margin ?? double.nan)),
     ];
@@ -229,8 +229,8 @@ class _SummaryCard extends StatelessWidget {
                 icon: const Icon(Icons.open_in_new, size: 16),
                 label: const Text('Open product page'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primary,
-                  side: const BorderSide(color: AppColors.primary),
+                  foregroundColor: context.tokens.primary,
+                  side: BorderSide(color: context.tokens.primary),
                 ),
               ),
             ),
@@ -238,7 +238,7 @@ class _SummaryCard extends StatelessWidget {
           ],
           if (product.description.isNotEmpty) ...[
             Text(product.description,
-                style: const TextStyle(color: AppColors.textSecondary)),
+                style: TextStyle(color: context.tokens.textSecondary)),
             const SizedBox(height: AppSpacing.lg),
           ],
           LayoutBuilder(
@@ -292,7 +292,7 @@ class _MetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
+        color: context.tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
       ),
       child: Column(
@@ -300,15 +300,15 @@ class _MetricTile extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(metric.label,
-              style: const TextStyle(
-                  fontSize: 12, color: AppColors.textSecondary)),
+              style: TextStyle(
+                  fontSize: 12, color: context.tokens.textSecondary)),
           const SizedBox(height: 4),
           Text(
             metric.value,
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: metric.tone ?? AppColors.textPrimary,
+              color: metric.tone ?? context.tokens.textPrimary,
             ),
           ),
         ],

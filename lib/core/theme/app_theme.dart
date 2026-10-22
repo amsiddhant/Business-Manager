@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'app_colors.dart';
+import 'app_density.dart';
+import 'app_motion.dart';
+import 'app_palette.dart';
+import 'tokens.dart';
 
 /// Design tokens for spacing and radii, kept in one place for consistency.
 class AppSpacing {
@@ -22,188 +25,444 @@ class AppSpacing {
   static const double tabletMax = 1024;
 }
 
-/// Builds the single light theme used throughout the app.
+/// Builds the app's [ThemeData] from a brand colour, brightness, density and
+/// motion level. Every component reads its colours from [AppTokens], so the
+/// whole app follows light/dark mode and the admin's brand colour.
 class AppTheme {
   AppTheme._();
 
-  static ThemeData get light {
-    final base = ThemeData.light(useMaterial3: true);
+  static ThemeData get light => build();
+  static ThemeData get dark => build(brightness: Brightness.dark);
+
+  static ThemeData build({
+    Color brand = AppPalette.defaultBrand,
+    Brightness brightness = Brightness.light,
+    AppDensity density = AppDensity.comfortable,
+    MotionLevel motion = MotionLevel.full,
+  }) {
+    final t = brightness == Brightness.dark
+        ? AppPalette.dark(brand: brand)
+        : AppPalette.light(brand: brand);
+    final base = ThemeData(useMaterial3: true, brightness: brightness);
     final textTheme = GoogleFonts.interTextTheme(base.textTheme).apply(
-      bodyColor: AppColors.textPrimary,
-      displayColor: AppColors.textPrimary,
+      bodyColor: t.textPrimary,
+      displayColor: t.textPrimary,
     );
 
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: AppColors.primary,
-      brightness: Brightness.light,
-      primary: AppColors.primary,
-      surface: AppColors.card,
-      error: AppColors.error,
+      seedColor: brand,
+      brightness: brightness,
+      primary: t.primary,
+      onPrimary: t.textOnPrimary,
+      primaryContainer: t.primaryLight,
+      onPrimaryContainer: t.isDark ? t.textPrimary : t.primaryDark,
+      surface: t.card,
+      onSurface: t.textPrimary,
+      onSurfaceVariant: t.textSecondary,
+      surfaceContainerLowest: t.card,
+      surfaceContainerLow: t.card,
+      surfaceContainer: t.card,
+      surfaceContainerHigh: t.surfaceAlt,
+      surfaceContainerHighest: t.surfaceAlt,
+      outline: t.borderStrong,
+      outlineVariant: t.border,
+      error: t.error,
+      onError: t.onColor(t.error),
+      errorContainer: t.errorSurface,
+      onErrorContainer: t.error,
+      inverseSurface: t.inverseSurface,
+      onInverseSurface: t.onInverseSurface,
+      scrim: t.scrim,
     );
+
+    final radiusSm = BorderRadius.circular(AppSpacing.radiusSm);
+    OutlineInputBorder field(Color color, [double width = 1]) =>
+        OutlineInputBorder(
+          borderRadius: radiusSm,
+          borderSide: BorderSide(color: color, width: width),
+        );
+    final buttonPadding = EdgeInsets.symmetric(
+      horizontal: AppSpacing.lg,
+      vertical: density.fieldPadding,
+    );
+    const buttonText = TextStyle(fontWeight: FontWeight.w600, fontSize: 14);
+    final motionTheme = AppMotion(motion);
 
     return base.copyWith(
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: AppColors.background,
+      extensions: [t, AppDensityTheme(density), motionTheme],
+      visualDensity: density.visualDensity,
+      scaffoldBackgroundColor: t.background,
+      canvasColor: t.background,
       textTheme: textTheme,
-      primaryColor: AppColors.primary,
-      dividerColor: AppColors.border,
-      dividerTheme: const DividerThemeData(
-        color: AppColors.border,
-        thickness: 1,
-        space: 1,
+      primaryColor: t.primary,
+      dividerColor: t.border,
+      hoverColor: t.hover,
+      focusColor: t.focusRing.withValues(alpha: 0.12),
+      splashFactory: motion == MotionLevel.full
+          ? InkSparkle.splashFactory
+          : NoSplash.splashFactory,
+      pageTransitionsTheme: PageTransitionsTheme(
+        builders: {
+          for (final p in TargetPlatform.values)
+            p: _FadeThroughTransitionsBuilder(motionTheme),
+        },
       ),
+      dividerTheme: DividerThemeData(color: t.border, thickness: 1, space: 1),
       cardTheme: CardThemeData(
         elevation: 0,
-        color: AppColors.card,
+        color: t.card,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppSpacing.radius),
-          side: const BorderSide(color: AppColors.border),
+          side: BorderSide(color: t.border),
         ),
         margin: EdgeInsets.zero,
       ),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: AppColors.card,
+      appBarTheme: AppBarTheme(
+        backgroundColor: t.card,
+        foregroundColor: t.textPrimary,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: false,
-        iconTheme: IconThemeData(color: AppColors.textPrimary),
+        iconTheme: IconThemeData(color: t.textPrimary),
         titleTextStyle: TextStyle(
-          color: AppColors.textPrimary,
+          color: t.textPrimary,
           fontSize: 18,
           fontWeight: FontWeight.w600,
         ),
       ),
+      iconTheme: IconThemeData(color: t.textSecondary),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.card,
+        fillColor: t.card,
         isDense: true,
-        contentPadding: const EdgeInsets.symmetric(
+        contentPadding: EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
-          vertical: AppSpacing.md,
+          vertical: density.fieldPadding,
         ),
-        hintStyle: const TextStyle(color: AppColors.textTertiary),
-        labelStyle: const TextStyle(color: AppColors.textSecondary),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          borderSide: const BorderSide(color: AppColors.border),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          borderSide: const BorderSide(color: AppColors.border),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.6),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          borderSide: const BorderSide(color: AppColors.error),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          borderSide: const BorderSide(color: AppColors.error, width: 1.6),
-        ),
+        hintStyle: TextStyle(color: t.textTertiary),
+        labelStyle: TextStyle(color: t.textSecondary),
+        floatingLabelStyle: TextStyle(color: t.primary),
+        helperStyle: TextStyle(color: t.textTertiary),
+        errorStyle: TextStyle(color: t.error),
+        prefixIconColor: t.textTertiary,
+        suffixIconColor: t.textTertiary,
+        border: field(t.border),
+        enabledBorder: field(t.border),
+        disabledBorder: field(t.border.withValues(alpha: 0.6)),
+        focusedBorder: field(t.primary, 1.6),
+        errorBorder: field(t.error),
+        focusedErrorBorder: field(t.error, 1.6),
+      ),
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: t.primary,
+        selectionColor: t.primary.withValues(alpha: 0.24),
+        selectionHandleColor: t.primary,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.textOnPrimary,
+          backgroundColor: t.primary,
+          foregroundColor: t.textOnPrimary,
+          disabledBackgroundColor: t.surfaceAlt,
+          disabledForegroundColor: t.textTertiary,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.md,
-          ),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          ),
+          padding: buttonPadding,
+          textStyle: buttonText,
+          shape: RoundedRectangleBorder(borderRadius: radiusSm),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: t.primary,
+          foregroundColor: t.textOnPrimary,
+          padding: buttonPadding,
+          textStyle: buttonText,
+          shape: RoundedRectangleBorder(borderRadius: radiusSm),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          side: const BorderSide(color: AppColors.borderStrong),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.lg,
-            vertical: AppSpacing.md,
-          ),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          ),
+          foregroundColor: t.primary,
+          side: BorderSide(color: t.borderStrong),
+          padding: buttonPadding,
+          textStyle: buttonText,
+          shape: RoundedRectangleBorder(borderRadius: radiusSm),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: AppColors.primary,
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          foregroundColor: t.primary,
+          textStyle: buttonText,
+          shape: RoundedRectangleBorder(borderRadius: radiusSm),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: t.textSecondary,
+          shape: RoundedRectangleBorder(borderRadius: radiusSm),
+        ),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: SegmentedButton.styleFrom(
+          foregroundColor: t.textSecondary,
+          selectedForegroundColor: t.primary,
+          selectedBackgroundColor: t.primarySurface,
+          side: BorderSide(color: t.border),
+          textStyle: buttonText.copyWith(fontSize: 13),
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: AppColors.surfaceAlt,
+        backgroundColor: t.surfaceAlt,
+        selectedColor: t.primaryLight,
         side: BorderSide.none,
-        labelStyle: const TextStyle(
-          color: AppColors.textPrimary,
+        labelStyle: TextStyle(
+          color: t.textPrimary,
           fontWeight: FontWeight.w500,
           fontSize: 12,
         ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        secondaryLabelStyle: TextStyle(
+          color: t.primary,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
         ),
+        checkmarkColor: t.primary,
+        iconTheme: IconThemeData(color: t.textSecondary, size: 16),
+        shape: RoundedRectangleBorder(borderRadius: radiusSm),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.card,
+        backgroundColor: t.card,
         surfaceTintColor: Colors.transparent,
+        barrierColor: t.scrim,
+        titleTextStyle: TextStyle(
+          color: t.textPrimary,
+          fontSize: 18,
+          fontWeight: FontWeight.w600,
+        ),
+        contentTextStyle: TextStyle(color: t.textSecondary, fontSize: 14),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
         ),
       ),
-      snackBarTheme: SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: AppColors.textPrimary,
-        contentTextStyle: const TextStyle(color: Colors.white),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: t.card,
+        surfaceTintColor: Colors.transparent,
+        modalBarrierColor: t.scrim,
+        showDragHandle: true,
+        dragHandleColor: t.borderStrong,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(AppSpacing.radiusLg),
+          ),
         ),
       ),
-      popupMenuTheme: PopupMenuThemeData(
-        color: AppColors.card,
+      drawerTheme: DrawerThemeData(
+        backgroundColor: t.sidebar,
         surfaceTintColor: Colors.transparent,
+        scrimColor: t.scrim,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: t.inverseSurface,
+        contentTextStyle: TextStyle(color: t.onInverseSurface),
+        actionTextColor: t.isDark ? t.primaryDark : t.primaryLight,
+        shape: RoundedRectangleBorder(borderRadius: radiusSm),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: t.card,
+        surfaceTintColor: Colors.transparent,
+        textStyle: TextStyle(color: t.textPrimary, fontSize: 14),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          side: const BorderSide(color: AppColors.border),
+          borderRadius: radiusSm,
+          side: BorderSide(color: t.border),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(t.card),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: radiusSm,
+              side: BorderSide(color: t.border),
+            ),
+          ),
         ),
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: AppColors.textPrimary,
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+          color: t.inverseSurface,
+          borderRadius: radiusSm,
         ),
-        textStyle: const TextStyle(color: Colors.white, fontSize: 12),
+        textStyle: TextStyle(color: t.onInverseSurface, fontSize: 12),
+        waitDuration: const Duration(milliseconds: 400),
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: t.textSecondary,
+        textColor: t.textPrimary,
+        selectedColor: t.primary,
+        selectedTileColor: t.primarySurface,
+        shape: RoundedRectangleBorder(borderRadius: radiusSm),
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: t.sidebar,
+        indicatorColor: t.primaryLight,
+        selectedIconTheme: IconThemeData(color: t.primary),
+        unselectedIconTheme: IconThemeData(color: t.textSecondary),
+        selectedLabelTextStyle: TextStyle(
+          color: t.primary,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+        unselectedLabelTextStyle: TextStyle(
+          color: t.textSecondary,
+          fontSize: 12,
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: t.card,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: t.primaryLight,
+        height: 64,
+        elevation: 0,
+        iconTheme: WidgetStateProperty.resolveWith(
+          (s) => IconThemeData(
+            color: s.contains(WidgetState.selected)
+                ? t.primary
+                : t.textSecondary,
+          ),
+        ),
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (s) => TextStyle(
+            fontSize: 12,
+            fontWeight: s.contains(WidgetState.selected)
+                ? FontWeight.w600
+                : FontWeight.w500,
+            color: s.contains(WidgetState.selected)
+                ? t.primary
+                : t.textSecondary,
+          ),
+        ),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: t.primary,
+        foregroundColor: t.textOnPrimary,
+        elevation: 2,
+        highlightElevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+        ),
+      ),
+      tabBarTheme: TabBarThemeData(
+        labelColor: t.primary,
+        unselectedLabelColor: t.textSecondary,
+        indicatorColor: t.primary,
+        dividerColor: t.border,
+        labelStyle: buttonText,
+        unselectedLabelStyle: buttonText.copyWith(fontWeight: FontWeight.w500),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? t.textOnPrimary : null,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? t.primary : null,
+        ),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? t.primary : null,
+        ),
+        checkColor: WidgetStatePropertyAll(t.textOnPrimary),
+        side: BorderSide(color: t.borderStrong, width: 1.5),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+      ),
+      radioTheme: RadioThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? t.primary : t.borderStrong,
+        ),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: t.primary,
+        linearTrackColor: t.surfaceAlt,
+        circularTrackColor: t.surfaceAlt,
+      ),
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStatePropertyAll(
+          t.textTertiary.withValues(alpha: 0.45),
+        ),
+        radius: const Radius.circular(8),
+        thickness: const WidgetStatePropertyAll(6),
+      ),
+      badgeTheme: BadgeThemeData(
+        backgroundColor: t.error,
+        textColor: t.onColor(t.error),
+      ),
+      datePickerTheme: DatePickerThemeData(
+        backgroundColor: t.card,
+        surfaceTintColor: Colors.transparent,
+        headerBackgroundColor: t.primary,
+        headerForegroundColor: t.textOnPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+        ),
       ),
       dataTableTheme: DataTableThemeData(
-        headingTextStyle: const TextStyle(
-          color: AppColors.textSecondary,
+        headingTextStyle: TextStyle(
+          color: t.textSecondary,
           fontWeight: FontWeight.w600,
           fontSize: 12.5,
         ),
-        dataTextStyle: const TextStyle(
-          color: AppColors.textPrimary,
-          fontSize: 13.5,
-        ),
-        headingRowColor: WidgetStatePropertyAll(AppColors.surfaceAlt),
+        dataTextStyle: TextStyle(color: t.textPrimary, fontSize: 13.5),
+        headingRowColor: WidgetStatePropertyAll(t.surfaceAlt),
         dividerThickness: 1,
       ),
     );
   }
+}
 
-  /// A soft card shadow used on elevated surfaces.
-  static List<BoxShadow> get cardShadow => [
-        BoxShadow(
-          color: const Color(0xFF1F2937).withValues(alpha: 0.05),
-          blurRadius: 16,
-          offset: const Offset(0, 4),
-        ),
-      ];
+/// A short fade (and, with full motion, a slight scale-up) between pages.
+/// Nothing moves under reduced motion, and there's no transition at all when
+/// motion is off.
+class _FadeThroughTransitionsBuilder extends PageTransitionsBuilder {
+  const _FadeThroughTransitionsBuilder(this.motion);
+
+  final AppMotion motion;
+
+  @override
+  Duration get transitionDuration => motion.slow;
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    if (!motion.enabled) return child;
+    final fadeIn = CurvedAnimation(
+      parent: animation,
+      curve: const Interval(0.25, 1, curve: AppMotion.emphasized),
+    );
+    final fadeOut = CurvedAnimation(
+      parent: secondaryAnimation,
+      curve: const Interval(0, 0.4, curve: Curves.easeIn),
+    );
+    Widget result = FadeTransition(
+      opacity: fadeIn,
+      child: FadeTransition(
+        opacity: ReverseAnimation(fadeOut),
+        child: child,
+      ),
+    );
+    if (motion.allowsMovement) {
+      result = ScaleTransition(
+        scale: Tween<double>(begin: 0.98, end: 1).animate(fadeIn),
+        child: result,
+      );
+    }
+    return result;
+  }
 }

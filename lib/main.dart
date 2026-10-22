@@ -3,11 +3,13 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'core/routing/app_router.dart';
-import 'core/theme/app_theme.dart';
+import 'core/theme/app_motion.dart';
 import 'data/local_backend.dart';
 import 'state/app_state.dart';
 import 'state/data_controller.dart';
 import 'state/filter_controller.dart';
+import 'state/theme_controller.dart';
+import 'state/user_prefs.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,6 +34,13 @@ class SalesforceBusinessManagerApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<FilterController>(
           create: (_) => FilterController(),
+        ),
+        ChangeNotifierProvider<UserPrefs>(
+          create: (_) =>
+              UserPrefs(appState.prefs)..bindUser(appState.currentUser?.uid),
+        ),
+        ChangeNotifierProvider<ThemeController>(
+          create: (c) => ThemeController(appState.prefs, c.read<UserPrefs>()),
         ),
       ],
       child: _AppView(appState: appState),
@@ -60,6 +69,8 @@ class _AppViewState extends State<_AppView> {
   void initState() {
     super.initState();
     widget.appState.addListener(_onAppStateChanged);
+    context.read<FilterController>().addListener(_saveScope);
+    context.read<DataController>().addListener(_checkScope);
     // Handle a session that was already primed during AppState.create().
     WidgetsBinding.instance.addPostFrameCallback((_) => _onAppStateChanged());
     _lifecycle = AppLifecycleListener(
@@ -80,6 +91,25 @@ class _AppViewState extends State<_AppView> {
     if (backend is LocalBackend) backend.flush();
   }
 
+  /// Remembers the business + period selection for this user.
+  void _saveScope() {
+    if (widget.appState.status != AuthStatus.signedIn) return;
+    context
+        .read<UserPrefs>()
+        .setScope(context.read<FilterController>().toJson());
+  }
+
+  /// A remembered business the user can no longer see falls back to "All".
+  void _checkScope() {
+    final data = context.read<DataController>();
+    final filter = context.read<FilterController>();
+    final id = filter.selectedBusinessId;
+    if (!data.loaded || id == null) return;
+    if (!data.selectableBusinesses.any((b) => b.id == id)) {
+      filter.selectBusiness(null);
+    }
+  }
+
   @override
   void dispose() {
     _lifecycle.dispose();
@@ -89,12 +119,14 @@ class _AppViewState extends State<_AppView> {
 
   void _onAppStateChanged() {
     if (!mounted) return;
+    context.read<UserPrefs>().bindUser(widget.appState.currentUser?.uid);
     final status = widget.appState.status;
     if (status == _lastStatus) return;
     _lastStatus = status;
 
     final data = context.read<DataController>();
     if (status == AuthStatus.signedIn) {
+      context.read<FilterController>().restore(context.read<UserPrefs>().scope);
       // The repository may have been rebound (e.g. Firebase activation); point
       // the data controller at the current repository before loading.
       data.rebind(widget.appState.repository);
@@ -106,10 +138,16 @@ class _AppViewState extends State<_AppView> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = context.watch<ThemeController>();
+    final title = context.select<AppState, String>((s) => s.appName);
     return MaterialApp.router(
-      title: 'Salesforce Business Manager',
+      title: title.isEmpty ? 'Business Manager' : title,
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
+      theme: theme.light,
+      darkTheme: theme.dark,
+      themeMode: theme.mode,
+      themeAnimationDuration: AppMotion(theme.motion).slow,
+      themeAnimationCurve: AppMotion.standard,
       routerConfig: _router,
     );
   }

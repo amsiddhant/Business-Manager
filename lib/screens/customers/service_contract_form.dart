@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/enums.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
@@ -338,7 +338,7 @@ class _BillingCycleToggle extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: AppColors.surfaceAlt,
+          color: context.tokens.surfaceAlt,
           borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
         ),
         child: Row(
@@ -378,16 +378,16 @@ class _Segment extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 10),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? AppColors.card : Colors.transparent,
+          color: selected ? context.tokens.card : Colors.transparent,
           borderRadius: BorderRadius.circular(AppSpacing.radiusSm - 2),
-          boxShadow: selected ? AppTheme.cardShadow : null,
+          boxShadow: selected ? context.tokens.cardShadow : null,
         ),
         child: Text(
           label,
           style: TextStyle(
             fontSize: 13.5,
             fontWeight: FontWeight.w600,
-            color: selected ? AppColors.primary : AppColors.textSecondary,
+            color: selected ? context.tokens.primary : context.tokens.textSecondary,
           ),
         ),
       ),
@@ -417,10 +417,10 @@ class _AddOnsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: enabled ? AppColors.primarySurface : AppColors.surfaceAlt,
+        color: enabled ? context.tokens.primarySurface : context.tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
         border: Border.all(
-            color: enabled ? AppColors.primaryLight : AppColors.border),
+            color: enabled ? context.tokens.primaryLight : context.tokens.border),
       ),
       padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md, vertical: AppSpacing.xs),
@@ -440,7 +440,7 @@ class _AddOnsSection extends StatelessWidget {
                     visualDensity: VisualDensity.compact,
                   ),
                   const SizedBox(width: 4),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -449,7 +449,7 @@ class _AddOnsSection extends StatelessWidget {
                                 fontSize: 14, fontWeight: FontWeight.w600)),
                         Text('Bundle extra paid services onto this contract.',
                             style: TextStyle(
-                                fontSize: 12, color: AppColors.textSecondary)),
+                                fontSize: 12, color: context.tokens.textSecondary)),
                       ],
                     ),
                   ),
@@ -519,7 +519,7 @@ class _AddOnRowFields extends StatelessWidget {
         IconButton(
           tooltip: 'Remove',
           icon: const Icon(Icons.close, size: 18),
-          color: AppColors.textTertiary,
+          color: context.tokens.textTertiary,
           onPressed: onRemove,
         ),
       ],
@@ -572,8 +572,8 @@ class _OneTimeToggle extends StatelessWidget {
                       text: value
                           ? '— billed once, not added to the subscription total.'
                           : '— plan price recurs every ${cycle.label.toLowerCase()}.',
-                      style: const TextStyle(
-                          fontSize: 12.5, color: AppColors.textSecondary),
+                      style: TextStyle(
+                          fontSize: 12.5, color: context.tokens.textSecondary),
                     ),
                   ],
                 ),
@@ -600,24 +600,24 @@ class _BusinessContextBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md, vertical: AppSpacing.sm),
       decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
+        color: context.tokens.surfaceAlt,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: context.tokens.border),
       ),
       child: Row(
         children: [
-          const Icon(Icons.storefront_outlined,
-              size: 20, color: AppColors.textSecondary),
+          Icon(Icons.storefront_outlined,
+              size: 20, color: context.tokens.textSecondary),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Business',
+                Text('Business',
                     style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.textSecondary)),
+                        color: context.tokens.textSecondary)),
                 Text(business.name,
                     style: const TextStyle(
                         fontSize: 14, fontWeight: FontWeight.w600)),
@@ -626,7 +626,7 @@ class _BusinessContextBanner extends StatelessWidget {
           ),
           Text('Seller on invoice',
               style: TextStyle(
-                  fontSize: 11.5, color: AppColors.textTertiary)),
+                  fontSize: 11.5, color: context.tokens.textTertiary)),
         ],
       ),
     );
@@ -643,19 +643,19 @@ class _RenewalBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.infoSurface,
+        color: context.tokens.infoSurface,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-        border: Border.all(color: AppColors.info.withValues(alpha: 0.3)),
+        border: Border.all(color: context.tokens.info.withValues(alpha: 0.3)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.autorenew, size: 20, color: AppColors.info),
+          Icon(Icons.autorenew, size: 20, color: context.tokens.info),
           SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
               'The current term will be archived to the renewal history and '
               'this new term will become active.',
-              style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+              style: TextStyle(fontSize: 12.5, color: context.tokens.textSecondary),
             ),
           ),
         ],
@@ -685,8 +685,8 @@ class _TotalBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.lg, vertical: AppSpacing.md),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.primary, AppColors.primaryDark],
+        gradient: LinearGradient(
+          colors: [context.tokens.primary, context.tokens.primaryDark],
         ),
         borderRadius: BorderRadius.circular(AppSpacing.radius),
       ),
@@ -695,20 +695,20 @@ class _TotalBanner extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.receipt_long_outlined,
-                  color: Colors.white70, size: 22),
+              Icon(Icons.receipt_long_outlined,
+                  color: context.tokens.textOnPrimary.withValues(alpha: 0.7), size: 22),
               const SizedBox(width: AppSpacing.md),
-              const Expanded(
+              Expanded(
                 child: Text('Total Subscription',
                     style: TextStyle(
-                        color: Colors.white70,
+                        color: context.tokens.textOnPrimary.withValues(alpha: 0.7),
                         fontSize: 13,
                         fontWeight: FontWeight.w500)),
               ),
               Text(
                 '${MoneyFormatter.format(recurringTotal, currency)} /${cycle.unit}',
-                style: const TextStyle(
-                    color: Colors.white,
+                style: TextStyle(
+                    color: context.tokens.textOnPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.w700),
               ),
@@ -719,15 +719,15 @@ class _TotalBanner extends StatelessWidget {
             Row(
               children: [
                 const SizedBox(width: 22 + AppSpacing.md),
-                const Expanded(
+                Expanded(
                   child: Text('One-time charge',
                       style:
-                          TextStyle(color: Colors.white60, fontSize: 12)),
+                          TextStyle(color: context.tokens.textOnPrimary.withValues(alpha: 0.6), fontSize: 12)),
                 ),
                 Text(
                   MoneyFormatter.format(oneTimeTotal, currency),
-                  style: const TextStyle(
-                      color: Colors.white,
+                  style: TextStyle(
+                      color: context.tokens.textOnPrimary,
                       fontSize: 14,
                       fontWeight: FontWeight.w600),
                 ),

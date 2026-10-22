@@ -3,8 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:universal_html/html.dart' as html;
 
 import '../../core/permissions.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/validators.dart';
 import '../../models/firebase_config.dart';
 import '../../state/app_state.dart';
@@ -180,8 +180,8 @@ class _FirebaseCard extends StatelessWidget {
             padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
               color: isFirebase
-                  ? AppColors.successSurface
-                  : AppColors.warningSurface,
+                  ? context.tokens.successSurface
+                  : context.tokens.warningSurface,
               borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
             ),
             child: Row(
@@ -189,7 +189,7 @@ class _FirebaseCard extends StatelessWidget {
                 Icon(
                   isFirebase ? Icons.cloud_done : Icons.cloud_off,
                   size: 20,
-                  color: isFirebase ? AppColors.success : AppColors.warning,
+                  color: isFirebase ? context.tokens.success : context.tokens.warning,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
@@ -206,11 +206,11 @@ class _FirebaseCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
-          const Text(
+          Text(
             'Only public client configuration values are stored (apiKey, '
             'authDomain, projectId, …). Never enter service-account keys or '
             'other secrets here.',
-            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
+            style: TextStyle(fontSize: 12, color: context.tokens.textTertiary),
           ),
           const SizedBox(height: AppSpacing.lg),
           Row(
@@ -386,8 +386,8 @@ class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.local_fire_department,
-                      color: AppColors.primary),
+                  Icon(Icons.local_fire_department,
+                      color: context.tokens.primary),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(
@@ -427,7 +427,7 @@ class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
       children: [
         Row(
           children: [
-            Icon(info.icon, color: AppColors.primary, size: 22),
+            Icon(info.icon, color: context.tokens.primary, size: 22),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Text(info.title,
@@ -447,15 +447,15 @@ class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
                   width: 22,
                   height: 22,
                   alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: AppColors.primarySurface,
+                  decoration: BoxDecoration(
+                    color: context.tokens.primarySurface,
                     shape: BoxShape.circle,
                   ),
                   child: Text('${i + 1}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.primary)),
+                          color: context.tokens.primary)),
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(child: Text(info.points[i])),
@@ -481,9 +481,9 @@ class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
           const Text('Configure Application',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
           const SizedBox(height: AppSpacing.xs),
-          const Text(
+          Text(
             'Paste the values from your Web app\'s firebaseConfig.',
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 13, color: context.tokens.textSecondary),
           ),
           const FormGap(),
           AppTextField(
@@ -549,7 +549,7 @@ class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
                 color:
-                    _testOk ? AppColors.successSurface : AppColors.errorSurface,
+                    _testOk ? context.tokens.successSurface : context.tokens.errorSurface,
                 borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
               ),
               child: Row(
@@ -557,7 +557,7 @@ class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
                   Icon(
                     _testOk ? Icons.check_circle : Icons.error_outline,
                     size: 18,
-                    color: _testOk ? AppColors.success : AppColors.error,
+                    color: _testOk ? context.tokens.success : context.tokens.error,
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
@@ -676,7 +676,7 @@ class _StepProgress extends StatelessWidget {
             child: Container(
               height: 4,
               decoration: BoxDecoration(
-                color: i <= current ? AppColors.primary : AppColors.border,
+                color: i <= current ? context.tokens.primary : context.tokens.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -744,8 +744,8 @@ class _ProfileRow extends StatelessWidget {
           SizedBox(
             width: 120,
             child: Text(label,
-                style: const TextStyle(
-                    fontSize: 13, color: AppColors.textSecondary)),
+                style: TextStyle(
+                    fontSize: 13, color: context.tokens.textSecondary)),
           ),
           Expanded(
             child: Text(value,
@@ -848,24 +848,24 @@ class _DangerZoneCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.warning_amber_rounded,
-                  color: AppColors.warning, size: 20),
+                  color: context.tokens.warning, size: 20),
               SizedBox(width: AppSpacing.sm),
               Text('Demo Data',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          const Text(
+          Text(
             'Reset all demo data back to the original seed. This clears any '
             'changes you have made in demo mode.',
-            style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 13, color: context.tokens.textSecondary),
           ),
           const SizedBox(height: AppSpacing.md),
           OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(foregroundColor: AppColors.error),
+            style: OutlinedButton.styleFrom(foregroundColor: context.tokens.error),
             onPressed: () => _reset(context),
             icon: const Icon(Icons.restart_alt, size: 18),
             label: const Text('Reset Demo Data'),

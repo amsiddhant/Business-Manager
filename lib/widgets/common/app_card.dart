@@ -1,38 +1,69 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 
-/// A rounded, subtly-shadowed white surface — the base building block for the
-/// dashboard and forms.
-class AppCard extends StatelessWidget {
+/// The base surface for dashboards, details and forms: an outlined card with
+/// a soft shadow. Tappable cards ([onTap]) lift slightly on hover and show a
+/// stronger border, so it's clear they open something.
+class AppCard extends StatefulWidget {
   const AppCard({
     super.key,
     required this.child,
     this.padding = const EdgeInsets.all(AppSpacing.xl),
     this.onTap,
+    this.raised = false,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final VoidCallback? onTap;
 
+  /// Always use the deeper shadow (e.g. a card floating over a chart).
+  final bool raised;
+
+  @override
+  State<AppCard> createState() => _AppCardState();
+}
+
+class _AppCardState extends State<AppCard> {
+  bool _hover = false;
+
   @override
   Widget build(BuildContext context) {
-    final content = Container(
+    final t = context.tokens;
+    final motion = context.motion;
+    final radius = BorderRadius.circular(AppSpacing.radius);
+    final interactive = widget.onTap != null;
+    final hovered = interactive && _hover;
+
+    Widget content = Padding(padding: widget.padding, child: widget.child);
+    if (interactive) {
+      content = Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: widget.onTap,
+          onHover: (h) {
+            if (h != _hover) setState(() => _hover = h);
+          },
+          borderRadius: radius,
+          child: content,
+        ),
+      );
+    }
+
+    return AnimatedContainer(
+      duration: motion.fast,
+      curve: AppMotion.standard,
+      transform: hovered && motion.allowsMovement
+          ? Matrix4.translationValues(0, -1.5, 0)
+          : Matrix4.identity(),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(AppSpacing.radius),
-        border: Border.all(color: AppColors.border),
-        boxShadow: AppTheme.cardShadow,
+        color: t.card,
+        borderRadius: radius,
+        border: Border.all(color: hovered ? t.borderStrong : t.border),
+        boxShadow: widget.raised || hovered ? t.raisedShadow : t.cardShadow,
       ),
-      padding: padding,
-      child: child,
-    );
-    if (onTap == null) return content;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppSpacing.radius),
       child: content,
     );
   }
@@ -80,13 +111,15 @@ class SectionCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: context.tokens.textPrimary)),
               if (subtitle != null) ...[
                 const SizedBox(height: 2),
                 Text(subtitle!,
-                    style: const TextStyle(
-                        fontSize: 12.5, color: AppColors.textSecondary)),
+                    style: TextStyle(
+                        fontSize: 12.5, color: context.tokens.textSecondary)),
               ],
             ],
           ),

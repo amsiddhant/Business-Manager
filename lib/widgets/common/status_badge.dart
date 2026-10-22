@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/enums.dart';
-import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 
 /// Semantic colour intent for a badge.
 enum BadgeTone { neutral, success, warning, error, info, primary }
 
-/// A small pill showing a status label with an appropriate colour.
+/// A soft pill with a coloured dot showing a status label.
 class StatusBadge extends StatelessWidget {
   const StatusBadge({super.key, required this.label, this.tone = BadgeTone.neutral});
 
@@ -85,39 +84,55 @@ class StatusBadge extends StatelessWidget {
         },
       );
 
-  ({Color fg, Color bg}) get _colors {
+  ({Color fg, Color bg}) _colors(AppTokens t) {
     switch (tone) {
       case BadgeTone.success:
-        return (fg: AppColors.success, bg: AppColors.successSurface);
+        return (fg: t.success, bg: t.successSurface);
       case BadgeTone.warning:
-        return (fg: AppColors.warning, bg: AppColors.warningSurface);
+        return (fg: t.warning, bg: t.warningSurface);
       case BadgeTone.error:
-        return (fg: AppColors.error, bg: AppColors.errorSurface);
+        return (fg: t.error, bg: t.errorSurface);
       case BadgeTone.info:
-        return (fg: AppColors.info, bg: AppColors.infoSurface);
+        return (fg: t.info, bg: t.infoSurface);
       case BadgeTone.primary:
-        return (fg: AppColors.primary, bg: AppColors.primaryLight);
+        return (fg: t.primary, bg: t.primaryLight);
       case BadgeTone.neutral:
-        return (fg: AppColors.textSecondary, bg: AppColors.surfaceAlt);
+        return (fg: t.textSecondary, bg: t.surfaceAlt);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = _colors;
+    final c = _colors(context.tokens);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.fromLTRB(8, 3, 10, 3),
+      decoration: ShapeDecoration(
         color: c.bg,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        shape: const StadiumBorder(),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: c.fg,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: c.fg, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: c.fg,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -1,12 +1,15 @@
 {
-    "name": "salesforce_business_manager",
-    "short_name": "salesforce_business_manager",
+    "name": "Salesforce Business Manager",
+    "short_name": "Business Manager",
+    "id": "/",
     "start_url": ".",
+    "scope": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
-    "orientation": "portrait-primary",
+    "background_color": "#F7F8FC",
+    "theme_color": "#582DD3",
+    "description": "Track revenue, costs, marketing spend and net profit across every business, product and financial year.",
+    "orientation": "any",
+    "categories": ["business", "finance", "productivity"],
     "prefer_related_applications": false,
     "icons": [
         {

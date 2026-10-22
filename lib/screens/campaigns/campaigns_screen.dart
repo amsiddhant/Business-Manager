@@ -6,6 +6,7 @@ import '../../core/enums.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
@@ -151,8 +152,8 @@ class _CampaignsScreenState extends State<CampaignsScreen> {
                   Text(c.name,
                       style: const TextStyle(fontWeight: FontWeight.w600)),
                   Text(CampaignsScreen._productName(data, c.productId),
-                      style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF6B7280))),
+                      style: TextStyle(
+                          fontSize: 12, color: context.tokens.textSecondary)),
                 ],
               ),
               sortValue: (c) => c.name.toLowerCase(),

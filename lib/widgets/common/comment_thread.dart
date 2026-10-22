@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../models/entity_comment.dart';
 import '../../state/app_state.dart';
@@ -24,7 +24,7 @@ class LastActivityCard extends StatelessWidget {
       title: 'Last Activity',
       child: Row(
         children: [
-          const Icon(Icons.schedule, size: 18, color: AppColors.textTertiary),
+          Icon(Icons.schedule, size: 18, color: context.tokens.textTertiary),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
@@ -132,11 +132,11 @@ class _EntityCommentThreadState extends State<EntityCommentThread> {
               child: ElevatedButton.icon(
                 onPressed: _posting ? null : _post,
                 icon: _posting
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2, color: context.tokens.textOnPrimary),
                       )
                     : const Icon(Icons.send, size: 16),
                 label: const Text('Post'),
@@ -145,10 +145,10 @@ class _EntityCommentThreadState extends State<EntityCommentThread> {
             const SizedBox(height: AppSpacing.md),
           ],
           if (comments.isEmpty)
-            const Padding(
+            Padding(
               padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
               child: Text('No comments yet.',
-                  style: TextStyle(color: AppColors.textSecondary)),
+                  style: TextStyle(color: context.tokens.textSecondary)),
             )
           else
             for (var i = 0; i < comments.length; i++) ...[
@@ -187,8 +187,8 @@ class _CommentTile extends StatelessWidget {
                   ),
                   if (comment.createdAt != null)
                     Text(AppDate.short(comment.createdAt!),
-                        style: const TextStyle(
-                            fontSize: 11, color: AppColors.textTertiary)),
+                        style: TextStyle(
+                            fontSize: 11, color: context.tokens.textTertiary)),
                 ],
               ),
               const SizedBox(height: 2),

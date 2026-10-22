@@ -43,6 +43,9 @@ class AppState extends ChangeNotifier {
 
   StreamSubscription<AuthAccount?>? _authSub;
 
+  /// This browser's shared_preferences (used by `UserPrefs` and the theme).
+  SharedPreferences get prefs => _prefs;
+
   ConfigStore get configStore => _configStore;
   Backend get backend => _backend;
   bool get isFirebaseMode => _configStore.isFirebaseMode;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/theme/theme_x.dart';
 import 'app_card.dart';
 import 'state_views.dart';
 
@@ -236,8 +236,8 @@ class _Pagination extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         Text('$totalRows records · Page ${page + 1} of $pageCount',
-            style: const TextStyle(
-                color: AppColors.textSecondary, fontSize: 12.5)),
+            style: TextStyle(
+                color: context.tokens.textSecondary, fontSize: 12.5)),
         const SizedBox(width: AppSpacing.md),
         IconButton(
           onPressed: onPrev,

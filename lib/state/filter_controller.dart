@@ -102,6 +102,52 @@ class FilterController extends ChangeNotifier {
     _recompute();
   }
 
+  /// The selection as JSON, for remembering it across reloads.
+  Map<String, Object?> toJson() => {
+        'business': _selectedBusinessId,
+        'type': _periodType.name,
+        'fy': _financialYear.startYear,
+        'quarter': _quarter.name,
+        'cy': _calendarYear,
+        'month': _month,
+        'monthYear': _monthYear,
+        if (_customRange case final r?) ...{
+          'from': r.start.toIso8601String(),
+          'to': r.end.toIso8601String(),
+        },
+      };
+
+  /// Restores a [toJson] selection; anything missing or unreadable falls back
+  /// to the default (all businesses, the current financial year). Null resets.
+  void restore(Map<String, Object?>? json, {DateTime? now}) {
+    final n = now ?? DateTime.now();
+    T? read<T>(String key) => json?[key] is T ? json![key] as T : null;
+    final from = DateTime.tryParse(read<String>('from') ?? '');
+    final to = DateTime.tryParse(read<String>('to') ?? '');
+
+    _selectedBusinessId = read<String>('business');
+    _financialYear = switch (read<int>('fy')) {
+      final y? => FinancialYear(y),
+      null => FinancialYear.forDate(n),
+    };
+    _quarter = FinancialQuarter.values.asNameMap()[read<String>('quarter')] ??
+        FinancialQuarter.q1;
+    _calendarYear = read<int>('cy') ?? n.year;
+    final month = read<int>('month');
+    _month = month != null && month >= 1 && month <= 12 ? month : n.month;
+    _monthYear = read<int>('monthYear') ?? n.year;
+    _customRange =
+        from != null && to != null && !to.isBefore(from) ? DateRange(from, to) : null;
+    var type = PeriodType.values.asNameMap()[read<String>('type')] ??
+        PeriodType.financialYear;
+    if (type == PeriodType.custom && _customRange == null) {
+      type = PeriodType.financialYear;
+    }
+    _periodType = type;
+    _announced = null;
+    _recompute();
+  }
+
   // What the last notification announced, so re-selecting the same period
   // doesn't rebuild every screen.
   (PeriodType, DateRange)? _announced;
