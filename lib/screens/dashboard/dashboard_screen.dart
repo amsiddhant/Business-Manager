@@ -15,7 +15,10 @@ import '../../state/alert_controller.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../services/smart/smart_config.dart';
+import '../../state/memo.dart';
 import '../../state/org_settings.dart';
+import '../../state/smart_insights_controller.dart';
 import '../../view_models/dashboard_view_model.dart';
 import '../../widgets/alerts/alerts_panel.dart';
 import '../../widgets/charts/business_comparison_chart.dart';
@@ -36,13 +39,28 @@ import 'widgets/dashboard_registry.dart';
 import 'widgets/dashboard_section.dart';
 import 'widgets/dashboard_tables.dart';
 import 'widgets/entrance.dart';
+import 'widgets/forecast_card.dart';
 import 'widgets/kpi_tile.dart';
 
 /// The primary landing screen. Every figure here is derived live from the
 /// working data set via [ProfitCalculationService] over the currently selected
 /// business and reporting period — nothing is hardcoded.
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // The on-device models may start a moment after the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) smartOf(context, listen: false)?.dashboardShown();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +82,7 @@ class DashboardScreen extends StatelessWidget {
     final settings = context.orgSettings((s) => s);
     final sections = _Sections(
       context: context,
+      smart: smartOf(context),
       vm: DashboardViewModel.of(data, filter),
       data: data,
       filter: filter,
@@ -101,6 +120,7 @@ class DashboardScreen extends StatelessWidget {
 class _Sections {
   _Sections({
     required this.context,
+    required this.smart,
     required this.vm,
     required this.data,
     required this.filter,
@@ -109,6 +129,9 @@ class _Sections {
   });
 
   final BuildContext context;
+
+  /// The on-device forecasts; null where none are provided.
+  final SmartInsightsController? smart;
   final DashboardViewModel vm;
   final DataController data;
   final FilterController filter;
@@ -142,6 +165,7 @@ class _Sections {
     DashboardSectionId.goals => _goals(),
     DashboardSectionId.overview => _overview(),
     DashboardSectionId.profit => _profit(),
+    DashboardSectionId.forecast => _forecastSection(),
     DashboardSectionId.scorecards => _scorecards(),
     DashboardSectionId.products => _products(),
     DashboardSectionId.trends => _trends(),
@@ -295,6 +319,26 @@ class _Sections {
         ? 'All Businesses'
         : (data.businessById(bizId)?.name ?? 'Business');
     final p = _forecastsOn ? vm.projection : null;
+    // The on-device forecast's landing point, when there is one; the run
+    // rate otherwise.
+    final fp = p == null || _mixedCurrencies
+        ? null
+        : smart?.projectionFor(bizId, toDate: vm.toDate, range: vm.range);
+    final onDevice = fp != null && fp.source == ProjectionSource.forecast;
+    String? forecastText() {
+      if (!onDevice) return null;
+      String span(Money? low, Money? high) => low == null || high == null
+          ? ''
+          : ' (${MoneyFormatter.compact(low, currency)}–'
+              '${MoneyFormatter.compact(high, currency)})';
+      return 'Projected · on-device: '
+          '${MoneyFormatter.compact(fp.revenue, currency)}'
+          '${span(fp.revenueLow, fp.revenueHigh)} revenue · '
+          '${MoneyFormatter.compact(fp.netProfit, currency)}'
+          '${span(fp.netProfitLow, fp.netProfitHigh)} net profit '
+          'by ${AppDate.short(vm.range.end)}';
+    }
+
     return DashboardHero(
       name: user?.name,
       scope: '$business · ${filter.periodLabel} · ${vm.range}',
@@ -304,9 +348,11 @@ class _Sections {
       syncing: data.syncing,
       versus: versus,
       kpis: [for (final m in _heroMetrics) _kpiOf(m)],
+      projectionEnhanced: onDevice && fp.enhanced,
       projection: p == null
           ? null
-          : 'On pace for ${MoneyFormatter.compact(p.revenue, currency)} '
+          : forecastText() ??
+              'On pace for ${MoneyFormatter.compact(p.revenue, currency)} '
               'revenue · ${MoneyFormatter.compact(p.netProfit, currency)} '
               'net profit by ${AppDate.short(vm.range.end)}',
     );
@@ -405,15 +451,18 @@ class _Sections {
 
   Widget _profit() {
     final steps = vm.waterfall;
-    final projecting = _forecastsOn && vm.projection != null;
-    final forecast = _forecastsOn
-        ? vm.forecast
-        : [
-            for (final p in vm.forecast)
-              ForecastPoint(
-                  label: p.label, revenue: p.revenue, netProfit: p.netProfit),
-          ];
-    String opt(Money? m) => m == null ? '—' : money(m);
+    final onDevice = _onDeviceTrend();
+    final projecting = _forecastsOn && (onDevice != null || vm.projection != null);
+    final forecast = onDevice ??
+        (_forecastsOn
+            ? vm.forecast
+            : [
+                for (final p in vm.forecast)
+                  ForecastPoint(
+                      label: p.label,
+                      revenue: p.revenue,
+                      netProfit: p.netProfit),
+              ]);
     return DashboardSection(
       title: 'Profit',
       subtitle: 'From revenue to what you keep',
@@ -439,33 +488,81 @@ class _Sections {
           child: ChartCard(
             icon: Icons.auto_graph,
             title: 'Revenue & Profit Trend',
-            subtitle: !projecting
-                ? 'Revenue and net profit over the period'
-                : 'Projected at the current pace to '
-                    '${AppDate.short(vm.range.end)}',
+            subtitle: onDevice != null
+                ? 'The last 12 months, then the next 3 · on-device'
+                : !projecting
+                    ? 'Revenue and net profit over the period'
+                    : 'Projected at the current pace to '
+                        '${AppDate.short(vm.range.end)}',
             height: 300,
             isEmpty: forecast.isEmpty,
-            table: ChartTableData(
-              headers: [
-                'Period',
-                'Revenue',
-                'Net Profit',
-                if (_forecastsOn) ...['Projected revenue', 'Projected net profit'],
-              ],
-              rows: [
-                for (final p in forecast)
-                  [
-                    p.label,
-                    opt(p.revenue),
-                    opt(p.netProfit),
-                    if (_forecastsOn) ...[
-                      opt(p.projectedRevenue),
-                      opt(p.projectedNetProfit),
-                    ],
-                  ],
-              ],
+            table: TrendForecastChart.tableOf(forecast, currency,
+                projections: _forecastsOn),
+            child: TrendForecastChart(
+              points: forecast,
+              currency: currency,
+              projectionLabel:
+                  onDevice != null ? 'Projected · on-device' : null,
             ),
-            child: TrendForecastChart(points: forecast, currency: currency),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// All Businesses, with businesses that bill in different currencies:
+  /// forecast amounts can't be added up.
+  bool get _mixedCurrencies =>
+      filter.selectedBusinessId == null &&
+      {for (final b in data.selectableBusinesses) b.currency}.length > 1;
+
+  static final StampedMemo _trendMemo = StampedMemo();
+
+  /// The last 12 months and the next 3 from the on-device forecast (cached
+  /// per data version, scope and smart result); null without a revenue
+  /// forecast, so the run-rate points show.
+  List<ForecastPoint>? _onDeviceTrend() {
+    final s = smart;
+    if (!_forecastsOn || s == null || _mixedCurrencies) return null;
+    final bizId = filter.selectedBusinessId;
+    return _trendMemo.get(
+      (data, data.version),
+      (bizId, s, s.revision),
+      () {
+        final f = s.forecastFor(bizId);
+        final revenue = f?.revenue;
+        if (f == null || revenue == null) return null;
+        return const ProfitCalculationService().forecastSeries(
+          history: f.history,
+          firstForecastMonth: f.firstMonth,
+          revenue: revenue,
+          netProfit: f.netProfit,
+        );
+      },
+    );
+  }
+
+  /// "Next 3 months": per-month forecasts with their ranges.
+  Widget? _forecastSection() {
+    if (!_forecastsOn) return null;
+    final bizId = filter.selectedBusinessId;
+    final mixed = _mixedCurrencies;
+    final f = mixed ? null : smart?.forecastFor(bizId);
+    return DashboardSection(
+      title: 'Next 3 months',
+      subtitle: 'Worked out on this device from your own months',
+      tiles: [
+        DashTile(
+          span: 12,
+          child: ForecastCard(
+            currency: currency,
+            forecast: f,
+            historyMonths: vm.historyMonths,
+            gap: mixed
+                ? ForecastGap.mixedCurrencies
+                : vm.historyMonths < SmartConfig.forecastMinPoints
+                    ? ForecastGap.shortHistory
+                    : ForecastGap.tooUneven,
           ),
         ),
       ],

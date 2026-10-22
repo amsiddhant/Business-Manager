@@ -10,6 +10,7 @@ import '../models/goal.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import 'profit_calculation_service.dart';
+import 'smart/anomaly_service.dart';
 
 enum AlertSeverity {
   high('Needs action'),
@@ -136,6 +137,8 @@ class AlertService {
     required CurrencyCode Function(String businessId) currencyOf,
     AlertSettings settings = const AlertSettings(),
     List<Goal> goals = const [],
+    Map<String, double> spendScores = const {},
+    int? Function(Goal goal)? goalProjection,
   }) {
     final today = AppDate.dayOnly(now);
     bool on(AlertType t) => settings.isOn(t.name);
@@ -148,9 +151,11 @@ class AlertService {
         ..._lowMargins(
             products, orders, campaigns, today, currencyOf, settings),
       if (on(AlertType.unusualSpend))
-        ..._unusualSpend(campaigns, expenses, today, currencyOf, settings),
+        ..._unusualSpend(
+            campaigns, expenses, today, currencyOf, settings, spendScores),
       if (on(AlertType.goalAtRisk))
-        ..._goalsAtRisk(goals, orders, campaigns, expenses, today, settings),
+        ..._goalsAtRisk(goals, orders, campaigns, expenses, today, settings,
+            goalProjection),
       if (on(AlertType.dataWarning))
         for (final w in warnings)
           AppAlert(
@@ -281,6 +286,7 @@ class AlertService {
     DateTime today,
     CurrencyCode Function(String) currencyOf,
     AlertSettings settings,
+    Map<String, double> spendScores,
   ) sync* {
     // Per business: amounts in different currencies don't mix.
     final ids = {
@@ -297,7 +303,8 @@ class AlertService {
       for (final MapEntry(key: line, value: months) in history.entries) {
         final past = [for (final m in months.take(months.length - 1)) m.major];
         final current = months.last.major;
-        final z = robustZ(current, past);
+        // The on-device model's score for this line, when it has one.
+        final z = spendScores['$id|$line'] ?? robustZ(current, past);
         if (z == null || z < settings.spendZ) continue;
         final currency = currencyOf(id);
         final median = _median(past);
@@ -324,6 +331,7 @@ class AlertService {
     List<Expense> expenses,
     DateTime today,
     AlertSettings settings,
+    int? Function(Goal goal)? goalProjection,
   ) sync* {
     for (final goal in goals) {
       if (!goal.period.range.contains(today)) continue;
@@ -341,6 +349,7 @@ class AlertService {
             : [for (final e in expenses) if (e.businessId == biz) e],
         asOf: today,
         atRiskPercent: settings.goalAtRiskPercent.toDouble(),
+        projectedOverride: goalProjection?.call(goal),
       );
       final status = progress.status;
       if (status != GoalStatus.atRisk && status != GoalStatus.behind) continue;
@@ -371,16 +380,8 @@ class AlertService {
   /// deviations (median absolute deviation × 1.4826). Null when there isn't
   /// enough history (3+ months with spend) or [value] isn't above the median.
   /// With no spread at all, anything over double the median counts as far.
-  static double? robustZ(double value, List<double> history) {
-    if (history.where((v) => v > 0).length < 3) return null;
-    final median = _median(history);
-    if (value <= median) return null;
-    final mad = _median([for (final v in history) (v - median).abs()]);
-    if (mad == 0) {
-      return median > 0 && value > median * 2 ? double.infinity : null;
-    }
-    return (value - median) / (mad * 1.4826);
-  }
+  static double? robustZ(double value, List<double> history) =>
+      AnomalyService.robustZ(value, history);
 
   static double _median(List<double> values) {
     final sorted = [...values]..sort();

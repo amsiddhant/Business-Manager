@@ -19,6 +19,7 @@ import '../../services/summaries/expense_summaries.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../state/smart_insights_controller.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/page_header.dart';
@@ -638,7 +639,10 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
 
   Expense? get _existing => widget.existing;
 
-  static const _suggest = DartSuggestionProvider();
+  /// The on-device classifiers where they beat the rules (chips refresh when
+  /// their predictions arrive), the built-in rules otherwise.
+  SuggestionProvider get _suggest =>
+      smartOf(context)?.suggestions ?? const DartSuggestionProvider();
 
   /// The chosen business's currency.
   CurrencyCode get _currency =>
@@ -654,6 +658,7 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
   @override
   void initState() {
     super.initState();
+    smartOf(context, listen: false)?.suggestionsWanted();
     final e = _existing ?? widget.template;
     _name = TextEditingController(
         text: e == null

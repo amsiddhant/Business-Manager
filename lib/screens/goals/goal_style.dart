@@ -48,11 +48,14 @@ class GoalStyle {
 
   /// Progress for each of [goals] as of [asOf], using the records of the
   /// goal's own business (everyone's for an organisation-wide goal).
+  /// [projection] may give a forecast end value (minor units) for a goal;
+  /// null means the run rate.
   static List<GoalProgress> progressOf(
     DataController data,
     Iterable<Goal> goals, {
     required DateTime asOf,
     double atRiskPercent = 90,
+    int? Function(Goal)? projection,
   }) {
     final list = [
       for (final g in goals)
@@ -63,6 +66,7 @@ class GoalStyle {
           expenses: data.expensesFor(g.scopeBusinessId),
           asOf: asOf,
           atRiskPercent: atRiskPercent,
+          projectedOverride: projection?.call(g),
         ),
     ];
     list.sort((a, b) => a.goal.metric.index.compareTo(b.goal.metric.index));

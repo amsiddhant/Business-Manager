@@ -1,0 +1,12 @@
+TensorFlow.js 4.22.0 (the latest release on npm, checked 21-Oct-2026), split builds, core + cpu backend only:
+  tf-core.min.js        from https://registry.npmjs.org/@tensorflow/tfjs-core/-/tfjs-core-4.22.0.tgz
+    tarball sha512 LEkOyzbknKFoWUwfkr59vSB68DMJ4cjwwHgicXN0DUi3a0Vh1Er3JQqCI1Hl86GGZQvY8ezVrtDIvqR1ZFW55A==
+    file sha256 0924438788ff7da57b14d0f7c45a05d81611a5a4b52653da6d065e86d348757c  294062 bytes, 82887 gzipped
+  tf-backend-cpu.min.js from https://registry.npmjs.org/@tensorflow/tfjs-backend-cpu/-/tfjs-backend-cpu-4.22.0.tgz
+    tarball sha512 1u0FmuLGuRAi8D2c3cocHTASGXOmHc/4OvoVDENJayjYkS119fcTcQf4iHrtLthWyDIPy3JiPhRrZQC9EwnhLw==
+    file sha256 4f232e90455e04cc5f69a691295d07a881a4ad93d7f229598459b9b533259d83  132422 bytes, 37952 gzipped
+Files: package/dist/<name>.min.js from each tarball. Unmodified. LICENSE: Apache-2.0 (each file's header says so;
+the npm packages ship no LICENSE file, so this is the Apache-2.0 text).
+No tfjs-layers, WebGL backend, converter or tf.data: models are written directly with core ops. About 121 KB gzipped in all.
+Used only by web/smart/1/bm_worker.js (a Web Worker, cpu backend), loaded only when on-device AI is on.
+This folder is served with "immutable" caching (firebase.json, /tfjs/** and /smart/**): never edit it. A new version goes in a new folder.

@@ -9,6 +9,11 @@ enum DashboardSectionId {
   goals('Goals'),
   overview('Revenue and expenses'),
   profit('Profit and trend'),
+
+  /// "Next 3 months" (since 2.0.0); needs the Forecasts feature. A saved
+  /// order without it shows it after the sections it lists
+  /// ([DashboardSettings.arrange]).
+  forecast('Next 3 months'),
   scorecards('More figures'),
   products('Products'),
   trends('Marketing and orders'),

@@ -152,6 +152,21 @@ class UserPrefs extends ChangeNotifier {
           : _prefs.setStringList(
               _key('alertTypesHidden'), types.toList()..sort()));
 
+  // ------------------------------------------------------------ on-device AI --
+
+  /// Whether TensorFlow.js may run for this user on this device (default on).
+  bool get smartEnabled => _prefs.getBool(_key('smartEnabled')) ?? true;
+
+  Future<void> setSmartEnabled(bool value) =>
+      _set(() => _prefs.setBool(_key('smartEnabled'), value));
+
+  /// Engine failures in a row on this device; at the limit it switches off.
+  int get smartFailures => _prefs.getInt(_key('smartFailures')) ?? 0;
+
+  Future<void> setSmartFailures(int value) => _set(() => value <= 0
+      ? _prefs.remove(_key('smartFailures'))
+      : _prefs.setInt(_key('smartFailures'), value));
+
   // ------------------------------------------------------------- device --
 
   /// The login ID (or email) last used to sign in on this device.

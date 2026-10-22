@@ -11,6 +11,7 @@ import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
 import '../../state/org_settings.dart';
+import '../../state/smart_insights_controller.dart';
 import '../../widgets/common/app_card.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/state_views.dart';
@@ -66,8 +67,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
       for (final g in data.goalsFor(bid))
         if (g.period == _period) g,
     ];
-    final progress =
-        GoalStyle.progressOf(data, goals, asOf: now, atRiskPercent: atRisk);
+    final progress = GoalStyle.progressOf(data, goals,
+        asOf: now,
+        atRiskPercent: atRisk,
+        projection: smartOf(context)?.goalProjection);
 
     void edit(GoalPeriod period) =>
         showGoalEditor(context, businessId: bid, period: period);
@@ -154,8 +157,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
     ];
     if (goals.isEmpty) return const [];
     final byMetric = <GoalMetric, Map<String, GoalProgress>>{};
-    for (final p
-        in GoalStyle.progressOf(data, goals, asOf: now, atRiskPercent: atRisk)) {
+    for (final p in GoalStyle.progressOf(data, goals,
+        asOf: now,
+        atRiskPercent: atRisk,
+        projection: smartOf(context)?.goalProjection)) {
       (byMetric[p.goal.metric] ??= {})[p.goal.period.key] = p;
     }
     final t = context.tokens;

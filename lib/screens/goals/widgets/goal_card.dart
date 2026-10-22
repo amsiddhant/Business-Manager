@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_x.dart';
 import '../../../services/profit_calculation_service.dart';
+import '../../../state/smart_insights_controller.dart';
 import '../../../widgets/common/app_card.dart';
 import '../../../widgets/common/status_badge.dart';
 import '../goal_style.dart';
@@ -27,8 +28,15 @@ class GoalCard extends StatelessWidget {
     final required = GoalStyle.requiredLabel(p);
     final daysLeft = GoalStyle.daysLeftLabel(p);
 
+    // Running goals whose projection came from the on-device forecast.
+    final forecast = projection != null &&
+        p.status.isRunning &&
+        smartOf(context)?.goalProjection(g) != null;
+
     final lines = <Widget>[
-      if (projection != null) _line(t, Icons.trending_up, projection),
+      if (projection != null)
+        _line(t, Icons.trending_up, projection,
+            note: forecast ? 'Projected · on-device' : null),
       if (required != null) _line(t, Icons.speed_outlined, required),
       if (daysLeft != null) _line(t, Icons.schedule, daysLeft),
     ];
@@ -118,13 +126,21 @@ class GoalCard extends StatelessWidget {
     );
   }
 
-  Widget _line(AppTokens t, IconData icon, String text) => Row(
+  Widget _line(AppTokens t, IconData icon, String text, {String? note}) => Row(
         children: [
           Icon(icon, size: 15, color: t.textTertiary),
           const SizedBox(width: 6),
           Expanded(
-            child: Text(text,
-                style: TextStyle(fontSize: 12.5, color: t.textSecondary)),
+            child: Text.rich(TextSpan(
+              text: text,
+              style: TextStyle(fontSize: 12.5, color: t.textSecondary),
+              children: [
+                if (note != null)
+                  TextSpan(
+                      text: '  $note',
+                      style: TextStyle(fontSize: 11, color: t.textTertiary)),
+              ],
+            )),
           ),
         ],
       );

@@ -28,6 +28,8 @@ class DashboardViewModel {
     required this.platformMix,
     required this.statusBreakdown,
     required this.businessComparison,
+    required this.toDate,
+    required this.historyMonths,
     required this.projection,
     required this.forecast,
     required this.insights,
@@ -117,6 +119,14 @@ class DashboardViewModel {
       platformMix: _service.marketingByPlatform(campaigns, range),
       statusBreakdown: _service.orderStatusBreakdown(orders, range),
       businessComparison: businessComparison,
+      toDate: current,
+      historyMonths: _service
+          .forecastHistory(
+              orders: orders,
+              campaigns: campaigns,
+              expenses: expenses,
+              asOf: today)
+          .length,
       projection: projection,
       forecast: _service.projectSeries(series, projection, today),
       insights: _insights.build(
@@ -162,6 +172,13 @@ class DashboardViewModel {
 
   /// Per business, for All Businesses with more than one; otherwise empty.
   final List<BusinessSummary> businessComparison;
+
+  /// The period's figures so far (to today while it is running; the whole
+  /// period otherwise): what a forecast projection builds on.
+  final ProfitSummary toDate;
+
+  /// Complete months of history behind the monthly forecasts (zero for none).
+  final int historyMonths;
 
   /// The run-rate landing point while the period is running.
   final PeriodProjection? projection;

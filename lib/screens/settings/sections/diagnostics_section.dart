@@ -8,7 +8,9 @@ import '../../../core/theme/theme_x.dart';
 import '../../../data/backend_capabilities.dart';
 import '../../../state/app_state.dart';
 import '../../../state/data_controller.dart';
+import '../../../services/smart/smart_config.dart';
 import '../../../state/settings_controller.dart';
+import '../../../state/smart_insights_controller.dart';
 import '../../../widgets/common/confirm_dialog.dart';
 import '../../../widgets/layout/sync_status.dart';
 import '../settings_widgets.dart';
@@ -23,6 +25,7 @@ class DiagnosticsSection extends StatelessWidget {
     final app = context.watch<AppState>();
     final data = context.watch<DataController>();
     final settings = context.watch<SettingsController>();
+    final smart = smartOf(context);
     final repo = app.repository;
     final meter = repo.backend is UsageMeter ? repo.backend as UsageMeter : null;
     final problems = _problems(data, settings, repo.diagnostics);
@@ -46,6 +49,18 @@ class DiagnosticsSection extends StatelessWidget {
       if (meter != null) ...[
         ('Reads this session', '${meter.readCount}'),
         ('Writes this session', '${meter.writeCount}'),
+      ],
+      if (smart != null) ...[
+        ('On-device AI', smart.status.label),
+        if (smart.selfTest case final s?) ...[
+          ('TensorFlow.js', '${s.version} (${s.backend})'),
+          ('AI self-test',
+              '${s.passed ? 'Passed' : 'Failed'} in ${s.ms} ms'),
+          ('AI tensors before / after',
+              '${s.tensorsBefore} / ${s.tensorsAfter}'),
+        ],
+        ('AI failures in a row',
+            '${smart.failures} of ${SmartConfig.maxFailures}'),
       ],
     ];
 

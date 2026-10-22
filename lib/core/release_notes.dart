@@ -20,6 +20,33 @@ class ReleaseNote {
 /// Every release, newest first. Add an entry with each version bump.
 const List<ReleaseNote> kReleaseNotes = [
   ReleaseNote(
+    version: '2.0.0',
+    date: 'October 2026',
+    title: 'On-device AI: forecasts, unusual-spend checks and smarter forms',
+    highlights: [
+      'The dashboard now forecasts the next 3 months of revenue and net '
+          'profit from your own history, with a likely range, the method used '
+          'and how close past forecasts came.',
+      'The revenue and profit trend shows that range as a shaded band, and '
+          'the headline projection shows where this period is likely to end.',
+      'Goals use the same forecast to show where each revenue or profit goal '
+          'is heading.',
+      'Forecasts appear once a business has 6 months of history and stay '
+          'hidden when the history is too erratic to trust.',
+      'With enough history, a small AI model runs on your own device to '
+          'sharpen forecasts and spot unusual spending. It is used only when it '
+          'beats the built-in methods.',
+      'Expense category and campaign platform suggestions learn from your own '
+          'records once there are enough of them.',
+      'Nothing is sent anywhere: the AI runs in your browser and costs no '
+          'database reads or writes. What it learns is cleared when you sign '
+          'out, unless an admin changes that.',
+      'Switch on-device AI off for yourself, or clear what it learned, in '
+          'Settings > On-device AI. Admins can see its status in Settings > '
+          'Smart AI.',
+    ],
+  ),
+  ReleaseNote(
     version: '1.5.0',
     date: 'October 2026',
     title: 'Make it yours: organisation settings, and goals',

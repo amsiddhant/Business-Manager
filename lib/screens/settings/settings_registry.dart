@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'sections/access_section.dart';
+import 'sections/ai_section.dart';
 import 'sections/alerts_section.dart';
 import 'sections/appearance_section.dart';
 import 'sections/audit_section.dart';
@@ -105,6 +106,24 @@ final List<SettingsSectionDef> kSettingsSections = [
     group: SettingsGroup.personal,
     keywords: const ['alerts', 'hide', 'mute'],
     builder: (_, _) => const NotificationsSection(),
+  ),
+  SettingsSectionDef(
+    id: 'ai',
+    title: 'On-device AI',
+    subtitle: 'Smarter forecasts and suggestions, on this device',
+    icon: Icons.auto_awesome_outlined,
+    group: SettingsGroup.personal,
+    keywords: const [
+      'ai',
+      'smart',
+      'tensorflow',
+      'forecast',
+      'suggestions',
+      'privacy',
+      'clear',
+      'learning',
+    ],
+    builder: (_, _) => const AiSection(),
   ),
   SettingsSectionDef(
     id: 'shortcuts',

@@ -23,6 +23,7 @@ class DashboardHero extends StatelessWidget {
     required this.kpis,
     required this.versus,
     this.projection,
+    this.projectionEnhanced = false,
     this.now,
   });
 
@@ -40,6 +41,10 @@ class DashboardHero extends StatelessWidget {
 
   /// "On pace for ₹4.2L revenue by 31 Mar" while the period is running.
   final String? projection;
+
+  /// Whether [projection] came from the on-device neural model: shows an
+  /// "Enhanced" badge.
+  final bool projectionEnhanced;
   final DateTime? now;
 
   static String greeting(DateTime now) => now.hour < 12
@@ -179,6 +184,23 @@ class DashboardHero extends StatelessWidget {
                                         fontWeight: FontWeight.w500,
                                         color: fg)),
                               ),
+                              if (projectionEnhanced) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 1),
+                                  decoration: ShapeDecoration(
+                                    shape: StadiumBorder(
+                                        side: BorderSide(
+                                            color: fg.withValues(alpha: 0.5))),
+                                  ),
+                                  child: Text('Enhanced',
+                                      style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: fg)),
+                                ),
+                              ],
                             ],
                           ),
                         ),

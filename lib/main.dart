@@ -11,6 +11,7 @@ import 'state/app_state.dart';
 import 'state/data_controller.dart';
 import 'state/filter_controller.dart';
 import 'state/settings_controller.dart';
+import 'state/smart_insights_controller.dart';
 import 'state/theme_controller.dart';
 import 'state/user_prefs.dart';
 
@@ -52,9 +53,23 @@ class SalesforceBusinessManagerApp extends StatelessWidget {
           create: (c) =>
               SettingsController(appState, c.read<ThemeController>()),
         ),
+        // Eager so its sign-out hook is always in place (it wipes what the
+        // worker kept on this device). Starts nothing until a screen asks.
+        ChangeNotifierProvider<SmartInsightsController>(
+          lazy: false,
+          create: (c) => SmartInsightsController(
+            appState: appState,
+            data: c.read<DataController>(),
+            settings: c.read<SettingsController>(),
+            prefs: c.read<UserPrefs>(),
+          ),
+        ),
         ChangeNotifierProvider<AlertController>(
           create: (c) => AlertController(
-              c.read<UserPrefs>(), c.read<SettingsController>()),
+            c.read<UserPrefs>(),
+            c.read<SettingsController>(),
+            c.read<SmartInsightsController>(),
+          ),
         ),
       ],
       child: _AppView(appState: appState),

@@ -164,13 +164,13 @@ class AppState extends ChangeNotifier {
           _authError =
               'Your account is awaiting approval. An owner has been notified — '
               "you'll be able to sign in once access is granted.";
-          await _backend.signOut();
+          await _signOutBackend();
           return;
         }
       }
       if (!profile.isActive) {
         _authError = 'This account has been disabled.';
-        await _backend.signOut();
+        await _signOutBackend();
         return;
       }
       // Signed out (or switched account) while the profile was loading.
@@ -220,11 +220,44 @@ class AppState extends ChangeNotifier {
   /// wiped Firestore instance can't be used again).
   Future<void> signOut() async {
     final backend = _backend;
+    await _runSignOutHooks();
     await backend.signOut();
     if (backend case final CacheCapable cache) {
       await cache.clearCache();
       if (kIsWeb) html.window.location.reload();
     }
+  }
+
+  final List<Future<void> Function()> _signOutHooks = [];
+
+  /// How long all sign-out hooks together may take before sign-out goes on.
+  static const signOutHookTimeout = Duration(seconds: 4);
+
+  /// Runs [hook] before every sign-out (e.g. to stop a worker and wipe what
+  /// it kept on this device).
+  void addSignOutHook(Future<void> Function() hook) => _signOutHooks.add(hook);
+
+  void removeSignOutHook(Future<void> Function() hook) =>
+      _signOutHooks.remove(hook);
+
+  /// Runs the hooks, each guarded, bounded as a whole; never throws.
+  Future<void> _runSignOutHooks() async {
+    if (_signOutHooks.isEmpty) return;
+    Future<void> guarded(Future<void> Function() hook) async {
+      try {
+        await hook();
+      } catch (_) {}
+    }
+
+    try {
+      await Future.wait([for (final h in [..._signOutHooks]) guarded(h)])
+          .timeout(signOutHookTimeout);
+    } catch (_) {}
+  }
+
+  Future<void> _signOutBackend() async {
+    await _runSignOutHooks();
+    await _backend.signOut();
   }
 
   /// Sends a reset link for a login id or email. Says nothing about whether
@@ -301,7 +334,7 @@ class AppState extends ChangeNotifier {
     final backend = _backend;
     if (backend is LocalBackend) {
       await backend.resetToSeed();
-      await backend.signOut();
+      await _signOutBackend();
     } else {
       throw const AppException('Demo reset is only available in demo mode.');
     }

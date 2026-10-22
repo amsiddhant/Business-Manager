@@ -7,6 +7,7 @@ import '../services/alert_service.dart';
 import 'data_controller.dart';
 import 'memo.dart';
 import 'settings_controller.dart';
+import 'smart_insights_controller.dart';
 import 'user_prefs.dart';
 
 enum AlertState { active, snoozed, dismissed }
@@ -18,15 +19,19 @@ enum AlertState { active, snoozed, dismissed }
 /// Thresholds and switched-off types come from the organisation's settings
 /// ([SettingsController]); each user can also hide types for themselves.
 class AlertController extends ChangeNotifier {
-  AlertController(this._prefs, [this._settings]) {
+  AlertController(this._prefs, [this._settings, this._smart]) {
     _load();
     _alertSettings = _orgAlerts();
     _prefs.addListener(_onPrefs);
     _settings?.addListener(_onSettings);
+    _smart?.addListener(_onSmart);
   }
 
   final UserPrefs _prefs;
   final SettingsController? _settings;
+
+  /// On-device anomaly scores and goal forecasts, when provided.
+  final SmartInsightsController? _smart;
   late AlertSettings _alertSettings;
   Set<String> _hidden = const {};
 
@@ -61,10 +66,26 @@ class AlertController extends ChangeNotifier {
   }) {
     final n = now ?? DateTime.now();
     final settings = effectiveSettings;
+    final smart = _smart;
+    final features = _settings?.settings.features;
+    final anomalies = features?.isOn(AppFeature.anomalies) ?? true;
+    final forecasts = features?.isOn(AppFeature.forecasts) ?? true;
     return _memo.get(
       data.version,
-      (AppDate.iso(n), demoMode, data.warnings.join('\n'), settings),
+      (
+        AppDate.iso(n),
+        demoMode,
+        data.warnings.join('\n'),
+        settings,
+        smart?.revision,
+        anomalies,
+        forecasts,
+      ),
       () => _service.build(
+        spendScores: smart != null && anomalies ? smart.spendScores : const {},
+        goalProjection: smart != null && forecasts
+            ? (goal) => smart.goalProjection(goal, now: n)
+            : null,
         customers: data.customers,
         campaigns: data.campaigns,
         orders: data.orders,
@@ -153,6 +174,10 @@ class AlertController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// New on-device results: the alerts are rebuilt (the memo key has the
+  /// revision).
+  void _onSmart() => notifyListeners();
+
   void _load({DateTime? now}) {
     _uid = _prefs.uid;
     _hidden = _prefs.hiddenAlertTypes;
@@ -195,6 +220,7 @@ class AlertController extends ChangeNotifier {
   void dispose() {
     _prefs.removeListener(_onPrefs);
     _settings?.removeListener(_onSettings);
+    _smart?.removeListener(_onSmart);
     super.dispose();
   }
 }

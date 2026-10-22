@@ -11,6 +11,7 @@ import '../../../services/profit_calculation_service.dart';
 import '../../../state/app_state.dart';
 import '../../../state/data_controller.dart';
 import '../../../state/org_settings.dart';
+import '../../../state/smart_insights_controller.dart';
 import '../../../widgets/common/app_card.dart';
 import '../../dashboard/widgets/dashboard_section.dart';
 import '../goal_editor.dart';
@@ -87,7 +88,9 @@ class GoalsSummaryCard extends StatelessWidget {
       );
     } else {
       final progress = GoalStyle.progressOf(data, running.goals,
-              asOf: now, atRiskPercent: atRisk)
+              asOf: now,
+              atRiskPercent: atRisk,
+              projection: smartOf(context)?.goalProjection)
           .take(_maxShown)
           .toList();
       body = AppCard(

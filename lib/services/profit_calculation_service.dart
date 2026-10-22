@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../core/enums.dart';
 import '../core/utils/date_utils.dart';
 import '../core/utils/money.dart';
@@ -7,6 +9,8 @@ import '../models/expense.dart';
 import '../models/goal.dart';
 import '../models/order.dart';
 import '../models/product.dart';
+import 'smart/forecast_service.dart';
+import 'smart/smart_config.dart';
 
 /// Immutable bundle of computed financial metrics for a period.
 class ProfitSummary {
@@ -285,7 +289,17 @@ class BusinessSummary {
   final ProfitSummary summary;
 }
 
-/// Where the period will land if it carries on at its rate so far.
+/// What a [PeriodProjection] is based on.
+enum ProjectionSource {
+  /// The daily rate so far, carried on.
+  runRate,
+
+  /// The figures so far plus the monthly forecast for the rest.
+  forecast,
+}
+
+/// Where the period will land if it carries on at its rate so far (or, with
+/// [ProjectionSource.forecast], as the monthly forecast expects).
 class PeriodProjection {
   const PeriodProjection({
     required this.revenue,
@@ -294,18 +308,36 @@ class PeriodProjection {
     required this.netProfitPerDay,
     required this.elapsedDays,
     required this.totalDays,
+    this.source = ProjectionSource.runRate,
+    this.revenueLow,
+    this.revenueHigh,
+    this.netProfitLow,
+    this.netProfitHigh,
+    this.enhanced = false,
   });
 
   final Money revenue;
   final Money netProfit;
+
+  /// The average daily rate for the rest of the period.
   final Money revenuePerDay;
   final Money netProfitPerDay;
   final int elapsedDays;
   final int totalDays;
+  final ProjectionSource source;
+
+  /// The ±80% band (forecast projections only).
+  final Money? revenueLow;
+  final Money? revenueHigh;
+  final Money? netProfitLow;
+  final Money? netProfitHigh;
+
+  /// Whether the forecast behind it came from the on-device neural model.
+  final bool enhanced;
 }
 
 /// A series point with what happened and, for days still to come, what the
-/// run rate projects.
+/// run rate (or the forecast) projects.
 class ForecastPoint {
   const ForecastPoint({
     required this.label,
@@ -313,6 +345,10 @@ class ForecastPoint {
     this.netProfit,
     this.projectedRevenue,
     this.projectedNetProfit,
+    this.projectedRevenueLow,
+    this.projectedRevenueHigh,
+    this.projectedNetProfitLow,
+    this.projectedNetProfitHigh,
   });
 
   final String label;
@@ -324,6 +360,12 @@ class ForecastPoint {
   /// The projection; null for a bucket that's over (or with no projection).
   final Money? projectedRevenue;
   final Money? projectedNetProfit;
+
+  /// The ±80% band around the projection; null without a forecast.
+  final Money? projectedRevenueLow;
+  final Money? projectedRevenueHigh;
+  final Money? projectedNetProfitLow;
+  final Money? projectedNetProfitHigh;
 }
 
 /// Centralised financial calculation engine. All profit formulas live here so
@@ -959,6 +1001,128 @@ class ProfitCalculationService {
     }
 
     return [for (final p in series) project(p)];
+  }
+
+  // ---- Forecasts (since 2.0.0) ----------------------------------------------
+
+  /// Complete months before [asOf]'s month (up to [months] of them, oldest
+  /// first), with the months before the first activity dropped: the history
+  /// behind the monthly forecasts.
+  List<TimeSeriesPoint> forecastHistory({
+    required List<Order> orders,
+    required List<Campaign> campaigns,
+    required List<Expense> expenses,
+    required DateTime asOf,
+    int months = SmartConfig.historyMonths,
+  }) {
+    final today = AppDate.dayOnly(asOf);
+    final series = timeSeries(
+      orders: orders,
+      campaigns: campaigns,
+      expenses: expenses,
+      range: DateRange(DateTime(today.year, today.month - months, 1),
+          DateTime(today.year, today.month, 0)),
+      bucket: TimeBucket.month,
+    );
+    final first = series.indexWhere((p) =>
+        !p.revenue.isZero ||
+        !p.productCost.isZero ||
+        !p.marketingCost.isZero ||
+        !p.operatingExpenses.isZero ||
+        p.orders != 0);
+    return first < 0 ? const [] : series.sublist(first);
+  }
+
+  /// Where [range] lands with [toDate] (its figures up to [asOf]) plus the
+  /// monthly forecasts for the rest — [firstForecastMonth] is the month of
+  /// each forecast's first value (the current month), each month's value
+  /// spread evenly over its days, its band too. Null unless the period is
+  /// running, [minDays] in, and the forecasts reach [range]'s end.
+  PeriodProjection? projectPeriodEnd({
+    required ProfitSummary toDate,
+    required DateRange range,
+    required DateTime asOf,
+    required DateTime firstForecastMonth,
+    required SeriesForecast revenue,
+    required SeriesForecast netProfit,
+    int minDays = 1,
+  }) {
+    final today = AppDate.dayOnly(asOf);
+    if (today.isBefore(range.start) || today.isAfter(range.end)) return null;
+    final elapsed = DateRange(range.start, today).days;
+    if (elapsed < minDays || elapsed >= range.days) return null;
+    final reach = math.min(revenue.horizon, netProfit.horizon);
+    var rev = 0.0, revLow = 0.0, revHigh = 0.0;
+    var net = 0.0, netLow = 0.0, netHigh = 0.0;
+    var cursor = DateTime(today.year, today.month, today.day + 1);
+    while (!cursor.isAfter(range.end)) {
+      final monthEnd = DateTime(cursor.year, cursor.month + 1, 0);
+      final segEnd = monthEnd.isAfter(range.end) ? range.end : monthEnd;
+      final share = DateRange(cursor, segEnd).days / monthEnd.day;
+      var i = (cursor.year - firstForecastMonth.year) * 12 +
+          cursor.month -
+          firstForecastMonth.month;
+      if (i < 0) i = 0;
+      if (i >= reach) return null;
+      rev += revenue.mean[i] * share;
+      revLow += revenue.lower[i] * share;
+      revHigh += revenue.upper[i] * share;
+      net += netProfit.mean[i] * share;
+      netLow += netProfit.lower[i] * share;
+      netHigh += netProfit.upper[i] * share;
+      cursor = DateTime(monthEnd.year, monthEnd.month, monthEnd.day + 1);
+    }
+    final remaining = range.days - elapsed;
+    return PeriodProjection(
+      revenue: toDate.revenue + Money.fromMajor(rev),
+      netProfit: toDate.netProfit + Money.fromMajor(net),
+      revenuePerDay: Money.fromMajor(rev) / remaining,
+      netProfitPerDay: Money.fromMajor(net) / remaining,
+      elapsedDays: elapsed,
+      totalDays: range.days,
+      source: ProjectionSource.forecast,
+      revenueLow: toDate.revenue + Money.fromMajor(revLow),
+      revenueHigh: toDate.revenue + Money.fromMajor(revHigh),
+      netProfitLow: toDate.netProfit + Money.fromMajor(netLow),
+      netProfitHigh: toDate.netProfit + Money.fromMajor(netHigh),
+      enhanced: revenue.model.enhanced || netProfit.model.enhanced,
+    );
+  }
+
+  /// The last [historyMonths] of [history] as actuals, then [months]
+  /// forecast months from [firstForecastMonth] with their bands (labels
+  /// 'MMM yyyy', as [timeSeries] uses): the trend chart.
+  List<ForecastPoint> forecastSeries({
+    required List<TimeSeriesPoint> history,
+    required DateTime firstForecastMonth,
+    required SeriesForecast revenue,
+    SeriesForecast? netProfit,
+    int historyMonths = 12,
+    int months = SmartConfig.chartHorizon,
+  }) {
+    final shown = history.length > historyMonths
+        ? history.sublist(history.length - historyMonths)
+        : history;
+    var count = math.min(months, revenue.horizon);
+    if (netProfit != null) count = math.min(count, netProfit.horizon);
+    return [
+      for (final p in shown)
+        ForecastPoint(label: p.label, revenue: p.revenue, netProfit: p.netProfit),
+      for (var i = 0; i < count; i++)
+        ForecastPoint(
+          label: AppDate.monthYear(DateTime(
+              firstForecastMonth.year, firstForecastMonth.month + i, 1)),
+          projectedRevenue: Money.fromMajor(revenue.mean[i]),
+          projectedRevenueLow: Money.fromMajor(revenue.lower[i]),
+          projectedRevenueHigh: Money.fromMajor(revenue.upper[i]),
+          projectedNetProfit:
+              netProfit == null ? null : Money.fromMajor(netProfit.mean[i]),
+          projectedNetProfitLow:
+              netProfit == null ? null : Money.fromMajor(netProfit.lower[i]),
+          projectedNetProfitHigh:
+              netProfit == null ? null : Money.fromMajor(netProfit.upper[i]),
+        ),
+    ];
   }
 
   // ---- Spend history --------------------------------------------------------
