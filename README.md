@@ -173,6 +173,19 @@ firebase init hosting        # set public directory to "build/web"
 firebase deploy --only hosting
 ```
 
+To run the full build, deploy, and Git push workflow on macOS/Linux:
+
+```bash
+chmod +x deploy.sh   # once
+./deploy.sh
+```
+
+On Apple Silicon, `deploy.sh` prefers native Node.js at
+`/opt/homebrew/bin/node` so the Firebase CLI does not pick up an incompatible
+Intel Node.js executable from `PATH`. If deployment reports that no working
+Node.js runtime is available, install Node.js with `brew install node` and
+retry.
+
 (Any static host — Netlify, Vercel, S3/CloudFront, GitHub Pages — also works;
 just serve the contents of `build/web/`.)
 
