@@ -10,9 +10,9 @@ import '../../models/app_user.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/user_prefs.dart';
+import '../alerts/alerts_bell.dart';
 import '../command_palette/command_palette.dart';
 import 'create_actions.dart';
-import 'notifications_button.dart';
 import 'page_title.dart';
 import 'profile_menu.dart';
 import 'scope_selectors.dart';
@@ -102,7 +102,7 @@ class _WideBar extends StatelessWidget {
             const SizedBox(width: AppSpacing.xs),
             _CreateMenu(location: location, compact: !wide),
             SyncStatus(showLabel: width >= 1400),
-            const NotificationsButton(),
+            const AlertsBell(),
             const SizedBox(width: AppSpacing.xs),
             const ProfileMenu(),
           ],
@@ -153,7 +153,7 @@ class _MobileBar extends StatelessWidget {
                 icon: const Icon(Icons.search),
                 onPressed: () => CommandPalette.show(context),
               ),
-              const NotificationsButton(),
+              const AlertsBell(),
               const ProfileMenu(showSync: true),
               const SizedBox(width: AppSpacing.xs),
             ],

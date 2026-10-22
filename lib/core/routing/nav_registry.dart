@@ -25,7 +25,7 @@ class NavGroup {
 
 /// Sidebar grouping, top to bottom.
 const List<NavGroup> kNavGroups = [
-  NavGroup('Overview', [Routes.dashboard, Routes.reports]),
+  NavGroup('Overview', [Routes.dashboard, Routes.alerts, Routes.reports]),
   NavGroup('Sales', [Routes.orders, Routes.customers, Routes.campaigns]),
   NavGroup('Catalog', [Routes.products, Routes.businesses]),
   NavGroup('Spend', [Routes.expenses, Routes.dealers]),
@@ -45,6 +45,7 @@ const List<String> kMobilePrimaryRoutes = [
 /// section keeps its own navigator (and so its list state) while you're away.
 const List<String> kShellBranches = [
   Routes.dashboard,
+  Routes.alerts,
   Routes.businesses,
   Routes.products,
   Routes.campaigns,

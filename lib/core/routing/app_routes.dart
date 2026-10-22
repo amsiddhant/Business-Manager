@@ -9,6 +9,7 @@ class Routes {
   static const login = '/login';
   static const forgotPassword = '/forgot-password';
   static const dashboard = '/dashboard';
+  static const alerts = '/alerts';
   static const businesses = '/businesses';
   static const businessDetail = '/businesses/:id';
   static const products = '/products';
@@ -35,6 +36,10 @@ class Routes {
   static String expenseDetailPath(String id) => '/expenses/$id';
   static String dealerDetailPath(String id) => '/dealers/$id';
   static String customerDetailPath(String id) => '/customers/$id';
+
+  /// A Reports tab: `sales`, `expenses`, `marketing`, `products` or
+  /// `business`.
+  static String reportsTab(String tab) => '$reports?tab=$tab';
 
   /// The top-level section a location belongs to:
   /// `/customers/CUST-00001?tab=2` → `/customers`. Null for `/`.
@@ -99,6 +104,13 @@ const List<NavDestination> kNavDestinations = [
     icon: Icons.dashboard_outlined,
     selectedIcon: Icons.dashboard,
     route: Routes.dashboard,
+    permission: Permission.viewDashboard,
+  ),
+  NavDestination(
+    label: 'Alerts',
+    icon: Icons.notifications_outlined,
+    selectedIcon: Icons.notifications,
+    route: Routes.alerts,
     permission: Permission.viewDashboard,
   ),
   NavDestination(

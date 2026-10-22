@@ -265,3 +265,106 @@ TimeBucket bucketForRange(DateRange range) {
   if (days <= 1200) return TimeBucket.quarter;
   return TimeBucket.year;
 }
+
+/// What the dashboard compares the selected period against.
+enum ComparisonBasis {
+  previousPeriod('Previous period', 'vs previous period'),
+  lastYear('Same period last year', 'vs last year');
+
+  const ComparisonBasis(this.label, this.shortLabel);
+  final String label;
+
+  /// For delta chips: "vs previous period".
+  final String shortLabel;
+}
+
+/// The two date ranges a comparison uses.
+///
+/// When the selected period is still running ([isToDate]), both sides stop at
+/// the same point: this FY so far is compared with the previous FY up to the
+/// same day, not with all of it.
+class ComparisonWindow {
+  const ComparisonWindow({
+    required this.current,
+    required this.previous,
+    required this.isToDate,
+  });
+
+  /// The selected period, or the part of it up to today when it's running.
+  final DateRange current;
+
+  /// The matching span of the period it's compared with.
+  final DateRange previous;
+
+  final bool isToDate;
+
+  /// Builds the comparison for [range] (a [type] period) against [basis].
+  ///
+  /// The previous period is the one just before: the previous FY, calendar
+  /// year, quarter or month; for a custom range, the same number of days
+  /// immediately before it. "Last year" is the same dates a year earlier.
+  factory ComparisonWindow.of(
+    DateRange range,
+    PeriodType type,
+    ComparisonBasis basis, {
+    DateTime? now,
+  }) {
+    final today = AppDate.dayOnly(now ?? DateTime.now());
+    final start = range.start;
+    final end = AppDate.dayOnly(range.end);
+
+    final DateTime prevStart;
+    final DateTime prevEnd;
+    if (basis == ComparisonBasis.lastYear) {
+      prevStart = shiftMonths(start, -12);
+      prevEnd = shiftMonths(end, -12, keepMonthEnd: true);
+    } else {
+      prevEnd = DateTime(start.year, start.month, start.day - 1);
+      prevStart = switch (type) {
+        PeriodType.financialYear ||
+        PeriodType.calendarYear => shiftMonths(start, -12),
+        PeriodType.quarter => shiftMonths(start, -3),
+        PeriodType.month => shiftMonths(start, -1),
+        PeriodType.custom => DateTime(
+          prevEnd.year,
+          prevEnd.month,
+          prevEnd.day - range.days + 1,
+        ),
+      };
+    }
+
+    final running = !today.isBefore(start) && today.isBefore(end);
+    if (!running) {
+      return ComparisonWindow(
+        current: range,
+        previous: DateRange(prevStart, prevEnd),
+        isToDate: false,
+      );
+    }
+    final elapsed = today.difference(start).inDays; // days before today
+    final sameDay = basis == ComparisonBasis.lastYear
+        ? shiftMonths(today, -12)
+        : DateTime(prevStart.year, prevStart.month, prevStart.day + elapsed);
+    return ComparisonWindow(
+      current: DateRange(start, today),
+      previous: DateRange(
+        prevStart,
+        sameDay.isAfter(prevEnd) ? prevEnd : sameDay,
+      ),
+      isToDate: true,
+    );
+  }
+}
+
+/// [date] moved by [months], clamped to the target month's length
+/// (31 Mar − 1 month → 28/29 Feb). With [keepMonthEnd], the last day of a
+/// month maps to the last day of the target month (30 Apr − 1 month → 31 Mar).
+DateTime shiftMonths(DateTime date, int months, {bool keepMonthEnd = false}) {
+  final first = DateTime(date.year, date.month + months, 1);
+  final length = DateTime(first.year, first.month + 1, 0).day;
+  final isMonthEnd = date.day == DateTime(date.year, date.month + 1, 0).day;
+  final day = keepMonthEnd && isMonthEnd
+      ? length
+      : (date.day > length ? length : date.day);
+  return DateTime(first.year, first.month, day);
+}

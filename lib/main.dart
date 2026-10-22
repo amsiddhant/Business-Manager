@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_motion.dart';
 import 'data/local_backend.dart';
+import 'state/alert_controller.dart';
 import 'state/app_state.dart';
 import 'state/data_controller.dart';
 import 'state/filter_controller.dart';
@@ -41,6 +42,9 @@ class SalesforceBusinessManagerApp extends StatelessWidget {
         ),
         ChangeNotifierProvider<ThemeController>(
           create: (c) => ThemeController(appState.prefs, c.read<UserPrefs>()),
+        ),
+        ChangeNotifierProvider<AlertController>(
+          create: (c) => AlertController(c.read<UserPrefs>()),
         ),
       ],
       child: _AppView(appState: appState),

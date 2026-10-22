@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
 import '../../core/permissions.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/csv_export.dart';
@@ -29,7 +31,19 @@ import '../../widgets/common/status_badge.dart';
 /// Product Profitability, Business Profitability) scoped to the global business
 /// and period filters, each exportable to CSV when the user has [exportData].
 class ReportsScreen extends StatefulWidget {
-  const ReportsScreen({super.key});
+  const ReportsScreen({super.key, this.initialTab});
+
+  /// The tab to open, by key (`/reports?tab=marketing`): one of [tabKeys].
+  final String? initialTab;
+
+  static const tabKeys = [
+    'sales',
+    'expenses',
+    'marketing',
+    'products',
+    'business',
+  ];
+
 
   @override
   State<ReportsScreen> createState() => _ReportsScreenState();
@@ -55,13 +69,38 @@ class _ReportsScreenState extends State<ReportsScreen>
     'Business Profitability',
   ];
 
+  static int _indexOf(String? key) {
+    final i = ReportsScreen.tabKeys.indexOf(key ?? '');
+    return i < 0 ? 0 : i;
+  }
+
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: _reports.length, vsync: this);
+    _tabs = TabController(
+        length: _reports.length,
+        vsync: this,
+        initialIndex: _indexOf(widget.initialTab));
     _tabs.addListener(() {
-      if (!_tabs.indexIsChanging) setState(() {});
+      if (_tabs.indexIsChanging) return;
+      setState(() {});
+      // Keep the address in step, so a link to the tab the user just left
+      // (the same KPI tapped twice) still switches back to it.
+      final key = ReportsScreen.tabKeys[_tabs.index];
+      if (widget.initialTab != null && key != widget.initialTab) {
+        GoRouter.maybeOf(context)?.go(Routes.reportsTab(key));
+      }
     });
+  }
+
+  @override
+  void didUpdateWidget(ReportsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialTab != oldWidget.initialTab &&
+        widget.initialTab != null) {
+      final i = _indexOf(widget.initialTab);
+      if (i != _tabs.index) _tabs.animateTo(i);
+    }
   }
 
   @override

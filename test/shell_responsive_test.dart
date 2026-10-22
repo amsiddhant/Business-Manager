@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:salesforce_business_manager/core/routing/app_routes.dart';
 import 'package:salesforce_business_manager/core/routing/nav_registry.dart';
 import 'package:salesforce_business_manager/data/demo_seed.dart';
+import 'package:salesforce_business_manager/state/alert_controller.dart';
 import 'package:salesforce_business_manager/state/app_state.dart';
 import 'package:salesforce_business_manager/state/data_controller.dart';
 import 'package:salesforce_business_manager/state/filter_controller.dart';
@@ -65,6 +66,7 @@ Future<void> _pumpShell(
       ChangeNotifierProvider<UserPrefs>.value(value: userPrefs),
       ChangeNotifierProvider(
           create: (_) => ThemeController(appState.prefs, userPrefs)),
+      ChangeNotifierProvider(create: (_) => AlertController(userPrefs)),
     ],
     child: MaterialApp.router(
       routerConfig: router,

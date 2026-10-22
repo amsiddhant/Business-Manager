@@ -30,7 +30,8 @@ The **12 list/section shell screens** have `const` no-arg constructors (Dashboar
 
 | Screen file | Class | Route const | Notes |
 |---|---|---|---|
-| `lib/screens/dashboard/dashboard_screen.dart` | `DashboardScreen` | `Routes.dashboard` | scorecards + charts + tables |
+| `lib/screens/dashboard/dashboard_screen.dart` | `DashboardScreen` | `Routes.dashboard` | hero + attention strip + 10 KPIs + 12 charts (business comparison only for All Businesses with 2+) + 3 tables, all from `DashboardViewModel` (see §11.9) |
+| `lib/screens/alerts/alerts_screen.dart` | `AlertsScreen` | `Routes.alerts` | alerts center: Active / Snoozed / Dismissed, severity + type filters (since 1.3.0) |
 | `lib/screens/businesses/businesses_screen.dart` | `BusinessesScreen` | `Routes.businesses` | row tap → `context.go(Routes.businessDetailPath(id))` |
 | `lib/screens/businesses/business_detail_screen.dart` | `BusinessDetailScreen({required String businessId})` | `Routes.businessDetail` | |
 | `lib/screens/products/products_screen.dart` | `ProductsScreen` | `Routes.products` | row tap → `context.go(Routes.productDetailPath(id))` |
@@ -45,7 +46,7 @@ The **12 list/section shell screens** have `const` no-arg constructors (Dashboar
 | `lib/screens/dealers/dealer_detail_screen.dart` | `DealerDetailScreen({required String dealerId})` | `Routes.dealerDetail` | |
 | `lib/screens/customers/customers_screen.dart` | `CustomersScreen` | `Routes.customers` | CRM; row tap → `Routes.customerDetailPath(id)` |
 | `lib/screens/customers/customer_detail_screen.dart` | `CustomerDetailScreen({required String customerId})` | `Routes.customerDetail` | contacts, per-business contracts, comments, invoice |
-| `lib/screens/reports/reports_screen.dart` | `ReportsScreen` | `Routes.reports` | CSV export |
+| `lib/screens/reports/reports_screen.dart` | `ReportsScreen({String? initialTab})` | `Routes.reports` | CSV export; `?tab=` one of `ReportsScreen.tabKeys` (`sales, expenses, marketing, products, business`) — link with `Routes.reportsTab(tab)` |
 | `lib/screens/users/users_screen.dart` | `UsersScreen` | `Routes.users` | owner-only |
 | `lib/screens/settings/settings_screen.dart` | `SettingsScreen` | `Routes.settings` | Firebase wizard |
 
@@ -118,11 +119,17 @@ Scoped views:
 - `Dealer? dealerForExpense(String expenseId)` — decodes an `EXP-DLR-<id>` mirror expense back to its dealer
 - `Iterable<DateTime> activityDates({String? businessId})` — every dated activity across the scope (for period pickers)
 
+### AlertController (ChangeNotifier, since 1.3.0) — `lib/state/alert_controller.dart`
+- `AlertController(userPrefs)` (provided in `main.dart`). `alertsFor(data, {demoMode, now})` → every `AppAlert`, most urgent first, memoised on `data.version` — **0 reads**. In widgets use `alertsOf(context)` (`lib/widgets/alerts/alerts_panel.dart`).
+- `stateOf(alert)` → `AlertState {active, snoozed, dismissed}`, `active(alerts)`, `badgeCount(alerts)` (info alerts aside), `snoozedUntil(alert)`, `dismiss(keys)`, `snooze(key, duration)`, `restore(key)`. Kept per user in `UserPrefs` (`alerts`), never in Firestore; dismissals are forgotten after 180 days.
+- UI: `AlertsBell` (top bar badge: error-coloured when a high alert is active), `AlertsPanel.open(context)` (side panel on desktop, sheet on phones), `AlertTile`.
+
 ### FilterController (ChangeNotifier) — global scope + period
 - `String? selectedBusinessId` (null = All), `bool isAllBusinesses`
 - `DateRange range` — **feed this to ProfitCalculationService**
 - `String periodLabel`, `PeriodType periodType`, `FinancialYear financialYear`, `FinancialQuarter quarter`, `int calendarYear`, `int month`, `int monthYear`
 - Setters: `selectBusiness(id?)`, `setFinancialYear(fy)`, `setPeriodType(t)`, `setQuarter(q)`, `setCalendarYear(y)`, `setMonth(m,y)`, `setCustomRange(DateRange)`
+- Comparison (since 1.3.0): `ComparisonBasis comparison` + `setComparison(basis)`; `comparisonWindow({now})` → `ComparisonWindow` (both sides stop at today while the period runs).
 - Defaults to current FY.
 
 **Currency for display:** if `filter.isAllBusinesses` → `CurrencyCode.inr`; else `data.businessById(filter.selectedBusinessId)?.currency ?? CurrencyCode.inr`.
@@ -174,6 +181,7 @@ All money math lives here. Feed it `filter.range` and lists scoped via `data.*Fo
 - **`CampaignPerformance`** `{Campaign campaign, Money spend, Money attributedRevenue}` + `double? roi` (null if spend zero), `double? roas` (null if spend zero).
 - **`TimeSeriesPoint`** `{String label, Money revenue, productCost, marketingCost, operatingExpenses, int orders}` + `netProfit`.
 - **`CategorySlice(String label, Money amount)`**.
+- Since 1.3.0: **`KpiMetric`** (revenue … units; `label`, `higherIsBetter`, `isMoney/isPercent/isCount`, `valueOf(summary)`, `valueOfPoint(point)`); **`ProfitComparison{current, previous}`** with `hasPrevious` and `[metric]` → **`MetricDelta{current, previous?}`** + `change` (% for amounts/counts, points for margins; null with no basis) and `favourable` (null when flat); **`WaterfallStep{label, amount, start, end, kind}`**; **`BusinessSummary{business, summary}`**; **`PeriodProjection{revenue, netProfit, revenuePerDay, netProfitPerDay, elapsedDays, totalDays}`**; **`ForecastPoint{label, revenue?, netProfit?, projectedRevenue?, projectedNetProfit?}`**.
 
 ### Methods
 - `summarise({required List<Order> orders, List<Campaign> campaigns, List<Expense> expenses, DateRange range}) → ProfitSummary`
@@ -182,6 +190,8 @@ All money math lives here. Feed it `filter.range` and lists scoped via `data.*Fo
 - `timeSeries({required orders, campaigns, expenses, range, TimeBucket? bucket}) → List<TimeSeriesPoint>`
 - `expenseBreakdown({required orders, campaigns, expenses, range}) → List<CategorySlice>` (already sorted desc, positives only)
 - `marketingByPlatform(List<Campaign>, DateRange) → Map<CampaignPlatform, Money>`
+- Since 1.3.0: `compare(current, previous) → ProfitComparison`, `profitWaterfall(summary) → List<WaterfallStep>`, `summariseByBusiness({businesses, orders, campaigns, expenses, range})`, `orderStatusBreakdown(orders, range) → Map<OrderStatus, int>` (every status), `trailingMonths({orders, campaigns, expenses, asOf, months=12})` (sparklines), `projectRunRate({toDate, range, asOf, minDays=7}) → PeriodProjection?`, `projectSeries(series, projection, asOf) → List<ForecastPoint>`, `monthlySpendByCategory({campaigns, expenses, asOf, months=7})`.
+- Rule-based, pure, **0 reads**: `AlertService().build(...)` (`lib/services/alert_service.dart`: contracts expiring/overdue, campaigns ending, low margin, unusual spend via `robustZ`, data warnings, demo mode; keys are stable, `stableHash` is FNV-1a) and `InsightService().build(...)` (`lib/services/insight_service.dart`: revenue ±10%, margin ±3 pts, concentration > 40%, ROAS, spend spikes, contracts).
 - Lower-level: `recognisedOrdersIn(orders, range)`, `revenueOf(orders)`, `productCostOf(orders)`, `unitsSoldOf(orders)`, `marketingSpendIn(campaigns, range)`, `operatingExpensesIn(expenses, range, {bool excludeAdvertising=true})`, `proratedExpense(Expense, range)`
 
 ---
@@ -298,6 +308,7 @@ Methods: `withRenewedContract(ServiceContract renewal)` (moves the current activ
 - `AppDate.format(DateTime?)` ("dd-MMM-yyyy", "—" if null), `.short(d)`, `.monthYear(d)`, `.iso(d)`, `.tryParseIso(s)`, `.dayOnly(d)`. Display pattern is configurable: `AppDate.defaultPattern = 'dd-MMM-yyyy'`, current `AppDate.displayPattern`, `AppDate.configureDisplayFormat(pattern)` (wired to `AppState.setDateFormat`).
 - `enum TimeBucket { month, quarter, year }`, `bucketForRange(range) → TimeBucket`
 - `PeriodOptions.financialYears(Iterable<DateTime> dates, {DateTime? now})` / `PeriodOptions.calendarYears(dates, {now})` — build the selectable period lists from the data's activity dates (feed `data.activityDates(...)`).
+- `enum ComparisonBasis { previousPeriod, lastYear }` — `.label`, `.shortLabel` ("vs previous period"). `ComparisonWindow.of(range, periodType, basis, {now})` → `{current, previous, isToDate}`. `shiftMonths(date, months, {keepMonthEnd})` clamps to the month's length.
 - `TimeRemaining` — `TimeRemaining.between(DateTime from, DateTime to)` factory; fields `years, months, days, totalDays, bool isPast`; getters `isToday`, `shortLabel`, `label`. Used by contract expiry, business tenure, etc.
 
 ### money (`lib/core/utils/money.dart`)
@@ -314,7 +325,7 @@ Methods: `withRenewedContract(ServiceContract renewal)` (moves the current activ
 `AppException(message, {code})`, `PermissionDeniedException([msg])`, `NotFoundException([msg])`, `ErrorMapper.friendly(Object) → String`.
 
 ### routing (`lib/core/routing/app_routes.dart`)
-`Routes.{login, forgotPassword, dashboard, businesses, businessDetail, products, productDetail, campaigns, campaignDetail, orders, orderDetail, expenses, expenseDetail, dealers, dealerDetail, customers, customerDetail, reports, users, settings, whatsNew}`. Path helpers for every detail route: `Routes.businessDetailPath(id)`, `productDetailPath(id)`, `campaignDetailPath(id)`, `orderDetailPath(id)`, `expenseDetailPath(id)`, `dealerDetailPath(id)`, `customerDetailPath(id)`.
+`Routes.{login, forgotPassword, dashboard, alerts, businesses, businessDetail, products, productDetail, campaigns, campaignDetail, orders, orderDetail, expenses, expenseDetail, dealers, dealerDetail, customers, customerDetail, reports, users, settings, whatsNew}`. Path helpers for every detail route: `Routes.businessDetailPath(id)`, `productDetailPath(id)`, `campaignDetailPath(id)`, `orderDetailPath(id)`, `expenseDetailPath(id)`, `dealerDetailPath(id)`, `customerDetailPath(id)`; `Routes.reportsTab(tab)` → `/reports?tab=…`.
 `kNavDestinations` (List<NavDestination>) already drives the sidebar (Users is `ownerOnly`; Customers gated on `viewCustomer`). Navigate with `context.go(Routes.x)` (import `go_router`).
 **Route guard:** every shell route is wrapped in `PermissionGuard` (`app_router.dart`), which shows an access-denied message when `Routes.canOpen(user, location)` is false — so a pasted URL can't open a screen the sidebar hides. `Routes.sectionOf(location)` → the top-level section (`/orders/ORD-000001` → `/orders`); `Routes.accessFor(location)` → the `NavDestination` whose rule applies (detail pages inherit their list's rule; `null` for Settings and What's new, which every signed-in user can open — Settings gates its own sections). The sidebar highlights by `sectionOf`, so detail pages keep their section selected. A new route needs a `kNavDestinations` entry (or is open to all signed-in users).
 **Shell & navigation (`lib/core/routing/nav_registry.dart`, since 1.2.0):** one `StatefulShellBranch` per section, in `kShellBranches` order (`test/nav_registry_test.dart` checks the router matches); each section keeps its own navigator, so lists keep their place. A new section needs: a `kNavDestinations` entry, a `kShellBranches` entry + branch in `app_router.dart` (same position), and a `kNavGroups` group. `NavRegistry`: `visible(user)`, `groupsFor(user)` (sidebar groups, empty ones dropped), `mobilePrimary(user)` (≤ 4 bottom-bar items), `branchIndexOf(location)`, `scopeFor(location)` → `ScopeUse` (which scope selectors the top bar shows: dashboard/reports both, list pages business, product/business detail period), `isSectionRoot`, `titleFor`. Navigate between sections with `ShellNav.go(context, route)` (returns to where the section was left); `context.go` still works for deep links.
@@ -381,12 +392,14 @@ Used to compose the 7 detail screens and the CRM.
 - `csv_actions.dart`: `void exportProductsCsv(ctx, List<Product>)`, `Future<void> importProductsCsv(ctx)`, `void exportCustomersCsv(ctx, List<Customer>)`, `Future<void> importCustomersCsv(ctx)` — gated on `exportData` / the relevant `createX` permission (self-check + `showErrorSnack` on denial).
 
 ### Charts — `lib/widgets/charts/`
-- `ChartCard({required String title, required Widget child, String? subtitle, Widget? trailing, double height=280, bool isEmpty=false, String emptyMessage})` — self-wraps in AppCard, sized box height, empty state built-in.
+- `ChartCard({required String title, required Widget child, String? subtitle, Widget? trailing, double height=280, bool isEmpty=false, String emptyMessage, IconData? icon, ChartTableData? table, Widget? footer})` — self-wraps in AppCard, sized box height, empty state built-in; with `table` it gets a "View as table" toggle.
+- `chart_kit.dart`: `ChartKit` (axes, grid, tooltips, `niceMax`, gradients), `ChartReveal(id, builder: (context, k))` (one draw-in per id per session; `ChartReveal.reset()` in tests), `ChartLegend` (tap to hide a series), `ChartTableData(headers, rows)`.
+- Since 1.3.0: `ProfitWaterfallChart(steps, currency)`, `TrendForecastChart(points, currency)` (dashed run-rate projection + Today line), `PlatformMixChart(mix, currency)`, `RoasChart(rows, currency, {limit, onTap})` (+ `RoasChart.pick`), `OrderStatusChart(breakdown)`, `BusinessComparisonChart(rows, currency)`, `ShareBars` (labelled horizontal bars).
 - `ChartLegendDot({required Color color, required String label})`
 - `RevenueExpenseChart({required List<TimeSeriesPoint> points, required CurrencyCode currency})` — grouped bars + built-in legend.
-- `ExpenseDonutChart({required List<CategorySlice> slices, required CurrencyCode currency})`
-- `CategoryBarChart({required List<String> labels, required List<Money> values, required CurrencyCode currency, Color color=primary})`
-- `TrendLineChart({required List<String> labels, required List<double> values, Color color=primary, CurrencyCode? currency})` — money axis if currency set, else integer.
+- `ExpenseDonutChart({required List<CategorySlice> slices, required CurrencyCode currency, String? centerLabel, String revealId})`
+- `CategoryBarChart({required List<String> labels, required List<Money> values, required CurrencyCode currency, Color color=primary, String revealId})`
+- `TrendLineChart({required List<String> labels, required List<double> values, Color color=primary, CurrencyCode? currency, String revealId, String seriesLabel})` — money axis if currency set, else integer.
 
 ---
 
@@ -460,3 +473,6 @@ Catch and route through `ErrorMapper.friendly(e)` / `showErrorSnack(ctx, e)`. Pr
 
 ### 11.8 Hosting cache headers
 `firebase.json` serves the un-hashed app files (`index.html`, `flutter_bootstrap.js`, `flutter.js`, `flutter_service_worker.js`, `main.dart.js` + parts, `manifest.json`, `version.json`, `assets/**`, `canvaskit/**`) with `no-cache` so users never get stuck on an old build. Only versioned folders (`/tfjs/**`, `/smart/**`) are `immutable`. No COOP/COEP headers — they break the Google sign-in popup. `test/firebase_json_test.dart` enforces all of this.
+
+### 11.9 Dashboard 2.0 (since 1.3.0)
+Every dashboard figure comes from `DashboardViewModel.of(data, filter)` (`lib/view_models/dashboard_view_model.dart`), memoised on the controller + `data.version` + the filter — never call the service from dashboard widgets. Sections are listed in `DashboardSectionId` / `kDefaultDashboardSections` (`widgets/dashboard_registry.dart`; P4 makes them admin-configurable) and laid out with `DashboardSection` + `DashTile(span, {tablet, mobile})` on a 12-column grid. KPI tiles take `KpiData`; `HeroKpiTile` sits on the brand band, `KpiTile` everywhere else. Dashboard tables search with `dashboardRows` **before** taking the top 10. Reports is a deferred library: **never import `reports_screen.dart` from the dashboard** — link with `Routes.reportsTab(tab)`. Motion is one-time per session (`Entrance`, `AnimatedNumber`, `ChartReveal` each have a static `reset()` — call them in widget tests' `setUp`); nothing loops.

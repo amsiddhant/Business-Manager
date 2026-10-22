@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
@@ -6,22 +8,12 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../services/profit_calculation_service.dart';
+import 'chart_kit.dart';
 
-/// Shared axis/label styling for the dashboard charts.
-TextStyle _axisLabelStyle(BuildContext context) => TextStyle(
-      color: context.tokens.textTertiary,
-      fontSize: 10.5,
-      fontWeight: FontWeight.w500,
-    );
-
-FlLine Function(double) _gridLine(BuildContext context) {
-  final color = context.tokens.border;
-  return (_) => FlLine(color: color, strokeWidth: 1);
-}
-
-/// A grouped bar chart comparing revenue, product cost, marketing, operating
-/// expenses and net profit across time buckets.
-class RevenueExpenseChart extends StatelessWidget {
+/// Grouped bars per period: revenue, product cost, marketing, operating
+/// expenses and net profit. Tap a legend entry to hide or show a series;
+/// hovering a period lists all of its figures.
+class RevenueExpenseChart extends StatefulWidget {
   const RevenueExpenseChart({
     super.key,
     required this.points,
@@ -32,202 +24,344 @@ class RevenueExpenseChart extends StatelessWidget {
   final CurrencyCode currency;
 
   @override
+  State<RevenueExpenseChart> createState() => _RevenueExpenseChartState();
+}
+
+class _RevenueExpenseChartState extends State<RevenueExpenseChart> {
+  final Set<int> _hidden = {};
+
+  @override
   Widget build(BuildContext context) {
-    // Build one group per point, with rods for each component.
-    final maxValue = points.fold<double>(1, (m, p) {
-      final localMax = [
-        p.revenue.major,
-        p.productCost.major,
-        p.marketingCost.major,
-        p.operatingExpenses.major,
-        p.netProfit.major,
-      ].reduce((a, b) => a > b ? a : b);
-      return localMax > m ? localMax : m;
-    });
+    final t = context.tokens;
+    final currency = widget.currency;
+    final points = widget.points;
+    final series = <(String, Color, Money Function(TimeSeriesPoint))>[
+      ('Revenue', t.chartSeries[0], (p) => p.revenue),
+      ('Product Cost', t.chartSeries[3], (p) => p.productCost),
+      ('Marketing', t.chartSeries[6], (p) => p.marketingCost),
+      ('Operating', t.chartSeries[5], (p) => p.operatingExpenses),
+      ('Net Profit', t.chartSeries[2], (p) => p.netProfit),
+    ];
+    final visible = [
+      for (var i = 0; i < series.length; i++)
+        if (!_hidden.contains(i)) i,
+    ];
+    var maxV = 0.0, minV = 0.0;
+    for (final p in points) {
+      for (final i in visible) {
+        final v = series[i].$3(p).major;
+        maxV = math.max(maxV, v);
+        minV = math.min(minV, v);
+      }
+    }
+    final maxY = ChartKit.niceMax(maxV);
+    final minY = minV < 0 ? -ChartKit.niceMax(-minV) : 0.0;
 
     return Column(
       children: [
         Expanded(
-          child: BarChart(
-            BarChartData(
-              alignment: BarChartAlignment.spaceAround,
-              maxY: maxValue * 1.15,
-              gridData: FlGridData(
-                show: true,
-                drawVerticalLine: false,
-                getDrawingHorizontalLine: _gridLine(context),
-              ),
-              borderData: FlBorderData(show: false),
-              barTouchData: BarTouchData(enabled: true),
-              titlesData: FlTitlesData(
-                show: true,
-                topTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                rightTitles:
-                    const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                leftTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 44,
-                    getTitlesWidget: (value, meta) => SideTitleWidget(
-                      meta: meta,
-                      child: Text(
-                        MoneyFormatter.compact(
-                            Money.fromMajor(value), currency),
-                        style: _axisLabelStyle(context),
-                      ),
-                    ),
-                  ),
-                ),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(
-                    showTitles: true,
-                    reservedSize: 28,
-                    getTitlesWidget: (value, meta) {
-                      final i = value.toInt();
-                      if (i < 0 || i >= points.length) {
-                        return const SizedBox.shrink();
-                      }
-                      return SideTitleWidget(
-                        meta: meta,
-                        child: Text(points[i].label,
-                            style: _axisLabelStyle(context)),
+          child: LayoutBuilder(builder: (context, c) {
+            final plotWidth = c.maxWidth - 52;
+            final groupWidth = plotWidth / math.max(1, points.length);
+            final rodWidth = (groupWidth * 0.7 / math.max(1, visible.length))
+                .clamp(3.0, 14.0);
+            return ChartReveal(
+              id: 'revenue-expense',
+              builder: (context, k) => BarChart(
+                duration: context.motion.base,
+                curve: AppMotion.standard,
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: maxY,
+                  minY: minY,
+                  gridData: ChartKit.grid(context),
+                  borderData: FlBorderData(show: false),
+                  barTouchData: BarTouchData(
+                    touchTooltipData: ChartKit.barTooltip(context,
+                        item: (group, _, _, _) {
+                      final p = points[group.x];
+                      return BarTooltipItem(
+                        p.label,
+                        ChartKit.tooltipTitle(context),
+                        textAlign: TextAlign.start,
+                        children: [
+                          for (final i in visible) ...[
+                            TextSpan(
+                                text: '\n● ',
+                                style: TextStyle(color: series[i].$2)),
+                            TextSpan(
+                                text: '${series[i].$1}  '
+                                    '${MoneyFormatter.format(series[i].$3(p), currency)}',
+                                style: ChartKit.tooltipBody(context)),
+                          ],
+                        ],
                       );
-                    },
+                    }),
                   ),
+                  titlesData: FlTitlesData(
+                    topTitles: ChartKit.none,
+                    rightTitles: ChartKit.none,
+                    leftTitles: ChartKit.valueAxis(context, currency: currency),
+                    bottomTitles: ChartKit.labelAxis(
+                        context, [for (final p in points) p.label],
+                        width: plotWidth),
+                  ),
+                  barGroups: [
+                    for (var g = 0; g < points.length; g++)
+                      BarChartGroupData(
+                        x: g,
+                        barsSpace: 2,
+                        barRods: [
+                          for (final i in visible)
+                            moneyRod(series[i].$3(points[g]).major * k,
+                                series[i].$2, rodWidth),
+                        ],
+                      ),
+                  ],
                 ),
               ),
-              barGroups: [
-                for (var i = 0; i < points.length; i++)
-                  BarChartGroupData(
-                    x: i,
-                    barsSpace: 2,
-                    barRods: [
-                      _rod(points[i].revenue, context.tokens.chartSeries[0]),
-                      _rod(points[i].productCost, context.tokens.chartSeries[3]),
-                      _rod(points[i].marketingCost, context.tokens.chartSeries[6]),
-                      _rod(points[i].operatingExpenses, context.tokens.chartSeries[5]),
-                      _rod(points[i].netProfit, context.tokens.chartSeries[2]),
-                    ],
-                  ),
-              ],
-            ),
-          ),
+            );
+          }),
         ),
         const SizedBox(height: AppSpacing.md),
-        Wrap(
-          spacing: AppSpacing.md,
-          runSpacing: 6,
-          children: [
-            _Legend(color: context.tokens.chartSeries[0], label: 'Revenue'),
-            _Legend(color: context.tokens.chartSeries[3], label: 'Product Cost'),
-            _Legend(color: context.tokens.chartSeries[6], label: 'Marketing'),
-            _Legend(color: context.tokens.chartSeries[5], label: 'Operating'),
-            _Legend(color: context.tokens.chartSeries[2], label: 'Net Profit'),
-          ],
+        ChartLegend(
+          entries: [for (final s in series) LegendEntry(s.$1, s.$2)],
+          hidden: _hidden,
+          onToggle: (i) => setState(
+              () => _hidden.contains(i) ? _hidden.remove(i) : _hidden.add(i)),
         ),
       ],
     );
   }
-
-  BarChartRodData _rod(Money value, Color color) => BarChartRodData(
-        toY: value.major < 0 ? 0 : value.major,
-        color: color,
-        width: 7,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(2)),
-      );
 }
 
-/// A donut chart for the expense breakdown.
-class ExpenseDonutChart extends StatelessWidget {
+/// A gradient bar from zero to [value] (downwards when negative).
+BarChartRodData moneyRod(double value, Color color, double width) {
+  final down = value < 0;
+  final r = Radius.circular(math.min(4, width / 2));
+  return BarChartRodData(
+    fromY: 0,
+    toY: value,
+    gradient: ChartKit.barGradient(color, down: down),
+    width: width,
+    borderRadius: down
+        ? BorderRadius.vertical(bottom: r)
+        : BorderRadius.vertical(top: r),
+  );
+}
+
+/// A donut of amounts by label, with the total (or the touched slice) in the
+/// middle and a legend beside or below it.
+class ExpenseDonutChart extends StatefulWidget {
   const ExpenseDonutChart({
     super.key,
     required this.slices,
     required this.currency,
+    this.centerLabel = 'Total',
+    this.revealId = 'expense-donut',
   });
 
   final List<CategorySlice> slices;
   final CurrencyCode currency;
+  final String centerLabel;
+  final String revealId;
+
+  @override
+  State<ExpenseDonutChart> createState() => _ExpenseDonutChartState();
+}
+
+class _ExpenseDonutChartState extends State<ExpenseDonutChart> {
+  int? _touched;
 
   @override
   Widget build(BuildContext context) {
-    final total = slices.fold<double>(0, (s, e) => s + e.amount.major);
-    return Row(
-      children: [
-        Expanded(
-          flex: 3,
-          child: PieChart(
+    final t = context.tokens;
+    final slices = widget.slices;
+    final currency = widget.currency;
+    final total = slices.fold(Money.zero, (s, e) => s + e.amount);
+    Color colorOf(int i) => t.chartSeries[i % t.chartSeries.length];
+    String share(Money m) => total.isZero
+        ? '0%'
+        : PercentFormatter.format(m.major / total.major * 100, decimals: 0);
+
+    final touched = _touched != null && _touched! < slices.length
+        ? slices[_touched!]
+        : null;
+
+    Widget donut(double side, double k) {
+      final ring = side * 0.15;
+      final hole = side * 0.31;
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          PieChart(
+            duration: context.motion.base,
+            curve: AppMotion.standard,
             PieChartData(
               sectionsSpace: 2,
-              centerSpaceRadius: 52,
+              centerSpaceRadius: hole,
+              startDegreeOffset: -90,
+              pieTouchData: PieTouchData(
+                touchCallback: (event, response) {
+                  final i = event.isInterestedForInteractions
+                      ? response?.touchedSection?.touchedSectionIndex
+                      : null;
+                  final next = i != null && i >= 0 ? i : null;
+                  if (next != _touched) setState(() => _touched = next);
+                },
+              ),
               sections: [
                 for (var i = 0; i < slices.length; i++)
                   PieChartSectionData(
-                    value: slices[i].amount.major,
-                    color: context.tokens.chartSeries[i % context.tokens.chartSeries.length],
-                    radius: 48,
-                    title: total == 0
-                        ? ''
-                        : '${(slices[i].amount.major / total * 100).round()}%',
-                    titleStyle: TextStyle(
-                      color: context.tokens.onColor(context.tokens
-                          .chartSeries[i % context.tokens.chartSeries.length]),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    value: math.max(slices[i].amount.major, 0),
+                    color: _touched == null || _touched == i
+                        ? colorOf(i)
+                        : colorOf(i).withValues(alpha: 0.35),
+                    radius: _touched == i ? ring + 6 : ring,
+                    showTitle: false,
                   ),
               ],
             ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.lg),
-        Expanded(
-          flex: 2,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < slices.length; i++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: Row(
+          Opacity(
+            opacity: k,
+            child: SizedBox(
+              width: hole * 1.7,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(touched?.label ?? widget.centerLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11.5, color: t.textTertiary)),
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    child: Text(
+                      MoneyFormatter.compact(
+                          touched?.amount ?? total, currency),
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: t.textPrimary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                  if (touched != null)
+                    Text(share(touched.amount),
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: colorOf(_touched!))),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    Widget legend({required bool scroll}) {
+      final rows = [
+        for (var i = 0; i < slices.length; i++)
+          MouseRegion(
+            onEnter: (_) => setState(() => _touched = i),
+            onExit: (_) => setState(() => _touched = null),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: colorOf(i),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(slices[i].label,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 12.5,
+                            color: _touched == i
+                                ? t.textPrimary
+                                : t.textSecondary)),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(share(slices[i].amount),
+                      style: TextStyle(fontSize: 11.5, color: t.textTertiary)),
+                  const SizedBox(width: 8),
+                  Text(
+                    MoneyFormatter.compact(slices[i].amount, currency),
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ];
+      return scroll
+          ? ListView(shrinkWrap: true, children: rows)
+          : Column(mainAxisSize: MainAxisSize.min, children: rows);
+    }
+
+    return LayoutBuilder(builder: (context, c) {
+      final wide = c.maxWidth >= 420;
+      return ChartReveal(
+        id: widget.revealId,
+        builder: (context, k) => Opacity(
+          opacity: k.clamp(0.0, 1.0),
+          child: Transform.scale(
+            scale: 0.9 + 0.1 * k,
+            child: wide
+                ? Row(
                     children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: context.tokens.chartSeries[
-                              i % context.tokens.chartSeries.length],
-                          borderRadius: BorderRadius.circular(2),
+                      Expanded(
+                        flex: 5,
+                        child: LayoutBuilder(
+                          builder: (context, d) => donut(
+                              math.min(d.maxWidth, d.maxHeight), k),
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: AppSpacing.lg),
                       Expanded(
-                        child: Text(slices[i].label,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: context.tokens.textSecondary)),
+                        flex: 5,
+                        child: Center(child: legend(scroll: true)),
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        MoneyFormatter.compact(slices[i].amount, currency),
-                        style: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w600),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, d) => donut(
+                              math.min(d.maxWidth, d.maxHeight), k),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxHeight: c.maxHeight * 0.42),
+                        child: legend(scroll: true),
                       ),
                     ],
                   ),
-                ),
-            ],
           ),
         ),
-      ],
-    );
+      );
+    });
   }
 }
 
-/// A vertical bar chart mapping a label to a single monetary value, used for
-/// "Revenue by Product" and "Profit by Product".
+/// Vertical bars of one amount per label ("Revenue by Product", "Profit by
+/// Product"). Negative amounts go below the axis in the error colour.
 class CategoryBarChart extends StatelessWidget {
   const CategoryBarChart({
     super.key,
@@ -235,90 +369,79 @@ class CategoryBarChart extends StatelessWidget {
     required this.values,
     required this.currency,
     this.color,
+    this.revealId,
   });
 
   final List<String> labels;
   final List<Money> values;
   final CurrencyCode currency;
+
   /// Series colour; defaults to the brand colour.
   final Color? color;
+  final String? revealId;
 
   @override
   Widget build(BuildContext context) {
-    final color = this.color ?? context.tokens.primary;
-    final maxValue = values.fold<double>(
-        1, (m, v) => v.major > m ? v.major : m);
-    return BarChart(
-      BarChartData(
-        alignment: BarChartAlignment.spaceAround,
-        maxY: maxValue * 1.15,
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: _gridLine(context),
-        ),
-        borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(enabled: true),
-        titlesData: FlTitlesData(
-          show: true,
-          topTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 44,
-              getTitlesWidget: (value, meta) => SideTitleWidget(
-                meta: meta,
-                child: Text(
-                  MoneyFormatter.compact(Money.fromMajor(value), currency),
-                  style: _axisLabelStyle(context),
+    final t = context.tokens;
+    final color = this.color ?? t.primary;
+    final maxV = values.fold<double>(0, (m, v) => math.max(m, v.major));
+    final minV = values.fold<double>(0, (m, v) => math.min(m, v.major));
+    final maxY = ChartKit.niceMax(maxV);
+    final minY = minV < 0 ? -ChartKit.niceMax(-minV) : 0.0;
+    return LayoutBuilder(builder: (context, c) {
+      final plotWidth = c.maxWidth - 52;
+      final rodWidth =
+          (plotWidth / math.max(1, values.length) * 0.5).clamp(8.0, 32.0);
+      return ChartReveal(
+        id: revealId ?? 'category-${labels.join('|').hashCode}',
+        builder: (context, k) => BarChart(
+          duration: context.motion.base,
+          curve: AppMotion.standard,
+          BarChartData(
+            alignment: BarChartAlignment.spaceAround,
+            maxY: maxY,
+            minY: minY,
+            gridData: ChartKit.grid(context),
+            borderData: FlBorderData(show: false),
+            barTouchData: BarTouchData(
+              touchTooltipData: ChartKit.barTooltip(context,
+                  item: (group, _, _, _) => BarTooltipItem(
+                        labels[group.x],
+                        ChartKit.tooltipTitle(context),
+                        children: [
+                          TextSpan(
+                              text:
+                                  '\n${MoneyFormatter.format(values[group.x], currency)}',
+                              style: ChartKit.tooltipBody(context)),
+                        ],
+                      )),
+            ),
+            titlesData: FlTitlesData(
+              topTitles: ChartKit.none,
+              rightTitles: ChartKit.none,
+              leftTitles: ChartKit.valueAxis(context, currency: currency),
+              bottomTitles: ChartKit.labelAxis(context, labels,
+                  width: plotWidth, minGap: 56, maxChars: 9),
+            ),
+            barGroups: [
+              for (var i = 0; i < values.length; i++)
+                BarChartGroupData(
+                  x: i,
+                  barRods: [
+                    moneyRod(values[i].major * k,
+                        values[i].isNegative ? t.error : color, rodWidth),
+                  ],
                 ),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 34,
-              getTitlesWidget: (value, meta) {
-                final i = value.toInt();
-                if (i < 0 || i >= labels.length) {
-                  return const SizedBox.shrink();
-                }
-                final label = labels[i];
-                final short =
-                    label.length > 10 ? '${label.substring(0, 9)}…' : label;
-                return SideTitleWidget(
-                  meta: meta,
-                  child: Text(short, style: _axisLabelStyle(context)),
-                );
-              },
-            ),
+            ],
           ),
         ),
-        barGroups: [
-          for (var i = 0; i < values.length; i++)
-            BarChartGroupData(
-              x: i,
-              barRods: [
-                BarChartRodData(
-                  toY: values[i].major < 0 ? 0 : values[i].major,
-                  color: color,
-                  width: 18,
-                  borderRadius:
-                      const BorderRadius.vertical(top: Radius.circular(4)),
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
+      );
+    });
   }
 }
 
-/// A single-series line chart used for orders trend and marketing spend.
+/// A single-series line over time (orders trend, marketing spend), with a
+/// soft gradient fill and a crosshair on hover.
 class TrendLineChart extends StatelessWidget {
   const TrendLineChart({
     super.key,
@@ -326,114 +449,115 @@ class TrendLineChart extends StatelessWidget {
     required this.values,
     this.color,
     this.currency,
+    this.revealId,
+    this.seriesLabel,
   });
 
   final List<String> labels;
 
   /// Y values as plain doubles (orders count) — for money pass major units.
   final List<double> values;
+
   /// Series colour; defaults to the brand colour.
   final Color? color;
 
-  /// When set, the left axis is formatted as money.
+  /// When set, the axis and tooltip are formatted as money.
   final CurrencyCode? currency;
+  final String? revealId;
+
+  /// Names the figure in the tooltip ("Orders", "Spend").
+  final String? seriesLabel;
 
   @override
   Widget build(BuildContext context) {
-    final color = this.color ?? context.tokens.primary;
-    final maxValue =
-        values.fold<double>(1, (m, v) => v > m ? v : m);
-    return LineChart(
-      LineChartData(
-        minY: 0,
-        maxY: maxValue * 1.2,
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: _gridLine(context),
-        ),
-        borderData: FlBorderData(show: false),
-        lineTouchData: const LineTouchData(enabled: true),
-        titlesData: FlTitlesData(
-          show: true,
-          topTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles:
-              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: currency != null ? 44 : 32,
-              getTitlesWidget: (value, meta) => SideTitleWidget(
-                meta: meta,
-                child: Text(
-                  currency != null
-                      ? MoneyFormatter.compact(
-                          Money.fromMajor(value), currency!)
-                      : value.toInt().toString(),
-                  style: _axisLabelStyle(context),
+    final t = context.tokens;
+    final color = this.color ?? t.primary;
+    final maxY = ChartKit.niceMax(values.fold<double>(0, math.max));
+    String fmt(double v) => currency != null
+        ? MoneyFormatter.format(Money.fromMajor(v), currency!)
+        : v.round().toString();
+    return LayoutBuilder(builder: (context, c) {
+      final plotWidth = c.maxWidth - (currency != null ? 52 : 34);
+      return ChartReveal(
+        id: revealId ?? 'trend-${seriesLabel ?? ''}-${labels.length}',
+        builder: (context, k) => LineChart(
+          duration: context.motion.base,
+          curve: AppMotion.standard,
+          LineChartData(
+            minY: 0,
+            maxY: maxY,
+            minX: 0,
+            maxX: math.max(0, values.length - 1).toDouble(),
+            gridData: ChartKit.grid(context),
+            borderData: FlBorderData(show: false),
+            lineTouchData: LineTouchData(
+              getTouchedSpotIndicator: (bar, indexes) => [
+                for (final _ in indexes)
+                  TouchedSpotIndicatorData(
+                    FlLine(
+                        color: t.borderStrong,
+                        strokeWidth: 1,
+                        dashArray: const [3, 3]),
+                    FlDotData(
+                      getDotPainter: (_, _, _, _) => FlDotCirclePainter(
+                        radius: 5,
+                        color: color,
+                        strokeWidth: 2,
+                        strokeColor: t.card,
+                      ),
+                    ),
+                  ),
+              ],
+              touchTooltipData: ChartKit.lineTooltip(context,
+                  items: (spots) => [
+                        for (final s in spots)
+                          LineTooltipItem(
+                            labels[s.x.toInt()],
+                            ChartKit.tooltipTitle(context),
+                            children: [
+                              TextSpan(
+                                text:
+                                    '\n${seriesLabel == null ? '' : '$seriesLabel  '}'
+                                    '${fmt(values[s.x.toInt()])}',
+                                style: ChartKit.tooltipBody(context),
+                              ),
+                            ],
+                          ),
+                      ]),
+            ),
+            titlesData: FlTitlesData(
+              topTitles: ChartKit.none,
+              rightTitles: ChartKit.none,
+              leftTitles: ChartKit.valueAxis(context, currency: currency),
+              bottomTitles:
+                  ChartKit.labelAxis(context, labels, width: plotWidth),
+            ),
+            lineBarsData: [
+              LineChartBarData(
+                spots: [
+                  for (var i = 0; i < values.length; i++)
+                    FlSpot(i.toDouble(), values[i] * k),
+                ],
+                isCurved: true,
+                preventCurveOverShooting: true,
+                color: color,
+                barWidth: 2.5,
+                isStrokeCapRound: true,
+                dotData: FlDotData(
+                  show: values.length <= 12,
+                  getDotPainter: (_, _, _, _) => FlDotCirclePainter(
+                    radius: 3,
+                    color: t.card,
+                    strokeWidth: 2,
+                    strokeColor: color,
+                  ),
                 ),
+                belowBarData: ChartKit.areaUnder(color),
               ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 28,
-              getTitlesWidget: (value, meta) {
-                final i = value.toInt();
-                if (i < 0 || i >= labels.length) {
-                  return const SizedBox.shrink();
-                }
-                return SideTitleWidget(
-                  meta: meta,
-                  child: Text(labels[i], style: _axisLabelStyle(context)),
-                );
-              },
-            ),
-          ),
-        ),
-        lineBarsData: [
-          LineChartBarData(
-            spots: [
-              for (var i = 0; i < values.length; i++)
-                FlSpot(i.toDouble(), values[i]),
             ],
-            isCurved: true,
-            color: color,
-            barWidth: 3,
-            dotData: const FlDotData(show: true),
-            belowBarData: BarAreaData(
-              show: true,
-              color: color.withValues(alpha: 0.12),
-            ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Legend extends StatelessWidget {
-  const _Legend({required this.color, required this.label});
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        const SizedBox(width: 6),
-        Text(label,
-            style: TextStyle(
-                fontSize: 12, color: context.tokens.textSecondary)),
-      ],
-    );
+      );
+    });
   }
 }

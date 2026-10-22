@@ -1,6 +1,7 @@
 import '../core/enums.dart';
 import '../core/utils/date_utils.dart';
 import '../core/utils/money.dart';
+import '../models/business.dart';
 import '../models/campaign.dart';
 import '../models/expense.dart';
 import '../models/order.dart';
@@ -107,6 +108,8 @@ class TimeSeriesPoint {
     required this.marketingCost,
     required this.operatingExpenses,
     required this.orders,
+    this.units = 0,
+    this.range,
   });
 
   final String label;
@@ -115,7 +118,13 @@ class TimeSeriesPoint {
   final Money marketingCost;
   final Money operatingExpenses;
   final int orders;
+  final int units;
 
+  /// The days this point covers (the bucket, clipped to the series' range).
+  final DateRange? range;
+
+  Money get grossProfit => revenue - productCost;
+  Money get contributionProfit => grossProfit - marketingCost;
   Money get netProfit =>
       revenue - productCost - marketingCost - operatingExpenses;
 }
@@ -125,6 +134,195 @@ class CategorySlice {
   const CategorySlice(this.label, this.amount);
   final String label;
   final Money amount;
+}
+
+/// A headline figure the dashboard shows and compares across periods.
+enum KpiMetric {
+  revenue('Revenue'),
+  productCost('Product Cost', higherIsBetter: false),
+  marketingCost('Marketing', higherIsBetter: false),
+  operatingExpenses('Operating Expenses', higherIsBetter: false),
+  grossProfit('Gross Profit'),
+  contributionProfit('Contribution Profit'),
+  netProfit('Net Profit'),
+  netMargin('Net Margin', isPercent: true),
+  grossMargin('Gross Margin', isPercent: true),
+  orders('Total Orders', isCount: true),
+  units('Units Sold', isCount: true);
+
+  const KpiMetric(
+    this.label, {
+    this.higherIsBetter = true,
+    this.isPercent = false,
+    this.isCount = false,
+  });
+
+  final String label;
+
+  /// False for costs: a fall is good news.
+  final bool higherIsBetter;
+
+  /// A margin, compared in percentage points.
+  final bool isPercent;
+  final bool isCount;
+
+  bool get isMoney => !isPercent && !isCount;
+
+  /// The value in [s]: major units for money, % for margins.
+  double valueOf(ProfitSummary s) => switch (this) {
+    revenue => s.revenue.major,
+    productCost => s.productCost.major,
+    marketingCost => s.marketingCost.major,
+    operatingExpenses => s.operatingExpenses.major,
+    grossProfit => s.grossProfit.major,
+    contributionProfit => s.contributionProfit.major,
+    netProfit => s.netProfit.major,
+    netMargin => s.netMargin,
+    grossMargin => s.grossMargin,
+    orders => s.orderCount.toDouble(),
+    units => s.unitsSold.toDouble(),
+  };
+
+  /// The value for one point of a series (e.g. a sparkline).
+  double valueOfPoint(TimeSeriesPoint p) => switch (this) {
+    revenue => p.revenue.major,
+    productCost => p.productCost.major,
+    marketingCost => p.marketingCost.major,
+    operatingExpenses => p.operatingExpenses.major,
+    grossProfit => p.grossProfit.major,
+    contributionProfit => p.contributionProfit.major,
+    netProfit => p.netProfit.major,
+    netMargin =>
+      p.revenue.isZero ? 0 : p.netProfit.major / p.revenue.major * 100,
+    grossMargin =>
+      p.revenue.isZero ? 0 : p.grossProfit.major / p.revenue.major * 100,
+    orders => p.orders.toDouble(),
+    units => p.units.toDouble(),
+  };
+}
+
+/// One metric now and in the period it's compared with.
+class MetricDelta {
+  const MetricDelta({
+    required this.metric,
+    required this.current,
+    required this.previous,
+  });
+
+  final KpiMetric metric;
+  final double current;
+
+  /// Null when the comparison period has nothing to compare with.
+  final double? previous;
+
+  /// The change: % for amounts and counts, percentage points for margins.
+  /// Null when there's no basis (nothing in the comparison period).
+  double? get change {
+    final p = previous;
+    if (p == null) return null;
+    if (metric.isPercent) return current - p;
+    if (p == 0) return null;
+    return (current - p) / p.abs() * 100;
+  }
+
+  /// True for good news (revenue up, costs down), false for bad, null when
+  /// flat (under 0.05) or unknown.
+  bool? get favourable {
+    final c = change;
+    if (c == null || c.abs() < 0.05) return null;
+    return (c > 0) == metric.higherIsBetter;
+  }
+}
+
+/// The selected period against its comparison period.
+class ProfitComparison {
+  const ProfitComparison({required this.current, required this.previous});
+
+  final ProfitSummary current;
+  final ProfitSummary previous;
+
+  /// Whether the comparison period has any activity at all.
+  bool get hasPrevious =>
+      !previous.revenue.isZero ||
+      !previous.totalExpenses.isZero ||
+      previous.orderCount > 0;
+
+  MetricDelta operator [](KpiMetric metric) => MetricDelta(
+    metric: metric,
+    current: metric.valueOf(current),
+    previous: !hasPrevious || (metric.isPercent && previous.revenue.isZero)
+        ? null
+        : metric.valueOf(previous),
+  );
+}
+
+enum WaterfallKind { total, decrease }
+
+/// One bar of the profit waterfall: from [start] to [end].
+class WaterfallStep {
+  const WaterfallStep({
+    required this.label,
+    required this.amount,
+    required this.start,
+    required this.end,
+    required this.kind,
+  });
+
+  final String label;
+
+  /// The figure itself (a cost is positive here; it's drawn downwards).
+  final Money amount;
+  final Money start;
+  final Money end;
+  final WaterfallKind kind;
+}
+
+/// One business's figures, for comparing businesses side by side.
+class BusinessSummary {
+  const BusinessSummary({required this.business, required this.summary});
+  final Business business;
+  final ProfitSummary summary;
+}
+
+/// Where the period will land if it carries on at its rate so far.
+class PeriodProjection {
+  const PeriodProjection({
+    required this.revenue,
+    required this.netProfit,
+    required this.revenuePerDay,
+    required this.netProfitPerDay,
+    required this.elapsedDays,
+    required this.totalDays,
+  });
+
+  final Money revenue;
+  final Money netProfit;
+  final Money revenuePerDay;
+  final Money netProfitPerDay;
+  final int elapsedDays;
+  final int totalDays;
+}
+
+/// A series point with what happened and, for days still to come, what the
+/// run rate projects.
+class ForecastPoint {
+  const ForecastPoint({
+    required this.label,
+    this.revenue,
+    this.netProfit,
+    this.projectedRevenue,
+    this.projectedNetProfit,
+  });
+
+  final String label;
+
+  /// Actuals; null for a bucket that hasn't started.
+  final Money? revenue;
+  final Money? netProfit;
+
+  /// The projection; null for a bucket that's over (or with no projection).
+  final Money? projectedRevenue;
+  final Money? projectedNetProfit;
 }
 
 /// Centralised financial calculation engine. All profit formulas live here so
@@ -351,11 +549,28 @@ class ProfitCalculationService {
         marketingCost: marketingSpendIn(campaigns, b.range),
         operatingExpenses: operatingExpensesIn(expenses, b.range),
         orders: bucketOrders.length,
+        units: unitsSoldOf(bucketOrders),
+        range: b.range,
       );
     }).toList();
   }
 
+  /// Calendar buckets across [range]. The first and last are clipped to the
+  /// range, so prorated costs per bucket add up to the period's total.
   List<_Bucket> _buildBuckets(DateRange range, TimeBucket bucket) {
+    return [
+      for (final b in _calendarBuckets(range, bucket))
+        _Bucket(
+          b.label,
+          DateRange(
+            b.range.start.isBefore(range.start) ? range.start : b.range.start,
+            b.range.end.isAfter(range.end) ? range.end : b.range.end,
+          ),
+        ),
+    ];
+  }
+
+  List<_Bucket> _calendarBuckets(DateRange range, TimeBucket bucket) {
     final buckets = <_Bucket>[];
     switch (bucket) {
       case TimeBucket.month:
@@ -429,6 +644,219 @@ class ProfitCalculationService {
           ifAbsent: () => c.amountInvested);
     }
     return map;
+  }
+
+  // ---- Comparison and composition ------------------------------------------
+
+  /// [current] against [previous], metric by metric.
+  ProfitComparison compare(ProfitSummary current, ProfitSummary previous) =>
+      ProfitComparison(current: current, previous: previous);
+
+  /// Revenue → − product cost → − marketing → − operating expenses → net
+  /// profit, as the bars of a waterfall chart.
+  List<WaterfallStep> profitWaterfall(ProfitSummary s) {
+    final steps = [
+      WaterfallStep(
+        label: 'Revenue',
+        amount: s.revenue,
+        start: Money.zero,
+        end: s.revenue,
+        kind: WaterfallKind.total,
+      ),
+    ];
+    var running = s.revenue;
+    for (final (label, cost) in [
+      ('Product Cost', s.productCost),
+      ('Marketing', s.marketingCost),
+      ('Operating', s.operatingExpenses),
+    ]) {
+      final next = running - cost;
+      steps.add(
+        WaterfallStep(
+          label: label,
+          amount: cost,
+          start: running,
+          end: next,
+          kind: WaterfallKind.decrease,
+        ),
+      );
+      running = next;
+    }
+    steps.add(
+      WaterfallStep(
+        label: 'Net Profit',
+        amount: s.netProfit,
+        start: Money.zero,
+        end: s.netProfit,
+        kind: WaterfallKind.total,
+      ),
+    );
+    return steps;
+  }
+
+  /// [summarise] per business in [businesses] (records of other businesses
+  /// are ignored), in the order given.
+  List<BusinessSummary> summariseByBusiness({
+    required List<Business> businesses,
+    required List<Order> orders,
+    required List<Campaign> campaigns,
+    required List<Expense> expenses,
+    required DateRange range,
+  }) {
+    Map<String, List<T>> group<T>(List<T> items, String Function(T) id) {
+      final map = <String, List<T>>{};
+      for (final e in items) {
+        map.putIfAbsent(id(e), () => []).add(e);
+      }
+      return map;
+    }
+
+    final o = group(orders, (e) => e.businessId);
+    final c = group(campaigns, (e) => e.businessId);
+    final x = group(expenses, (e) => e.businessId);
+    return [
+      for (final b in businesses)
+        BusinessSummary(
+          business: b,
+          summary: summarise(
+            orders: o[b.id] ?? const [],
+            campaigns: c[b.id] ?? const [],
+            expenses: x[b.id] ?? const [],
+            range: range,
+          ),
+        ),
+    ];
+  }
+
+  /// How many orders placed in [range] are in each status — every status,
+  /// cancelled included. An order without an order date counts by when it
+  /// was created.
+  Map<OrderStatus, int> orderStatusBreakdown(
+    List<Order> orders,
+    DateRange range,
+  ) {
+    final counts = {for (final s in OrderStatus.values) s: 0};
+    for (final o in orders) {
+      final date = o.orderDate ?? o.audit.createdAt;
+      if (date != null && range.contains(date)) {
+        counts[o.status] = counts[o.status]! + 1;
+      }
+    }
+    return counts;
+  }
+
+  /// Monthly points for the [months] months up to [asOf] (the last one stops
+  /// at [asOf]): the sparklines behind the KPI tiles.
+  List<TimeSeriesPoint> trailingMonths({
+    required List<Order> orders,
+    required List<Campaign> campaigns,
+    required List<Expense> expenses,
+    required DateTime asOf,
+    int months = 12,
+  }) => timeSeries(
+    orders: orders,
+    campaigns: campaigns,
+    expenses: expenses,
+    range: DateRange(DateTime(asOf.year, asOf.month - months + 1, 1), asOf),
+    bucket: TimeBucket.month,
+  );
+
+  // ---- Projection -----------------------------------------------------------
+
+  /// Where [range] ends up if it keeps the daily rate of [toDate] — the
+  /// period's figures up to [asOf]. Null unless the period is running and at
+  /// least [minDays] days in.
+  PeriodProjection? projectRunRate({
+    required ProfitSummary toDate,
+    required DateRange range,
+    required DateTime asOf,
+    int minDays = 7,
+  }) {
+    final today = AppDate.dayOnly(asOf);
+    if (today.isBefore(range.start) || today.isAfter(range.end)) return null;
+    final elapsed = DateRange(range.start, today).days;
+    if (elapsed < minDays || elapsed >= range.days) return null;
+    final revenuePerDay = toDate.revenue / elapsed;
+    final netPerDay = toDate.netProfit / elapsed;
+    final remaining = range.days - elapsed;
+    return PeriodProjection(
+      revenue: toDate.revenue + revenuePerDay * remaining,
+      netProfit: toDate.netProfit + netPerDay * remaining,
+      revenuePerDay: revenuePerDay,
+      netProfitPerDay: netPerDay,
+      elapsedDays: elapsed,
+      totalDays: range.days,
+    );
+  }
+
+  /// [series] with the [projection] laid over the days after [asOf]: the
+  /// running bucket gets its actuals plus the rest at the run rate, later
+  /// buckets the run rate alone.
+  List<ForecastPoint> projectSeries(
+    List<TimeSeriesPoint> series,
+    PeriodProjection? projection,
+    DateTime asOf,
+  ) {
+    final today = AppDate.dayOnly(asOf);
+    ForecastPoint project(TimeSeriesPoint p) {
+      final r = p.range;
+      final actual = ForecastPoint(
+          label: p.label, revenue: p.revenue, netProfit: p.netProfit);
+      if (projection == null || r == null || !r.end.isAfter(today)) {
+        return actual; // Over (or nothing to project).
+      }
+      if (r.start.isAfter(today)) {
+        return ForecastPoint(
+          label: p.label,
+          projectedRevenue: projection.revenuePerDay * r.days,
+          projectedNetProfit: projection.netProfitPerDay * r.days,
+        );
+      }
+      // Running: actuals so far, plus the rest of the bucket at the run rate.
+      final rest = r.days - DateRange(r.start, today).days;
+      return ForecastPoint(
+        label: p.label,
+        revenue: p.revenue,
+        netProfit: p.netProfit,
+        projectedRevenue: p.revenue + projection.revenuePerDay * rest,
+        projectedNetProfit: p.netProfit + projection.netProfitPerDay * rest,
+      );
+    }
+
+    return [for (final p in series) project(p)];
+  }
+
+  // ---- Spend history --------------------------------------------------------
+
+  /// Spend per cost line — Marketing plus each operating-expense category —
+  /// for each of the [months] months up to [asOf], oldest first. The last
+  /// month runs only to [asOf]. Lines with no spend in any month are left out.
+  Map<String, List<Money>> monthlySpendByCategory({
+    required List<Campaign> campaigns,
+    required List<Expense> expenses,
+    required DateTime asOf,
+    int months = 7,
+  }) {
+    final today = AppDate.dayOnly(asOf);
+    final result = <String, List<Money>>{};
+    for (var i = 0; i < months; i++) {
+      final first = DateTime(today.year, today.month - months + 1 + i, 1);
+      final last = DateTime(first.year, first.month + 1, 0);
+      final range = DateRange(first, last.isAfter(today) ? today : last);
+      void add(String label, Money amount) {
+        result.putIfAbsent(label, () => List.filled(months, Money.zero))[i] +=
+            amount;
+      }
+
+      final marketing = marketingSpendIn(campaigns, range);
+      if (!marketing.isZero) add('Marketing', marketing);
+      for (final e in expenses) {
+        if (e.category == ExpenseCategory.advertising) continue;
+        final amount = proratedExpense(e, range);
+        if (!amount.isZero) add(e.category.label, amount);
+      }
+    }
+    return result;
   }
 }
 

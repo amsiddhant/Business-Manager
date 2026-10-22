@@ -1,27 +1,39 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/enums.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
-import '../../models/order.dart';
+import '../../models/app_user.dart';
 import '../../services/profit_calculation_service.dart';
+import '../../state/alert_controller.dart';
+import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../view_models/dashboard_view_model.dart';
+import '../../widgets/alerts/alerts_panel.dart';
+import '../../widgets/charts/business_comparison_chart.dart';
 import '../../widgets/charts/chart_card.dart';
+import '../../widgets/charts/chart_kit.dart';
 import '../../widgets/charts/dashboard_charts.dart';
-import '../../widgets/common/app_card.dart';
-import '../../widgets/common/currency_display.dart';
-import '../../widgets/common/data_table_card.dart';
+import '../../widgets/charts/marketing_charts.dart';
+import '../../widgets/charts/order_status_chart.dart';
+import '../../widgets/charts/profit_waterfall_chart.dart';
+import '../../widgets/charts/trend_forecast_chart.dart';
 import '../../widgets/common/page_header.dart';
-import '../../widgets/common/responsive.dart';
-import '../../widgets/common/scorecard.dart';
-import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
-import '../../widgets/common/status_badge.dart';
 import '../../widgets/layout/app_page.dart';
+import 'widgets/attention_strip.dart';
+import 'widgets/dashboard_hero.dart';
+import 'widgets/dashboard_registry.dart';
+import 'widgets/dashboard_section.dart';
+import 'widgets/dashboard_tables.dart';
+import 'widgets/entrance.dart';
+import 'widgets/kpi_tile.dart';
 
 /// The primary landing screen. Every figure here is derived live from the
 /// working data set via [ProfitCalculationService] over the currently selected
@@ -29,22 +41,12 @@ import '../../widgets/layout/app_page.dart';
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
-  static const _service = ProfitCalculationService();
-
   @override
   Widget build(BuildContext context) {
     final data = context.watch<DataController>();
     final filter = context.watch<FilterController>();
 
-    if (data.loading && !data.loaded) {
-      return const AppPage(
-        children: [
-          PageHeader(title: 'Dashboard'),
-          SizedBox(height: 48),
-          LoadingView(label: 'Loading your dashboard…'),
-        ],
-      );
-    }
+    if (data.loading && !data.loaded) return const _DashboardSkeleton();
     if (data.error != null && !data.loaded) {
       return AppPage(
         children: [
@@ -55,642 +57,668 @@ class DashboardScreen extends StatelessWidget {
       );
     }
 
-    final bizId = filter.selectedBusinessId;
-    final range = filter.range;
-
-    final orders = data.ordersFor(bizId);
-    final campaigns = data.campaignsFor(bizId);
-    final expenses = data.expensesFor(bizId);
-    final products = data.productsFor(bizId);
-
-    final currency = _resolveCurrency(data, bizId);
-
-    final summary = _service.summarise(
-      orders: orders,
-      campaigns: campaigns,
-      expenses: expenses,
-      range: range,
+    final user = context.select<AppState, AppUser?>((s) => s.currentUser);
+    final sections = _Sections(
+      context: context,
+      vm: DashboardViewModel.of(data, filter),
+      data: data,
+      filter: filter,
+      user: user,
     );
-
-    final productProfit = _service.productProfitability(
-      products: products,
-      orders: orders,
-      campaigns: campaigns,
-      range: range,
-    );
-
-    final campaignPerf = _service.campaignPerformance(
-      campaigns: campaigns,
-      orders: orders,
-      range: range,
-    );
-
-    final series = _service.timeSeries(
-      orders: orders,
-      campaigns: campaigns,
-      expenses: expenses,
-      range: range,
-    );
-
-    final breakdown = _service.expenseBreakdown(
-      orders: orders,
-      campaigns: campaigns,
-      expenses: expenses,
-      range: range,
-    );
-
-    final subtitle =
-        '${filter.periodLabel} · ${range.toString()}';
+    final built = [
+      for (final id in kDefaultDashboardSections)
+        if (sections.build(id) case final w?) (id: id, child: w),
+    ];
 
     return AppPage(
       children: [
-        PageHeader(
-          title: 'Dashboard',
-          subtitle: subtitle,
-          actions: [
-            OutlinedButton.icon(
-              onPressed: () => data.sync(),
-              icon: const Icon(Icons.sync, size: 18),
-              label: const Text('Sync now'),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _Scorecards(summary: summary, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _ChartsGrid(
-          series: series,
-          breakdown: breakdown,
-          productProfit: productProfit,
-          currency: currency,
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _TopProductsTable(rows: productProfit, currency: currency),
-        const SizedBox(height: AppSpacing.lg),
-        _RecentOrdersTable(
-          orders: orders,
-          range: range,
-          currency: currency,
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        _CampaignPerformanceTable(rows: campaignPerf, currency: currency),
+        for (var i = 0; i < built.length; i++) ...[
+          if (i > 0)
+            SizedBox(height: i == 1 ? AppSpacing.xl : AppSpacing.xxl),
+          Entrance(
+            id: 'dashboard-${built[i].id.name}',
+            index: i,
+            child: built[i].child,
+          ),
+        ],
       ],
     );
   }
-
-  CurrencyCode _resolveCurrency(DataController data, String? bizId) {
-    if (bizId != null) {
-      final biz = data.businessById(bizId);
-      if (biz != null) return biz.currency;
-    }
-    return CurrencyCode.inr;
-  }
 }
 
-/// The 10 headline metrics, laid out in a responsive grid.
-class _Scorecards extends StatelessWidget {
-  const _Scorecards({required this.summary, required this.currency});
+/// Builds each dashboard section from the view model.
+class _Sections {
+  _Sections({
+    required this.context,
+    required this.vm,
+    required this.data,
+    required this.filter,
+    required this.user,
+  });
 
-  final ProfitSummary summary;
-  final CurrencyCode currency;
+  final BuildContext context;
+  final DashboardViewModel vm;
+  final DataController data;
+  final FilterController filter;
+  final AppUser? user;
 
-  @override
-  Widget build(BuildContext context) {
-    String money(Money m) => MoneyFormatter.format(m, currency);
+  CurrencyCode get currency => vm.currency;
+  ProfitSummary get summary => vm.summary;
+  AppTokens get t => context.tokens;
 
-    final cards = <Widget>[
-      Scorecard(
-        label: 'Revenue',
-        value: money(summary.revenue),
-        icon: Icons.trending_up,
-        accent: context.tokens.chartSeries[0],
-        tooltip: 'Total recognised sales revenue.',
-      ),
-      Scorecard(
-        label: 'Product Cost',
-        value: money(summary.productCost),
+  String money(Money m) => MoneyFormatter.format(m, currency);
+
+  /// "vs previous period", or "vs previous period, to date" while the period
+  /// is still running (the deltas compare like with like).
+  String get versus =>
+      '${vm.basis.shortLabel}${vm.window.isToDate ? ', to date' : ''}';
+
+  bool can(String route) => Routes.canOpen(user, route);
+
+  VoidCallback? link(String? route) =>
+      route != null && can(route) ? () => context.go(route) : null;
+
+  Widget? build(DashboardSectionId id) => switch (id) {
+    DashboardSectionId.hero => _hero(),
+    DashboardSectionId.attention => _attention(),
+    DashboardSectionId.overview => _overview(),
+    DashboardSectionId.profit => _profit(),
+    DashboardSectionId.scorecards => _scorecards(),
+    DashboardSectionId.products => _products(),
+    DashboardSectionId.trends => _trends(),
+    DashboardSectionId.breakdowns => _breakdowns(),
+    DashboardSectionId.tables => _tables(),
+  };
+
+  // ── KPIs ────────────────────────────────────────────────────────────────
+
+  KpiData _kpi(
+    KpiMetric metric, {
+    required IconData icon,
+    required String tooltip,
+    required String tab,
+    String? label,
+    Color? accent,
+    String? caption,
+    bool negative = false,
+  }) {
+    final String Function(double) format = metric.isMoney
+        ? (v) => money(Money.fromMajor(v))
+        : metric.isPercent
+            ? (v) => PercentFormatter.format(v)
+            : (v) => v.round().toString();
+    return KpiData(
+      id: metric.name,
+      label: label ?? metric.label,
+      value: metric.valueOf(summary),
+      format: format,
+      icon: icon,
+      tooltip: tooltip,
+      delta: vm.comparison[metric],
+      trend: vm.trend(metric),
+      caption: caption,
+      accent: accent,
+      negative: negative,
+      onTap: link(Routes.reportsTab(tab)),
+    );
+  }
+
+  KpiData get _revenue => _kpi(KpiMetric.revenue,
+      icon: Icons.trending_up,
+      accent: t.chartSeries[0],
+      tooltip: 'Total recognised sales revenue.',
+      tab: 'sales');
+
+  KpiData get _netProfit {
+    final loss = summary.netProfit.isNegative;
+    return _kpi(KpiMetric.netProfit,
+        icon: Icons.account_balance_wallet_outlined,
+        accent: loss ? t.error : t.success,
+        caption: 'Revenue − all costs',
+        negative: loss,
+        tooltip: 'Revenue − Product Cost − Marketing − Operating Expenses.',
+        tab: 'business');
+  }
+
+  KpiData get _netMargin => _kpi(KpiMetric.netMargin,
+      icon: Icons.percent,
+      accent: t.chartSeries[1],
+      tooltip: 'Net Profit / Revenue × 100.',
+      tab: 'business');
+
+  KpiData get _orders => _kpi(KpiMetric.orders,
+      icon: Icons.shopping_cart_outlined,
+      accent: t.chartSeries[8],
+      tooltip: 'Number of recognised orders.',
+      tab: 'sales');
+
+  List<KpiData> get _secondary => [
+    _kpi(KpiMetric.productCost,
         icon: Icons.inventory_2_outlined,
-        accent: context.tokens.chartSeries[3],
+        accent: t.chartSeries[3],
         tooltip: 'Total product purchasing cost for recognised orders.',
-      ),
-      Scorecard(
-        label: 'Marketing',
-        value: money(summary.marketingCost),
+        tab: 'products'),
+    _kpi(KpiMetric.marketingCost,
         icon: Icons.campaign_outlined,
-        accent: context.tokens.chartSeries[6],
+        accent: t.chartSeries[6],
         tooltip: 'Total advertising spend in the selected period.',
-      ),
-      Scorecard(
-        label: 'Operating Expenses',
-        value: money(summary.operatingExpenses),
+        tab: 'marketing'),
+    _kpi(KpiMetric.operatingExpenses,
         icon: Icons.receipt_long_outlined,
-        accent: context.tokens.chartSeries[5],
+        accent: t.chartSeries[5],
         tooltip: 'Prorated operating costs (excluding advertising).',
-      ),
-      Scorecard(
-        label: 'Gross Profit',
-        value: money(summary.grossProfit),
+        tab: 'expenses'),
+    _kpi(KpiMetric.grossProfit,
         icon: Icons.savings_outlined,
-        accent: context.tokens.success,
+        accent: t.success,
         caption: 'Margin ${PercentFormatter.format(summary.grossMargin)}',
         tooltip: 'Revenue − Product Cost.',
-      ),
-      Scorecard(
-        label: 'Contribution Profit',
-        value: money(summary.contributionProfit),
+        tab: 'products'),
+    _kpi(KpiMetric.contributionProfit,
         icon: Icons.stacked_line_chart,
-        accent: context.tokens.chartSeries[7],
+        accent: t.chartSeries[7],
         tooltip: 'Gross Profit − Marketing Cost.',
-      ),
-      Scorecard(
-        label: 'Net Profit',
-        value: money(summary.netProfit),
-        icon: Icons.account_balance_wallet_outlined,
-        accent: summary.netProfit.isNegative
-            ? context.tokens.error
-            : context.tokens.success,
-        caption: 'Revenue − all costs',
-        captionTone:
-            summary.netProfit.isNegative ? context.tokens.error : null,
-        tooltip: 'Revenue − Product Cost − Marketing − Operating Expenses.',
-      ),
-      Scorecard(
-        label: 'Net Margin',
-        value: PercentFormatter.format(summary.netMargin),
-        icon: Icons.percent,
-        accent: context.tokens.chartSeries[1],
-        tooltip: 'Net Profit / Revenue × 100.',
-      ),
-      Scorecard(
-        label: 'Total Orders',
-        value: summary.orderCount.toString(),
-        icon: Icons.shopping_cart_outlined,
-        accent: context.tokens.chartSeries[8],
-        tooltip: 'Number of recognised orders.',
-      ),
-      Scorecard(
-        label: 'Units Sold',
-        value: summary.unitsSold.toString(),
+        tab: 'business'),
+    _kpi(KpiMetric.units,
         icon: Icons.local_shipping_outlined,
-        accent: context.tokens.chartSeries[9],
+        accent: t.chartSeries[9],
         tooltip: 'Total quantity across recognised orders.',
-      ),
-    ];
+        tab: 'sales'),
+  ];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final screen = Responsive.of(context);
-        final columns = switch (screen) {
-          ScreenType.mobile => 1,
-          ScreenType.tablet => 2,
-          ScreenType.desktop => constraints.maxWidth > 1180 ? 5 : 3,
-        };
-        const gap = AppSpacing.md;
-        final tileWidth =
-            (constraints.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final card in cards)
-              SizedBox(width: tileWidth, child: card),
-          ],
-        );
-      },
+  // ── Sections ────────────────────────────────────────────────────────────
+
+  Widget _hero() {
+    final bizId = filter.selectedBusinessId;
+    final business = bizId == null
+        ? 'All Businesses'
+        : (data.businessById(bizId)?.name ?? 'Business');
+    final p = vm.projection;
+    return DashboardHero(
+      name: user?.name,
+      scope: '$business · ${filter.periodLabel} · ${vm.range}',
+      basis: vm.basis,
+      onBasis: filter.setComparison,
+      onSync: () => data.sync(),
+      syncing: data.syncing,
+      versus: versus,
+      kpis: [_revenue, _netProfit, _netMargin, _orders],
+      projection: p == null
+          ? null
+          : 'On pace for ${MoneyFormatter.compact(p.revenue, currency)} '
+              'revenue · ${MoneyFormatter.compact(p.netProfit, currency)} '
+              'net profit by ${AppDate.short(vm.range.end)}',
     );
   }
-}
 
-/// Charts arranged two-up on wide screens, stacked on narrow ones.
-class _ChartsGrid extends StatelessWidget {
-  const _ChartsGrid({
-    required this.series,
-    required this.breakdown,
-    required this.productProfit,
-    required this.currency,
-  });
-
-  final List<TimeSeriesPoint> series;
-  final List<CategorySlice> breakdown;
-  final List<ProductProfit> productProfit;
-  final CurrencyCode currency;
-
-  @override
-  Widget build(BuildContext context) {
-    // Revenue by product / profit by product use the top products by revenue.
-    final byRevenue = [...productProfit]
-      ..sort((a, b) => b.revenue.minor.compareTo(a.revenue.minor));
-    final topRevenue = byRevenue.take(8).toList();
-
-    final byProfit = [...productProfit]
-      ..sort((a, b) => b.netProfit.minor.compareTo(a.netProfit.minor));
-    final topProfit = byProfit.take(8).toList();
-
-    final revenueVsExpenses = ChartCard(
-      title: 'Revenue vs Expenses',
-      subtitle: 'Grouped by period',
-      isEmpty: series.isEmpty,
-      child: RevenueExpenseChart(points: series, currency: currency),
-    );
-
-    final expenseBreakdown = ChartCard(
-      title: 'Expense Breakdown',
-      subtitle: 'Where the money goes',
-      isEmpty: breakdown.isEmpty,
-      child: ExpenseDonutChart(slices: breakdown, currency: currency),
-    );
-
-    final revenueByProduct = ChartCard(
-      title: 'Revenue by Product',
-      isEmpty: topRevenue.isEmpty,
-      child: CategoryBarChart(
-        labels: [for (final p in topRevenue) p.product.name],
-        values: [for (final p in topRevenue) p.revenue],
-        currency: currency,
-        color: context.tokens.chartSeries[0],
-      ),
-    );
-
-    final profitByProduct = ChartCard(
-      title: 'Profit by Product',
-      isEmpty: topProfit.isEmpty,
-      child: CategoryBarChart(
-        labels: [for (final p in topProfit) p.product.name],
-        values: [for (final p in topProfit) p.netProfit],
-        currency: currency,
-        color: context.tokens.success,
-      ),
-    );
-
-    final marketingSpend = ChartCard(
-      title: 'Marketing Spend',
-      subtitle: 'Advertising over time',
-      isEmpty: series.isEmpty,
-      child: TrendLineChart(
-        labels: [for (final p in series) p.label],
-        values: [for (final p in series) p.marketingCost.major],
-        color: context.tokens.chartSeries[6],
-        currency: currency,
-      ),
-    );
-
-    final ordersTrend = ChartCard(
-      title: 'Orders Trend',
-      subtitle: 'Recognised orders over time',
-      isEmpty: series.isEmpty,
-      child: TrendLineChart(
-        labels: [for (final p in series) p.label],
-        values: [for (final p in series) p.orders.toDouble()],
-        color: context.tokens.chartSeries[1],
-      ),
-    );
-
-    final rows = <List<Widget>>[
-      [revenueVsExpenses, expenseBreakdown],
-      [revenueByProduct, profitByProduct],
-      [marketingSpend, ordersTrend],
-    ];
-
-    final isNarrow = !Responsive.isDesktop(context);
-    if (isNarrow) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final pair in rows)
-            for (final chart in pair)
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-                child: chart,
-              ),
-        ],
-      );
-    }
-
-    return Column(
-      children: [
-        for (var i = 0; i < rows.length; i++) ...[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: rows[i][0]),
-              const SizedBox(width: AppSpacing.lg),
-              Expanded(child: rows[i][1]),
-            ],
+  Widget _attention() {
+    final alerts = context.watch<AlertController>();
+    return DashboardSection(
+      title: 'Attention & insights',
+      subtitle: 'Worked out from your data, on this device',
+      tiles: [
+        DashTile(
+          span: 12,
+          child: AttentionStrip(
+            alerts: alerts.active(alertsOf(context)),
+            insights: vm.insights,
+            onOpenAlerts: () => AlertsPanel.open(context),
+            onOpen: link,
           ),
-          if (i < rows.length - 1) const SizedBox(height: AppSpacing.lg),
-        ],
+        ),
       ],
     );
   }
-}
 
-class _TopProductsTable extends StatefulWidget {
-  const _TopProductsTable({required this.rows, required this.currency});
-
-  final List<ProductProfit> rows;
-  final CurrencyCode currency;
-
-  @override
-  State<_TopProductsTable> createState() => _TopProductsTableState();
-}
-
-class _TopProductsTableState extends State<_TopProductsTable> {
-  String _productSearch = '';
-
-  @override
-  Widget build(BuildContext context) {
-    final currency = widget.currency;
-    final sorted = [...widget.rows]
-      ..sort((a, b) => b.revenue.minor.compareTo(a.revenue.minor));
-    final top = sorted.take(10).toList();
-
-    return SectionCard(
-      title: 'Top Products',
-      subtitle: 'Ranked by revenue in the selected period',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search products by name…',
-              onChanged: (v) => setState(() => _productSearch = v),
+  Widget _overview() {
+    final series = vm.series;
+    final slices = vm.breakdown;
+    var total = Money.zero;
+    for (final s in slices) {
+      total = total + s.amount;
+    }
+    return DashboardSection(
+      title: 'Money in and out',
+      subtitle: vm.range.toString(),
+      tiles: [
+        DashTile(
+          span: 8,
+          child: ChartCard(
+            icon: Icons.bar_chart_rounded,
+            title: 'Revenue vs Expenses',
+            subtitle: 'Grouped by period',
+            height: 300,
+            isEmpty: series.isEmpty,
+            table: ChartTableData(
+              headers: const [
+                'Period',
+                'Revenue',
+                'Product Cost',
+                'Marketing',
+                'Operating',
+                'Net Profit',
+              ],
+              rows: [
+                for (final p in series)
+                  [
+                    p.label,
+                    money(p.revenue),
+                    money(p.productCost),
+                    money(p.marketingCost),
+                    money(p.operatingExpenses),
+                    money(p.netProfit),
+                  ],
+              ],
             ),
+            child: RevenueExpenseChart(points: series, currency: currency),
           ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<ProductProfit>(
-            rows: top,
-            rowsPerPage: 10,
-            searchText: _productSearch,
-            searchableText: (p) => p.product.name,
-            emptyTitle: 'No product activity',
-            emptyMessage: 'Recognised orders will populate this table.',
-            columns: [
-              AppColumn(
-                label: 'Product',
-                cell: (p) => Text(p.product.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (p) => p.product.name.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Orders',
-                numeric: true,
-                cell: (p) => Text('${p.orderCount}'),
-                sortValue: (p) => p.orderCount,
-              ),
-              AppColumn(
-                label: 'Revenue',
-                numeric: true,
-                cell: (p) => CurrencyText(p.revenue, currency: currency),
-                sortValue: (p) => p.revenue.minor,
-              ),
-              AppColumn(
-                label: 'Cost',
-                numeric: true,
-                cell: (p) => CurrencyText(p.productCost, currency: currency),
-                sortValue: (p) => p.productCost.minor,
-              ),
-              AppColumn(
-                label: 'Marketing',
-                numeric: true,
-                cell: (p) => CurrencyText(p.marketingCost, currency: currency),
-                sortValue: (p) => p.marketingCost.minor,
-              ),
-              AppColumn(
-                label: 'Gross Profit',
-                numeric: true,
-                cell: (p) => CurrencyText(p.grossProfit, currency: currency),
-                sortValue: (p) => p.grossProfit.minor,
-              ),
-              AppColumn(
-                label: 'Net Profit',
-                numeric: true,
-                cell: (p) => CurrencyText(p.netProfit, currency: currency),
-                sortValue: (p) => p.netProfit.minor,
-              ),
-              AppColumn(
-                label: 'Margin',
-                numeric: true,
-                cell: (p) => Text(PercentFormatter.format(p.margin)),
-                sortValue: (p) => p.margin.isFinite ? p.margin : -1,
-              ),
-            ],
+        ),
+        DashTile(
+          span: 4,
+          child: ChartCard(
+            icon: Icons.donut_large_outlined,
+            title: 'Expense Breakdown',
+            subtitle: 'Where the money goes',
+            height: 300,
+            isEmpty: slices.isEmpty,
+            table: ChartTableData(
+              headers: const ['Category', 'Amount', 'Share'],
+              rows: [
+                for (final s in slices)
+                  [
+                    s.label,
+                    money(s.amount),
+                    total.isZero
+                        ? '—'
+                        : PercentFormatter.format(
+                            s.amount.major / total.major * 100),
+                  ],
+              ],
+            ),
+            child: ExpenseDonutChart(slices: slices, currency: currency),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
-}
 
-class _RecentOrdersTable extends StatefulWidget {
-  const _RecentOrdersTable({
-    required this.orders,
-    required this.range,
-    required this.currency,
-  });
-
-  final List<Order> orders;
-  final DateRange range;
-  final CurrencyCode currency;
-
-  @override
-  State<_RecentOrdersTable> createState() => _RecentOrdersTableState();
-}
-
-class _RecentOrdersTableState extends State<_RecentOrdersTable> {
-  String _orderSearch = '';
-
-  static final _epoch = DateTime.fromMillisecondsSinceEpoch(0);
-  static DateTime _dateOf(Order o) =>
-      o.orderDate ?? o.audit.createdAt ?? _epoch;
-
-  @override
-  Widget build(BuildContext context) {
-    final currency = widget.currency;
-    final range = widget.range;
-    final inRange = widget.orders
-        .where((o) => range.contains(_dateOf(o)))
-        .toList()
-      ..sort((a, b) => _dateOf(b).compareTo(_dateOf(a)));
-    final recent = inRange.take(10).toList();
-
-    return SectionCard(
-      title: 'Recent Orders',
-      subtitle: 'Latest activity in the selected period',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search orders by ID, product or status…',
-              onChanged: (v) => setState(() => _orderSearch = v),
+  Widget _profit() {
+    final steps = vm.waterfall;
+    final forecast = vm.forecast;
+    String opt(Money? m) => m == null ? '—' : money(m);
+    return DashboardSection(
+      title: 'Profit',
+      subtitle: 'From revenue to what you keep',
+      tiles: [
+        DashTile(
+          child: ChartCard(
+            icon: Icons.waterfall_chart,
+            title: 'Profit Waterfall',
+            subtitle: 'Revenue, less each cost, to net profit',
+            height: 300,
+            isEmpty: steps.every((s) => s.amount.isZero),
+            table: ChartTableData(
+              headers: const ['Step', 'Amount', 'Running total'],
+              rows: [
+                for (final s in steps)
+                  [s.label, money(s.amount), money(s.end)],
+              ],
             ),
+            child: ProfitWaterfallChart(steps: steps, currency: currency),
           ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<Order>(
-            rows: recent,
-            rowsPerPage: 10,
-            searchText: _orderSearch,
-            searchableText: (o) =>
-                '${o.id} ${o.productName} ${o.status.label}',
-            emptyTitle: 'No orders yet',
-            emptyMessage: 'Orders in the selected period will appear here.',
-            columns: [
-              AppColumn(
-                label: 'Order ID',
-                cell: (o) => Text(o.id,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (o) => o.id,
-              ),
-              AppColumn(
-                label: 'Product',
-                cell: (o) => Text(o.productName),
-                sortValue: (o) => o.productName.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Date',
-                cell: (o) => Text(AppDate.short(_dateOf(o))),
-                sortValue: (o) => _dateOf(o).millisecondsSinceEpoch,
-              ),
-              AppColumn(
-                label: 'Revenue',
-                numeric: true,
-                cell: (o) =>
-                    CurrencyText(o.recognisedRevenue, currency: currency),
-                sortValue: (o) => o.recognisedRevenue.minor,
-              ),
-              AppColumn(
-                label: 'Cost',
-                numeric: true,
-                cell: (o) =>
-                    CurrencyText(o.recognisedProductCost, currency: currency),
-                sortValue: (o) => o.recognisedProductCost.minor,
-              ),
-              AppColumn(
-                label: 'Profit',
-                numeric: true,
-                cell: (o) =>
-                    CurrencyText(o.recognisedGrossProfit, currency: currency),
-                sortValue: (o) => o.recognisedGrossProfit.minor,
-              ),
-              AppColumn(
-                label: 'Status',
-                cell: (o) => StatusBadge.order(o.status),
-                sortValue: (o) => o.status.label,
-              ),
-            ],
+        ),
+        DashTile(
+          child: ChartCard(
+            icon: Icons.auto_graph,
+            title: 'Revenue & Profit Trend',
+            subtitle: vm.projection == null
+                ? 'Revenue and net profit over the period'
+                : 'Projected at the current pace to '
+                    '${AppDate.short(vm.range.end)}',
+            height: 300,
+            isEmpty: forecast.isEmpty,
+            table: ChartTableData(
+              headers: const [
+                'Period',
+                'Revenue',
+                'Net Profit',
+                'Projected revenue',
+                'Projected net profit',
+              ],
+              rows: [
+                for (final p in forecast)
+                  [
+                    p.label,
+                    opt(p.revenue),
+                    opt(p.netProfit),
+                    opt(p.projectedRevenue),
+                    opt(p.projectedNetProfit),
+                  ],
+              ],
+            ),
+            child: TrendForecastChart(points: forecast, currency: currency),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
+
+  Widget _scorecards() => DashboardSection(
+    title: 'Key figures',
+    subtitle: 'Tap a figure to open its report',
+    tiles: [
+      for (final k in _secondary)
+        DashTile(
+          span: 4,
+          tablet: 6,
+          mobile: 6,
+          child: KpiTile(data: k, versus: versus),
+        ),
+    ],
+  );
+
+  Widget _products() {
+    final byRevenue = ([...vm.productProfit]
+          ..sort((a, b) => b.revenue.minor.compareTo(a.revenue.minor)))
+        .take(8)
+        .toList();
+    final byProfit = ([...vm.productProfit]
+          ..sort((a, b) => b.netProfit.minor.compareTo(a.netProfit.minor)))
+        .take(8)
+        .toList();
+    return DashboardSection(
+      title: 'Products',
+      subtitle: 'Your top eight by revenue and by profit',
+      tiles: [
+        DashTile(
+          child: ChartCard(
+            icon: Icons.inventory_2_outlined,
+            title: 'Revenue by Product',
+            isEmpty: byRevenue.isEmpty,
+            table: ChartTableData(
+              headers: const ['Product', 'Revenue'],
+              rows: [
+                for (final p in byRevenue) [p.product.name, money(p.revenue)],
+              ],
+            ),
+            child: CategoryBarChart(
+              revealId: 'revenue-by-product',
+              labels: [for (final p in byRevenue) p.product.name],
+              values: [for (final p in byRevenue) p.revenue],
+              currency: currency,
+              color: t.chartSeries[0],
+            ),
+          ),
+        ),
+        DashTile(
+          child: ChartCard(
+            icon: Icons.savings_outlined,
+            title: 'Profit by Product',
+            isEmpty: byProfit.isEmpty,
+            table: ChartTableData(
+              headers: const ['Product', 'Net Profit'],
+              rows: [
+                for (final p in byProfit) [p.product.name, money(p.netProfit)],
+              ],
+            ),
+            child: CategoryBarChart(
+              revealId: 'profit-by-product',
+              labels: [for (final p in byProfit) p.product.name],
+              values: [for (final p in byProfit) p.netProfit],
+              currency: currency,
+              color: t.success,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _trends() {
+    final series = vm.series;
+    return DashboardSection(
+      title: 'Marketing & orders',
+      subtitle: 'How spend and orders moved through the period',
+      tiles: [
+        DashTile(
+          child: ChartCard(
+            icon: Icons.campaign_outlined,
+            title: 'Marketing Spend',
+            subtitle: 'Advertising over time',
+            isEmpty: series.isEmpty,
+            table: ChartTableData(
+              headers: const ['Period', 'Marketing'],
+              rows: [
+                for (final p in series) [p.label, money(p.marketingCost)],
+              ],
+            ),
+            child: TrendLineChart(
+              revealId: 'marketing-spend',
+              seriesLabel: 'Marketing',
+              labels: [for (final p in series) p.label],
+              values: [for (final p in series) p.marketingCost.major],
+              color: t.chartSeries[6],
+              currency: currency,
+            ),
+          ),
+        ),
+        DashTile(
+          child: ChartCard(
+            icon: Icons.shopping_cart_outlined,
+            title: 'Orders Trend',
+            subtitle: 'Recognised orders over time',
+            isEmpty: series.isEmpty,
+            table: ChartTableData(
+              headers: const ['Period', 'Orders'],
+              rows: [
+                for (final p in series) [p.label, '${p.orders}'],
+              ],
+            ),
+            child: TrendLineChart(
+              revealId: 'orders-trend',
+              seriesLabel: 'Orders',
+              labels: [for (final p in series) p.label],
+              values: [for (final p in series) p.orders.toDouble()],
+              color: t.chartSeries[1],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _breakdowns() {
+    final mix = vm.platformMix.entries.where((e) => !e.value.isZero).toList()
+      ..sort((a, b) => b.value.minor.compareTo(a.value.minor));
+    var mixTotal = Money.zero;
+    for (final e in mix) {
+      mixTotal = mixTotal + e.value;
+    }
+    final roas = RoasChart.pick(vm.campaignPerformance);
+    final statuses = vm.statusBreakdown.entries.where((e) => e.value > 0);
+    var orderTotal = 0;
+    for (final e in statuses) {
+      orderTotal += e.value;
+    }
+    String share(double part, double whole) =>
+        whole == 0 ? '—' : PercentFormatter.format(part / whole * 100);
+    final comparison = vm.businessComparison;
+
+    return DashboardSection(
+      title: 'Mix & performance',
+      subtitle: 'Where spend goes, what it earns back, and how orders end up',
+      tiles: [
+        DashTile(
+          span: 4,
+          child: ChartCard(
+            icon: Icons.pie_chart_outline,
+            title: 'Spend by Platform',
+            subtitle: 'Advertising mix',
+            isEmpty: mix.isEmpty,
+            table: ChartTableData(
+              headers: const ['Platform', 'Spend', 'Share'],
+              rows: [
+                for (final e in mix)
+                  [
+                    e.key.label,
+                    money(e.value),
+                    share(e.value.major, mixTotal.major),
+                  ],
+              ],
+            ),
+            child: PlatformMixChart(mix: vm.platformMix, currency: currency),
+          ),
+        ),
+        DashTile(
+          span: 4,
+          child: ChartCard(
+            icon: Icons.ads_click,
+            title: 'Return on Ad Spend',
+            subtitle: 'Biggest campaigns, against break-even',
+            isEmpty: roas.isEmpty,
+            table: ChartTableData(
+              headers: const ['Campaign', 'Spend', 'ROAS'],
+              rows: [
+                for (final c in roas)
+                  [
+                    c.campaign.name,
+                    money(c.spend),
+                    PercentFormatter.roas(c.roas),
+                  ],
+              ],
+            ),
+            child: RoasChart(
+              rows: vm.campaignPerformance,
+              currency: currency,
+              onTap: can(Routes.campaigns)
+                  ? (c) => context
+                      .go(Routes.campaignDetailPath(c.campaign.id))
+                  : null,
+            ),
+          ),
+        ),
+        DashTile(
+          span: 4,
+          child: ChartCard(
+            icon: Icons.local_shipping_outlined,
+            title: 'Order Status',
+            subtitle: 'Where the period\'s orders stand',
+            isEmpty: orderTotal == 0,
+            table: ChartTableData(
+              headers: const ['Status', 'Orders', 'Share'],
+              rows: [
+                for (final e in statuses)
+                  [
+                    e.key.label,
+                    '${e.value}',
+                    share(e.value.toDouble(), orderTotal.toDouble()),
+                  ],
+              ],
+            ),
+            child: OrderStatusChart(breakdown: vm.statusBreakdown),
+          ),
+        ),
+        if (comparison.isNotEmpty)
+          DashTile(
+            span: 12,
+            child: ChartCard(
+              icon: Icons.business_outlined,
+              title: 'Business Comparison',
+              subtitle: 'Revenue, costs and net profit by business',
+              height: 300,
+              table: ChartTableData(
+                headers: const [
+                  'Business',
+                  'Revenue',
+                  'Costs',
+                  'Net Profit',
+                  'Net margin',
+                ],
+                rows: [
+                  for (final b in comparison)
+                    [
+                      b.business.name,
+                      money(b.summary.revenue),
+                      money(b.summary.totalExpenses),
+                      money(b.summary.netProfit),
+                      PercentFormatter.format(b.summary.netMargin),
+                    ],
+                ],
+              ),
+              child: BusinessComparisonChart(
+                  rows: comparison, currency: currency),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _tables() => DashboardSection(
+    title: 'Details',
+    subtitle: 'Search finds any row in the period, not just the top ten',
+    tiles: [
+      DashTile(
+        span: 12,
+        child: TopProductsTable(
+          rows: vm.productProfit,
+          currency: currency,
+          onRowTap: can(Routes.products)
+              ? (p) => context.go(Routes.productDetailPath(p.product.id))
+              : null,
+          onViewAll: link(Routes.reportsTab('products')),
+        ),
+      ),
+      DashTile(
+        span: 12,
+        child: RecentOrdersTable(
+          orders: vm.orders,
+          range: vm.range,
+          currency: currency,
+          onRowTap: can(Routes.orders)
+              ? (o) => context.go(Routes.orderDetailPath(o.id))
+              : null,
+          onViewAll: link(Routes.orders),
+        ),
+      ),
+      DashTile(
+        span: 12,
+        child: CampaignPerformanceTable(
+          rows: vm.campaignPerformance,
+          currency: currency,
+          onRowTap: can(Routes.campaigns)
+              ? (c) => context.go(Routes.campaignDetailPath(c.campaign.id))
+              : null,
+          onViewAll: link(Routes.reportsTab('marketing')),
+        ),
+      ),
+    ],
+  );
 }
 
-class _CampaignPerformanceTable extends StatefulWidget {
-  const _CampaignPerformanceTable({required this.rows, required this.currency});
-
-  final List<CampaignPerformance> rows;
-  final CurrencyCode currency;
-
-  @override
-  State<_CampaignPerformanceTable> createState() =>
-      _CampaignPerformanceTableState();
-}
-
-class _CampaignPerformanceTableState extends State<_CampaignPerformanceTable> {
-  String _campaignSearch = '';
+/// The dashboard's shape while the data loads.
+class _DashboardSkeleton extends StatelessWidget {
+  const _DashboardSkeleton();
 
   @override
   Widget build(BuildContext context) {
-    final currency = widget.currency;
-    final sorted = [...widget.rows]
-      ..sort((a, b) => b.spend.minor.compareTo(a.spend.minor));
-    final top = sorted.take(10).toList();
-
-    return SectionCard(
-      title: 'Campaign Performance',
-      subtitle: 'Spend and return by campaign',
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SearchField(
-              hintText: 'Search campaigns by name or platform…',
-              onChanged: (v) => setState(() => _campaignSearch = v),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          AppDataTable<CampaignPerformance>(
-            rows: top,
-            rowsPerPage: 10,
-            searchText: _campaignSearch,
-            searchableText: (c) =>
-                '${c.campaign.name} ${c.campaign.platform.label}',
-            emptyTitle: 'No campaign activity',
-            emptyMessage: 'Campaigns with spend will appear here.',
-            columns: [
-              AppColumn(
-                label: 'Campaign',
-                cell: (c) => Text(c.campaign.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                sortValue: (c) => c.campaign.name.toLowerCase(),
-              ),
-              AppColumn(
-                label: 'Platform',
-                cell: (c) => StatusBadge(
-                  label: c.campaign.platform.label,
-                  tone: BadgeTone.info,
-                ),
-                sortValue: (c) => c.campaign.platform.label,
-              ),
-              AppColumn(
-                label: 'Spend',
-                numeric: true,
-                cell: (c) => CurrencyText(c.spend, currency: currency),
-                sortValue: (c) => c.spend.minor,
-              ),
-              AppColumn(
-                label: 'Clicks',
-                numeric: true,
-                cell: (c) => Text('${c.campaign.clicks}'),
-                sortValue: (c) => c.campaign.clicks,
-              ),
-              AppColumn(
-                label: 'Conversions',
-                numeric: true,
-                cell: (c) => Text('${c.campaign.conversions}'),
-                sortValue: (c) => c.campaign.conversions,
-              ),
-              AppColumn(
-                label: 'Revenue',
-                numeric: true,
-                cell: (c) =>
-                    CurrencyText(c.attributedRevenue, currency: currency),
-                sortValue: (c) => c.attributedRevenue.minor,
-              ),
-              AppColumn(
-                label: 'ROI',
-                numeric: true,
-                cell: (c) => Text(c.roi == null
-                    ? 'N/A'
-                    : PercentFormatter.format(c.roi!)),
-                sortValue: (c) => c.roi ?? -1,
-              ),
-              AppColumn(
-                label: 'ROAS',
-                numeric: true,
-                cell: (c) => Text(PercentFormatter.roas(c.roas)),
-                sortValue: (c) => c.roas ?? -1,
-              ),
-            ],
-          ),
-        ],
-      ),
+    return AppPage(
+      children: [
+        Semantics(
+          label: 'Loading your dashboard…',
+          child: const SkeletonBox(height: 300, radius: 20),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        const DashboardSection(
+          tiles: [
+            DashTile(span: 8, child: SkeletonCard(lines: 6, height: 380)),
+            DashTile(span: 4, child: SkeletonCard(lines: 6, height: 380)),
+            DashTile(child: SkeletonCard(lines: 6, height: 380)),
+            DashTile(child: SkeletonCard(lines: 6, height: 380)),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        const LoadingView(label: 'Loading your dashboard…'),
+      ],
     );
   }
 }

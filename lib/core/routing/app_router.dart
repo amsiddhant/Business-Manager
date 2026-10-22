@@ -9,6 +9,7 @@ import '../../screens/campaigns/campaign_detail_screen.dart';
 import '../../screens/campaigns/campaigns_screen.dart';
 import '../../screens/customers/customer_detail_screen.dart';
 import '../../screens/customers/customers_screen.dart';
+import '../../screens/alerts/alerts_screen.dart';
 import '../../screens/dashboard/dashboard_screen.dart';
 import '../../screens/dealers/dealer_detail_screen.dart';
 import '../../screens/dealers/dealers_screen.dart';
@@ -49,14 +50,14 @@ GoRouter buildRouter(AppState appState) {
   /// A section branch: its list page and (optionally) its `:id` detail page.
   StatefulShellBranch section(
     String path,
-    Widget Function() list, {
+    Widget Function(GoRouterState state) list, {
     Widget Function(String id)? detail,
   }) {
     return StatefulShellBranch(
       routes: [
         GoRoute(
           path: path,
-          builder: (_, state) => guard(state, list()),
+          builder: (_, state) => guard(state, list(state)),
           routes: [
             if (detail != null)
               GoRoute(
@@ -102,69 +103,72 @@ GoRouter buildRouter(AppState appState) {
           location: state.uri.toString(),
         ),
         branches: [
-          section(Routes.dashboard, () => const DashboardScreen()),
+          section(Routes.dashboard, (_) => const DashboardScreen()),
+          section(Routes.alerts, (_) => const AlertsScreen()),
           section(
             Routes.businesses,
-            () => const LegacyScroll(child: BusinessesScreen()),
+            (_) => const LegacyScroll(child: BusinessesScreen()),
             detail: (id) =>
                 LegacyScroll(child: BusinessDetailScreen(businessId: id)),
           ),
           section(
             Routes.products,
-            () => const LegacyScroll(child: ProductsScreen()),
+            (_) => const LegacyScroll(child: ProductsScreen()),
             detail: (id) =>
                 LegacyScroll(child: ProductDetailScreen(productId: id)),
           ),
           section(
             Routes.campaigns,
-            () => const LegacyScroll(child: CampaignsScreen()),
+            (_) => const LegacyScroll(child: CampaignsScreen()),
             detail: (id) =>
                 LegacyScroll(child: CampaignDetailScreen(campaignId: id)),
           ),
           section(
             Routes.orders,
-            () => const OrdersScreen(),
+            (_) => const OrdersScreen(),
             detail: (id) => LegacyScroll(child: OrderDetailScreen(orderId: id)),
           ),
           section(
             Routes.expenses,
-            () => const LegacyScroll(child: ExpensesScreen()),
+            (_) => const LegacyScroll(child: ExpensesScreen()),
             detail: (id) =>
                 LegacyScroll(child: ExpenseDetailScreen(expenseId: id)),
           ),
           section(
             Routes.dealers,
-            () => const LegacyScroll(child: DealersScreen()),
+            (_) => const LegacyScroll(child: DealersScreen()),
             detail: (id) =>
                 LegacyScroll(child: DealerDetailScreen(dealerId: id)),
           ),
           section(
             Routes.customers,
-            () => const CustomersScreen(),
+            (_) => const CustomersScreen(),
             detail: (id) => CustomerDetailScreen(customerId: id),
           ),
           section(
             Routes.reports,
-            () => DeferredPage(
+            (state) => DeferredPage(
               loader: reports.loadLibrary,
-              builder: () => LegacyScroll(child: reports.ReportsScreen()),
+              builder: () => LegacyScroll(
+                  child: reports.ReportsScreen(
+                      initialTab: state.uri.queryParameters['tab'])),
             ),
           ),
           section(
             Routes.users,
-            () => DeferredPage(
+            (_) => DeferredPage(
               loader: users.loadLibrary,
               builder: () => LegacyScroll(child: users.UsersScreen()),
             ),
           ),
           section(
             Routes.settings,
-            () => DeferredPage(
+            (_) => DeferredPage(
               loader: settings.loadLibrary,
               builder: () => LegacyScroll(child: settings.SettingsScreen()),
             ),
           ),
-          section(Routes.whatsNew, () => const WhatsNewScreen()),
+          section(Routes.whatsNew, (_) => const WhatsNewScreen()),
         ],
       ),
     ],

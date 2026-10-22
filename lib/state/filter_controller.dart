@@ -39,6 +39,22 @@ class FilterController extends ChangeNotifier {
   late DateRange _range;
   DateRange get range => _range;
 
+  ComparisonBasis _comparison = ComparisonBasis.previousPeriod;
+
+  /// What the dashboard's deltas compare the period with.
+  ComparisonBasis get comparison => _comparison;
+
+  void setComparison(ComparisonBasis basis) {
+    if (basis == _comparison) return;
+    _comparison = basis;
+    notifyListeners();
+  }
+
+  /// The selected period and the span it's compared with (see
+  /// [ComparisonWindow.of]).
+  ComparisonWindow comparisonWindow({DateTime? now}) =>
+      ComparisonWindow.of(_range, _periodType, _comparison, now: now);
+
   /// Identifies the current selection (business + date range): equal keys
   /// mean equal filtered results, so it can key memoised figures.
   (String?, DateTime, DateTime) get key =>
@@ -111,6 +127,7 @@ class FilterController extends ChangeNotifier {
         'cy': _calendarYear,
         'month': _month,
         'monthYear': _monthYear,
+        'compare': _comparison.name,
         if (_customRange case final r?) ...{
           'from': r.start.toIso8601String(),
           'to': r.end.toIso8601String(),
@@ -144,6 +161,9 @@ class FilterController extends ChangeNotifier {
       type = PeriodType.financialYear;
     }
     _periodType = type;
+    _comparison =
+        ComparisonBasis.values.asNameMap()[read<String>('compare')] ??
+            ComparisonBasis.previousPeriod;
     _announced = null;
     _recompute();
   }

@@ -20,6 +20,34 @@ class ReleaseNote {
 /// Every release, newest first. Add an entry with each version bump.
 const List<ReleaseNote> kReleaseNotes = [
   ReleaseNote(
+    version: '1.3.0',
+    date: 'October 2026',
+    title: 'A new dashboard, and an alerts center',
+    highlights: [
+      'The dashboard is completely redesigned. It opens with a greeting, your '
+          'four headline figures and how they changed, each with a 12-month '
+          'trend line.',
+      'Compare with the previous period or the same period last year. While '
+          'a period is still running, both sides stop at today.',
+      'See where the period is heading at your current pace, on the new '
+          'Revenue & Profit Trend chart.',
+      'New charts: a profit waterfall from revenue to net profit, spend by '
+          'platform, return on ad spend by campaign, order status, and a '
+          'side-by-side comparison of your businesses.',
+      'Attention & insights picks out what changed: big moves in revenue or '
+          'margin, one product carrying the sales, campaigns not paying back, '
+          'and unusual spend.',
+      'Tap any figure to open its report. Rows in the dashboard tables open '
+          'the record, and search now finds every row, not just the top ten.',
+      'Every chart can be viewed as a table.',
+      'The new alerts center lists contracts expiring or overdue, campaigns '
+          'ending, products with thin margins and unusual spend. Snooze or '
+          'dismiss alerts; the bell shows how many need you.',
+      'Works on any screen: on a phone the dashboard rearranges itself and '
+          'the tables become simple lists.',
+    ],
+  ),
+  ReleaseNote(
     version: '1.2.0',
     date: 'October 2026',
     title: 'New navigation, dark mode and quick search',
