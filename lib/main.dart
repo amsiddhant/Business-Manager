@@ -4,11 +4,13 @@ import 'package:provider/provider.dart';
 
 import 'core/routing/app_router.dart';
 import 'core/theme/app_motion.dart';
+import 'core/utils/date_utils.dart';
 import 'data/local_backend.dart';
 import 'state/alert_controller.dart';
 import 'state/app_state.dart';
 import 'state/data_controller.dart';
 import 'state/filter_controller.dart';
+import 'state/settings_controller.dart';
 import 'state/theme_controller.dart';
 import 'state/user_prefs.dart';
 
@@ -43,8 +45,16 @@ class SalesforceBusinessManagerApp extends StatelessWidget {
         ChangeNotifierProvider<ThemeController>(
           create: (c) => ThemeController(appState.prefs, c.read<UserPrefs>()),
         ),
+        // Eager: applies the cached organisation settings (FY start, date
+        // format, theme) before anything reads them.
+        ChangeNotifierProvider<SettingsController>(
+          lazy: false,
+          create: (c) =>
+              SettingsController(appState, c.read<ThemeController>()),
+        ),
         ChangeNotifierProvider<AlertController>(
-          create: (c) => AlertController(c.read<UserPrefs>()),
+          create: (c) => AlertController(
+              c.read<UserPrefs>(), c.read<SettingsController>()),
         ),
       ],
       child: _AppView(appState: appState),
@@ -65,14 +75,19 @@ class _AppView extends StatefulWidget {
 }
 
 class _AppViewState extends State<_AppView> {
-  late final GoRouter _router = buildRouter(widget.appState);
+  late final GoRouter _router = buildRouter(widget.appState,
+      settings: context.read<SettingsController>());
   late final AppLifecycleListener _lifecycle;
   AuthStatus? _lastStatus;
+  int _fyStartMonth = FinancialYear.startMonth;
+  late final SettingsController _settings;
 
   @override
   void initState() {
     super.initState();
     widget.appState.addListener(_onAppStateChanged);
+    _settings = context.read<SettingsController>()
+      ..addListener(_onSettingsChanged);
     context.read<FilterController>().addListener(_saveScope);
     context.read<DataController>().addListener(_checkScope);
     // Handle a session that was already primed during AppState.create().
@@ -80,8 +95,11 @@ class _AppViewState extends State<_AppView> {
     _lifecycle = AppLifecycleListener(
       // Back on the tab after a while: pick up other people's changes.
       onResume: () {
-        if (widget.appState.status == AuthStatus.signedIn) {
-          context.read<DataController>().softSyncIfStale();
+        if (widget.appState.status != AuthStatus.signedIn) return;
+        final maxAge =
+            context.read<SettingsController>().settings.sync.staleAfter;
+        if (maxAge != null) {
+          context.read<DataController>().softSyncIfStale(maxAge: maxAge);
         }
       },
       // The tab may be closed next: save any pending demo-data changes.
@@ -103,6 +121,13 @@ class _AppViewState extends State<_AppView> {
         .setScope(context.read<FilterController>().toJson());
   }
 
+  /// A new FY start month moves the period selection onto the new FYs.
+  void _onSettingsChanged() {
+    if (FinancialYear.startMonth == _fyStartMonth) return;
+    _fyStartMonth = FinancialYear.startMonth;
+    context.read<FilterController>().financialYearStartChanged();
+  }
+
   /// A remembered business the user can no longer see falls back to "All".
   void _checkScope() {
     final data = context.read<DataController>();
@@ -118,6 +143,7 @@ class _AppViewState extends State<_AppView> {
   void dispose() {
     _lifecycle.dispose();
     widget.appState.removeListener(_onAppStateChanged);
+    _settings.removeListener(_onSettingsChanged);
     super.dispose();
   }
 
@@ -130,7 +156,17 @@ class _AppViewState extends State<_AppView> {
 
     final data = context.read<DataController>();
     if (status == AuthStatus.signedIn) {
-      context.read<FilterController>().restore(context.read<UserPrefs>().scope);
+      final settings = context.read<SettingsController>();
+      final filter = context.read<FilterController>();
+      final scope = context.read<UserPrefs>().scope;
+      if (scope == null) {
+        // First time here: start from the organisation's default period.
+        final d = settings.settings.defaults;
+        filter.applyDefaults(d.period, d.comparison);
+      } else {
+        filter.restore(scope);
+      }
+      settings.load();
       // The repository may have been rebound (e.g. Firebase activation); point
       // the data controller at the current repository before loading.
       data.rebind(widget.appState.repository);

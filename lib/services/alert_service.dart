@@ -2,9 +2,11 @@ import '../core/enums.dart';
 import '../core/routing/app_routes.dart';
 import '../core/utils/date_utils.dart';
 import '../core/utils/money.dart';
+import '../models/app_settings.dart';
 import '../models/campaign.dart';
 import '../models/customer.dart';
 import '../models/expense.dart';
+import '../models/goal.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import 'profit_calculation_service.dart';
@@ -24,6 +26,7 @@ enum AlertType {
   campaignEnding('Campaign ending'),
   lowMargin('Low margin'),
   unusualSpend('Unusual spend'),
+  goalAtRisk('Goal at risk'),
   dataWarning('Data not loaded'),
   demoMode('Demo mode');
 
@@ -103,7 +106,7 @@ List<ContractDue> contractsDue(
 
 /// Builds the alerts from data that's already loaded — no reads.
 ///
-/// Rules:
+/// Rules (thresholds from [AlertSettings]; the defaults shown):
 /// * contracts expiring within 30 days (7 or fewer: high), or expired in the
 ///   last 90 days and not renewed (high);
 /// * campaigns ending within 7 days;
@@ -111,16 +114,15 @@ List<ContractDue> contractsDue(
 ///   high), once they have 3+ orders;
 /// * a cost line this month far above its last 6 months (robust z-score of
 ///   2.5 or more against the median; 4+: high);
+/// * running goals projected to land under target (90%+ of it: at risk,
+///   medium; less: behind, high);
 /// * partial-load warnings (high), and demo mode (info).
+///
+/// Types in [AlertSettings.disabledTypes] are left out.
 class AlertService {
   const AlertService();
 
   static const _profit = ProfitCalculationService();
-
-  static const lowMarginPercent = 10.0;
-  static const minOrdersForMargin = 3;
-  static const spendZ = 2.5;
-  static const spendZHigh = 4.0;
 
   List<AppAlert> build({
     required List<Customer> customers,
@@ -132,22 +134,33 @@ class AlertService {
     required bool demoMode,
     required DateTime now,
     required CurrencyCode Function(String businessId) currencyOf,
+    AlertSettings settings = const AlertSettings(),
+    List<Goal> goals = const [],
   }) {
     final today = AppDate.dayOnly(now);
+    bool on(AlertType t) => settings.isOn(t.name);
     final alerts = <AppAlert>[
-      ..._contracts(customers, today, currencyOf),
-      ..._campaignsEnding(campaigns, today),
-      ..._lowMargins(products, orders, campaigns, today, currencyOf),
-      ..._unusualSpend(campaigns, expenses, today, currencyOf),
-      for (final w in warnings)
-        AppAlert(
-          key: 'data-warning:${stableHash(w)}',
-          type: AlertType.dataWarning,
-          severity: AlertSeverity.high,
-          title: 'Some data could not be loaded',
-          message: w,
-        ),
-      if (demoMode)
+      ..._contracts(customers, today, currencyOf, settings)
+          .where((a) => on(a.type)),
+      if (on(AlertType.campaignEnding))
+        ..._campaignsEnding(campaigns, today, settings),
+      if (on(AlertType.lowMargin))
+        ..._lowMargins(
+            products, orders, campaigns, today, currencyOf, settings),
+      if (on(AlertType.unusualSpend))
+        ..._unusualSpend(campaigns, expenses, today, currencyOf, settings),
+      if (on(AlertType.goalAtRisk))
+        ..._goalsAtRisk(goals, orders, campaigns, expenses, today, settings),
+      if (on(AlertType.dataWarning))
+        for (final w in warnings)
+          AppAlert(
+            key: 'data-warning:${stableHash(w)}',
+            type: AlertType.dataWarning,
+            severity: AlertSeverity.high,
+            title: 'Some data could not be loaded',
+            message: w,
+          ),
+      if (demoMode && on(AlertType.demoMode))
         const AppAlert(
           key: 'demo-mode',
           type: AlertType.demoMode,
@@ -169,9 +182,11 @@ class AlertService {
   }
 
   Iterable<AppAlert> _contracts(List<Customer> customers, DateTime today,
-      CurrencyCode Function(String) currencyOf) sync* {
-    for (final due
-        in contractsDue(customers, now: today, fromDays: -90, toDays: 30)) {
+      CurrencyCode Function(String) currencyOf, AlertSettings settings) sync* {
+    for (final due in contractsDue(customers,
+        now: today,
+        fromDays: -settings.overdueLookbackDays,
+        toDays: settings.contractWindowDays)) {
       final c = due.contract;
       final expiry = c.expiryDate!;
       final value =
@@ -193,8 +208,9 @@ class AlertService {
         yield AppAlert(
           key: 'contract-expiring:$keyTail',
           type: AlertType.contractExpiring,
-          severity:
-              due.daysLeft <= 7 ? AlertSeverity.high : AlertSeverity.medium,
+          severity: due.daysLeft <= settings.contractUrgentDays
+              ? AlertSeverity.high
+              : AlertSeverity.medium,
           title: '${due.customer.name}: contract expiring',
           message: '${_inDays(due.daysLeft)} ($when) · $value a year.',
           route: Routes.customerDetailPath(due.customer.id),
@@ -204,13 +220,13 @@ class AlertService {
     }
   }
 
-  Iterable<AppAlert> _campaignsEnding(
-      List<Campaign> campaigns, DateTime today) sync* {
+  Iterable<AppAlert> _campaignsEnding(List<Campaign> campaigns,
+      DateTime today, AlertSettings settings) sync* {
     for (final c in campaigns) {
       final end = c.endDate;
       if (end == null || c.status == CampaignStatus.cancelled) continue;
       final days = AppDate.dayOnly(end).difference(today).inDays;
-      if (days < 0 || days > 7) continue;
+      if (days < 0 || days > settings.campaignEndingDays) continue;
       yield AppAlert(
         key: 'campaign-ending:${c.id}:${AppDate.iso(end)}',
         type: AlertType.campaignEnding,
@@ -230,14 +246,18 @@ class AlertService {
     List<Campaign> campaigns,
     DateTime today,
     CurrencyCode Function(String) currencyOf,
+    AlertSettings settings,
   ) sync* {
     final range =
         DateRange(DateTime(today.year, today.month, today.day - 89), today);
     final month = AppDate.iso(today).substring(0, 7);
     for (final p in _profit.productProfitability(
         products: products, orders: orders, campaigns: campaigns, range: range)) {
-      if (p.orderCount < minOrdersForMargin || !p.revenue.isPositive) continue;
-      if (p.margin >= lowMarginPercent) continue;
+      if (p.orderCount < settings.minOrdersForMargin ||
+          !p.revenue.isPositive) {
+        continue;
+      }
+      if (p.margin >= settings.lowMarginPercent) continue;
       final negative = p.netProfit.isNegative;
       yield AppAlert(
         key: 'low-margin:${p.product.id}:$month',
@@ -260,6 +280,7 @@ class AlertService {
     List<Expense> expenses,
     DateTime today,
     CurrencyCode Function(String) currencyOf,
+    AlertSettings settings,
   ) sync* {
     // Per business: amounts in different currencies don't mix.
     final ids = {
@@ -277,13 +298,15 @@ class AlertService {
         final past = [for (final m in months.take(months.length - 1)) m.major];
         final current = months.last.major;
         final z = robustZ(current, past);
-        if (z == null || z < spendZ) continue;
+        if (z == null || z < settings.spendZ) continue;
         final currency = currencyOf(id);
         final median = _median(past);
         yield AppAlert(
           key: 'unusual-spend:$id:$line:$month',
           type: AlertType.unusualSpend,
-          severity: z >= spendZHigh ? AlertSeverity.high : AlertSeverity.medium,
+          severity: z >= settings.spendZHigh
+              ? AlertSeverity.high
+              : AlertSeverity.medium,
           title: 'Unusual $line spend',
           message: '${MoneyFormatter.format(months.last, currency)} this month '
               'so far, against a typical '
@@ -291,6 +314,56 @@ class AlertService {
           route: line == 'Marketing' ? Routes.campaigns : Routes.expenses,
         );
       }
+    }
+  }
+
+  Iterable<AppAlert> _goalsAtRisk(
+    List<Goal> goals,
+    List<Order> orders,
+    List<Campaign> campaigns,
+    List<Expense> expenses,
+    DateTime today,
+    AlertSettings settings,
+  ) sync* {
+    for (final goal in goals) {
+      if (!goal.period.range.contains(today)) continue;
+      final biz = goal.scopeBusinessId;
+      final progress = _profit.goalProgress(
+        goal: goal,
+        orders: biz == null
+            ? orders
+            : [for (final o in orders) if (o.businessId == biz) o],
+        campaigns: biz == null
+            ? campaigns
+            : [for (final c in campaigns) if (c.businessId == biz) c],
+        expenses: biz == null
+            ? expenses
+            : [for (final e in expenses) if (e.businessId == biz) e],
+        asOf: today,
+        atRiskPercent: settings.goalAtRiskPercent.toDouble(),
+      );
+      final status = progress.status;
+      if (status != GoalStatus.atRisk && status != GoalStatus.behind) continue;
+      String fmt(int v) => goal.metric.isMoney
+          ? MoneyFormatter.format(Money(v), goal.currency)
+          : '$v';
+      final behind = status == GoalStatus.behind;
+      final percent = progress.projectedPercent ?? progress.percent;
+      final needs = progress.requiredPerDay;
+      yield AppAlert(
+        key: 'goal-at-risk:${goal.id}:${status.name}',
+        type: AlertType.goalAtRisk,
+        severity: behind ? AlertSeverity.high : AlertSeverity.medium,
+        title: '${goal.metric.label} goal ${behind ? 'is behind' : 'at risk'}'
+            ' · ${goal.period.label}',
+        message: [
+          'On course for ${fmt(progress.projected ?? progress.actual)} of '
+              '${goal.targetLabel} (${PercentFormatter.format(percent)}).',
+          if (needs != null) 'Needs ${fmt(needs)} a day from here.',
+        ].join(' '),
+        route: Routes.goals,
+        due: goal.period.range.end,
+      );
     }
   }
 

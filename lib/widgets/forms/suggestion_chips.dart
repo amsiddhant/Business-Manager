@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
 import '../../services/smart/suggestion_service.dart';
+import '../../state/org_settings.dart';
 
 /// Up to three one-tap suggestions under a field. Tapping one fills the
 /// field; nothing is ever filled without a tap. Hidden when there's nothing
@@ -26,6 +28,9 @@ class SuggestionChips<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final on =
+        context.orgSettings((s) => s.features.isOn(AppFeature.suggestions));
+    if (!on) return const SizedBox.shrink();
     final shown = [
       for (final s in suggestions)
         if (s.value != current) s,

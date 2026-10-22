@@ -6,10 +6,12 @@ import '../../core/routing/app_routes.dart';
 import '../../core/routing/nav_registry.dart';
 import '../../core/shortcuts.dart';
 import '../../core/theme/app_density.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../services/search_index.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../state/org_settings.dart';
 import '../../state/theme_controller.dart';
 import '../../state/user_prefs.dart';
 import '../layout/create_actions.dart';
@@ -97,8 +99,16 @@ class CommandRegistry {
     return null;
   }
 
-  List<PaletteCommand> navigate(AppUser user) => [
-        for (final d in NavRegistry.visible(user))
+  AppSettings get _settings => context.readOrgSettings();
+
+  /// Whether the section a record route belongs to is switched on.
+  bool allowsRoute(String route) => _settings.modules.allows(route);
+
+  List<PaletteCommand> navigate(AppUser user) {
+    final modules = _settings.modules;
+    final whatsNewOn = _settings.features.isOn(AppFeature.whatsNew);
+    return [
+        for (final d in NavRegistry.visible(user, modules: modules))
           PaletteCommand(
             id: 'nav:${d.route}',
             section: CommandSection.navigate,
@@ -108,7 +118,8 @@ class CommandRegistry {
             run: (c) => _go(c, d.route),
           ),
         // Settings (profile, password) is open to everyone.
-        if (!NavRegistry.visible(user).any((d) => d.route == Routes.settings))
+        if (!NavRegistry.visible(user, modules: modules)
+            .any((d) => d.route == Routes.settings))
           PaletteCommand(
             id: 'nav:${Routes.settings}',
             section: CommandSection.navigate,
@@ -118,18 +129,20 @@ class CommandRegistry {
             keywords: const ['profile', 'password'],
             run: (c) => _go(c, Routes.settings),
           ),
-        PaletteCommand(
-          id: 'nav:${Routes.whatsNew}',
-          section: CommandSection.navigate,
-          title: "What's new",
-          icon: Icons.new_releases_outlined,
-          keywords: const ['release notes', 'changelog', 'version'],
-          run: (c) => _go(c, Routes.whatsNew),
-        ),
+        if (whatsNewOn)
+          PaletteCommand(
+            id: 'nav:${Routes.whatsNew}',
+            section: CommandSection.navigate,
+            title: "What's new",
+            icon: Icons.new_releases_outlined,
+            keywords: const ['release notes', 'changelog', 'version'],
+            run: (c) => _go(c, Routes.whatsNew),
+          ),
       ];
+  }
 
   List<PaletteCommand> create(AppUser user) => [
-        for (final a in createActionsFor(user))
+        for (final a in createActionsFor(user, modules: _settings.modules))
           PaletteCommand(
             id: 'create:${a.section}',
             section: CommandSection.create,
@@ -253,7 +266,8 @@ class CommandRegistry {
         if (byId[id] case final c?)
           c.inSection(CommandSection.recent)
         else if (id.startsWith('rec:'))
-          if (index.byRoute(id.substring(4)) case final hit?)
+          if (index.byRoute(id.substring(4)) case final hit?
+              when allowsRoute(hit.route))
             record(hit).inSection(CommandSection.recent),
     ];
   }

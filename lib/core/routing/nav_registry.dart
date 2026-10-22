@@ -1,3 +1,4 @@
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import 'app_routes.dart';
 
@@ -25,7 +26,8 @@ class NavGroup {
 
 /// Sidebar grouping, top to bottom.
 const List<NavGroup> kNavGroups = [
-  NavGroup('Overview', [Routes.dashboard, Routes.alerts, Routes.reports]),
+  NavGroup('Overview',
+      [Routes.dashboard, Routes.alerts, Routes.goals, Routes.reports]),
   NavGroup('Sales', [Routes.orders, Routes.customers, Routes.campaigns]),
   NavGroup('Catalog', [Routes.products, Routes.businesses]),
   NavGroup('Spend', [Routes.expenses, Routes.dealers]),
@@ -46,6 +48,7 @@ const List<String> kMobilePrimaryRoutes = [
 const List<String> kShellBranches = [
   Routes.dashboard,
   Routes.alerts,
+  Routes.goals,
   Routes.businesses,
   Routes.products,
   Routes.campaigns,
@@ -74,29 +77,49 @@ class NavRegistry {
   static bool canSee(AppUser user, NavDestination d) =>
       user.can(d.permission) && (!d.ownerOnly || user.isOwner);
 
-  /// Every destination [user] may see, in sidebar order.
-  static List<NavDestination> visible(AppUser user) => [
-        for (final g in kNavGroups) ..._items(user, g),
+  /// Every destination [user] may see, in sidebar order. Sections the
+  /// organisation switched off (in [modules]) are left out.
+  static List<NavDestination> visible(AppUser user, {ModuleSettings? modules}) =>
+      [
+        for (final g in kNavGroups) ..._items(user, g, modules),
       ];
 
   /// [kNavGroups] filtered for [user]; empty groups are dropped.
   static List<({NavGroup group, List<NavDestination> items})> groupsFor(
-      AppUser user) {
+      AppUser user,
+      {ModuleSettings? modules}) {
     return [
       for (final g in kNavGroups)
-        if (_items(user, g) case final items when items.isNotEmpty)
+        if (_items(user, g, modules) case final items when items.isNotEmpty)
           (group: g, items: items),
     ];
   }
 
-  static List<NavDestination> _items(AppUser user, NavGroup g) => [
+  static List<NavDestination> _items(
+          AppUser user, NavGroup g, ModuleSettings? modules) =>
+      [
         for (final r in g.routes) ?destinationFor(r),
-      ].where((d) => canSee(user, d)).toList();
+      ]
+          .where((d) =>
+              canSee(user, d) && (modules == null || modules.isEnabled(d.route)))
+          .toList();
 
-  /// The bottom-bar sections for [user]: the primary ones they may open,
-  /// topped up from the rest of the sidebar so there are up to four.
-  static List<NavDestination> mobilePrimary(AppUser user) {
-    final all = visible(user);
+  /// The bottom-bar sections for [user]: the organisation's choice
+  /// ([navigation]) when it has one, otherwise the primary ones they may
+  /// open, topped up from the rest of the sidebar so there are up to four.
+  static List<NavDestination> mobilePrimary(
+    AppUser user, {
+    ModuleSettings? modules,
+    NavigationSettings? navigation,
+  }) {
+    final all = visible(user, modules: modules);
+    final chosen = navigation?.mobilePrimary ?? const <String>[];
+    if (chosen.isNotEmpty) {
+      final picked = [
+        for (final r in chosen) ...all.where((d) => d.route == r),
+      ].take(NavigationSettings.maxMobileItems).toList();
+      if (picked.isNotEmpty) return picked;
+    }
     final primary = [
       for (final r in kMobilePrimaryRoutes)
         ...all.where((d) => d.route == r),
@@ -136,6 +159,8 @@ class NavRegistry {
         return ScopeUse.business;
       case Routes.businesses:
         return isRoot ? ScopeUse.none : ScopeUse.period;
+      case Routes.goals:
+        return ScopeUse.business;
       default:
         return ScopeUse.none;
     }

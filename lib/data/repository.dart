@@ -6,6 +6,7 @@ import '../core/enums.dart';
 import '../core/permissions.dart';
 import '../core/utils/id_generator.dart';
 import '../models/access_request.dart';
+import '../models/app_settings.dart';
 import '../models/app_user.dart';
 import '../models/audit_fields.dart';
 import '../models/audit_log.dart';
@@ -14,6 +15,7 @@ import '../models/campaign.dart';
 import '../models/customer.dart';
 import '../models/dealer.dart';
 import '../models/expense.dart';
+import '../models/goal.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import 'backend.dart';
@@ -1500,12 +1502,187 @@ class Repository {
     }
   }
 
+  // ---- Organisation settings ------------------------------------------------
+
+  static const _settingsDoc = 'app';
+  static const _logoDoc = 'logo';
+
+  /// Logos are stored inline as a data URL; keep them small (≈150 KB).
+  static const maxLogoChars = 210000;
+
+  /// The `settings/app` document, or null when none has been saved yet (all
+  /// defaults). One read.
+  Future<AppSettings?> fetchAppSettings() async {
+    if (_currentUser == null) return null;
+    final doc = await _backend.fetchDoc(Collections.settings, _settingsDoc);
+    return doc == null ? null : AppSettings.fromMap(doc);
+  }
+
+  /// The logo's data URL, or null when there's none. One read; callers only
+  /// ask when the settings' `logoHash` changed.
+  Future<String?> fetchLogo() async {
+    if (_currentUser == null) return null;
+    final doc = await _backend.fetchDoc(Collections.settings, _logoDoc);
+    final url = doc?['dataUrl'];
+    return url is String && url.isNotEmpty ? url : null;
+  }
+
+  /// Saves the organisation's settings in one write (plus the logo when
+  /// [logoChanged]: [logoDataUrl] sets it, null removes it), with an audit
+  /// entry. Returns what was saved, stamped with who and when.
+  Future<AppSettings> saveAppSettings(
+    AppSettings settings, {
+    bool logoChanged = false,
+    String? logoDataUrl,
+  }) async {
+    _require(Permission.manageSettings);
+    final user = _currentUser!;
+    if (logoDataUrl != null && logoDataUrl.length > maxLogoChars) {
+      throw const AppException(
+          'That logo is too large. Use an image under 150 KB.');
+    }
+    final toSave = settings.copyWith(updatedAt: _now, updatedBy: user.name);
+    await _write(
+      [
+        SetOp(Collections.settings, _settingsDoc, toSave.toMap()),
+        if (logoChanged)
+          if (logoDataUrl == null)
+            DeleteOp(Collections.settings, _logoDoc)
+          else
+            SetOp(Collections.settings, _logoDoc, {
+              'dataUrl': logoDataUrl,
+              'hash': toSave.branding.logoHash ?? '',
+              'updatedAt': _now.toIso8601String(),
+              'updatedBy': user.uid,
+            }),
+      ],
+      optional: [
+        _logOp(AuditAction.update, 'Settings', _settingsDoc,
+            summary: 'Organisation settings'),
+      ],
+    );
+    return toSave;
+  }
+
+  // ---- Goals ----------------------------------------------------------------
+
+  /// Goals for every business the user can access (and, for the Owner, the
+  /// organisation-wide ones). Non-owners query per assigned business, as the
+  /// rules require.
+  Future<List<Goal>> fetchGoals() async {
+    final user = _currentUser;
+    if (user == null) return const [];
+    final List<Map<String, dynamic>> docs;
+    if (user.isOwner) {
+      docs = await _backend.fetchCollection(Collections.goals);
+    } else {
+      final perBusiness = await Future.wait(
+        user.assignedBusinessIds.map(
+          (id) => _backend.fetchCollection(Collections.goals, businessId: id),
+        ),
+      );
+      docs = [for (final d in perBusiness) ...d];
+    }
+    return [for (final d in docs) ?Goal.fromMap(d)];
+  }
+
+  void _requireGoalAccess(String businessId) {
+    _require(Permission.manageGoals);
+    if (businessId == Goal.allBusinesses) {
+      if (!(_currentUser?.isOwner ?? false)) {
+        throw const PermissionDeniedException(
+          'Only the owner can set goals for all businesses.',
+        );
+      }
+      return;
+    }
+    _requireBusinessAccess(businessId);
+  }
+
+  /// Sets (or replaces) goals: one batch per [BatchCapable.maxOps] goals,
+  /// with one audit entry per batch. Returns them as saved.
+  Future<List<Goal>> saveGoals(List<Goal> goals) async {
+    for (final g in goals) {
+      _requireGoalAccess(g.businessId);
+      if (g.target < 0 || g.target > Goal.maxTarget) {
+        throw const AppException('A goal target is out of range.');
+      }
+    }
+    final saved = [
+      for (final g in goals)
+        g.copyWith(
+          note: g.note.length > Goal.maxNote
+              ? g.note.substring(0, Goal.maxNote)
+              : g.note,
+          audit: g.audit.createdAt == null
+              ? _stampCreate()
+              : _stampUpdate(g.audit),
+        ),
+    ];
+    const chunk = BatchCapable.maxOps - 1;
+    for (var i = 0; i < saved.length; i += chunk) {
+      final part = saved.sublist(i, min(i + chunk, saved.length));
+      await _write(
+        [for (final g in part) SetOp(Collections.goals, g.id, g.toMap())],
+        optional: [
+          _logOp(
+            AuditAction.update,
+            'Goal',
+            part.length == 1 ? part.first.id : '${part.length} goals',
+            businessId: part.first.scopeBusinessId,
+            summary: part.length == 1
+                ? '${part.first.metric.label} · ${part.first.period.label}'
+                : 'Set ${part.length} goals',
+          ),
+        ],
+      );
+      for (final g in part) {
+        _emit(Upserted(Collections.goals, g.id, g));
+      }
+    }
+    return saved;
+  }
+
+  Future<Goal> saveGoal(Goal goal) async => (await saveGoals([goal])).first;
+
+  Future<void> deleteGoals(List<Goal> goals) async {
+    for (final g in goals) {
+      _requireGoalAccess(g.businessId);
+    }
+    const chunk = BatchCapable.maxOps - 1;
+    for (var i = 0; i < goals.length; i += chunk) {
+      final part = goals.sublist(i, min(i + chunk, goals.length));
+      await _write(
+        [for (final g in part) DeleteOp(Collections.goals, g.id)],
+        optional: [
+          _logOp(
+            AuditAction.delete,
+            'Goal',
+            part.length == 1 ? part.first.id : '${part.length} goals',
+            businessId: part.first.scopeBusinessId,
+            summary: part.length == 1
+                ? '${part.first.metric.label} · ${part.first.period.label}'
+                : 'Removed ${part.length} goals',
+          ),
+        ],
+      );
+      for (final g in part) {
+        _emit(Removed(Collections.goals, g.id));
+      }
+    }
+  }
+
+  Future<void> deleteGoal(Goal goal) => deleteGoals([goal]);
+
   // ---- Audit logs -----------------------------------------------------------
 
-  /// The latest [limit] audit entries, newest first. Reads only those entries
-  /// where the backend can order and limit on the server.
+  /// The latest [limit] audit entries, newest first, for the Owner only.
+  /// Reads only those entries where the backend can order and limit on the
+  /// server.
   Future<List<AuditLog>> fetchAuditLogs({int limit = 100}) async {
-    _require(Permission.manageSettings);
+    if (!(_currentUser?.isOwner ?? false)) {
+      throw const PermissionDeniedException();
+    }
     final docs = switch (_backend) {
       final QueryCapable query => await query.fetchLatest(
         Collections.auditLogs,

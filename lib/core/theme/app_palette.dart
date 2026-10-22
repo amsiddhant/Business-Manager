@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/app_settings.dart' show ChartPaletteStyle;
 import 'app_colors.dart';
 import 'tokens.dart';
 
@@ -17,7 +18,10 @@ class AppPalette {
   static final AppTokens lightDefault = light();
   static final AppTokens darkDefault = dark();
 
-  static AppTokens light({Color brand = defaultBrand}) {
+  static AppTokens light({
+    Color brand = defaultBrand,
+    ChartPaletteStyle chartPalette = ChartPaletteStyle.brand,
+  }) {
     const card = AppColors.card;
     final isDefault = brand.toARGB32() == defaultBrand.toARGB32();
     final primary = brand;
@@ -46,10 +50,7 @@ class AppPalette {
       errorSurface: AppColors.errorSurface,
       info: AppColors.info,
       infoSurface: AppColors.infoSurface,
-      chartSeries: [
-        primary,
-        ...AppColors.chartSeries.skip(1),
-      ],
+      chartSeries: _chartColors(chartPalette, primary),
       sidebar: card,
       hover: AppColors.textPrimary.withValues(alpha: 0.04),
       focusRing: primary,
@@ -75,7 +76,10 @@ class AppPalette {
     );
   }
 
-  static AppTokens dark({Color brand = defaultBrand}) {
+  static AppTokens dark({
+    Color brand = defaultBrand,
+    ChartPaletteStyle chartPalette = ChartPaletteStyle.brand,
+  }) {
     const canvas = Color(0xFF0E1016);
     const card = Color(0xFF161A23);
     final primary = readableOn(brand, card);
@@ -108,9 +112,8 @@ class AppPalette {
       info: info,
       infoSurface: _tint(info, card, 0.14),
       chartSeries: [
-        primary,
-        for (final c in AppColors.chartSeries.skip(1))
-          readableOn(c, card, min: 3.0),
+        for (final c in _chartColors(chartPalette, primary))
+          identical(c, primary) ? c : readableOn(c, card, min: 3.0),
       ],
       sidebar: const Color(0xFF12151D),
       hover: Colors.white.withValues(alpha: 0.05),
@@ -135,6 +138,56 @@ class AppPalette {
         ),
       ],
     );
+  }
+
+  static const List<Color> _vivid = [
+    Color(0xFF6D28D9),
+    Color(0xFF0EA5E9),
+    Color(0xFF22C55E),
+    Color(0xFFF59E0B),
+    Color(0xFFEF4444),
+    Color(0xFF14B8A6),
+    Color(0xFFEC4899),
+    Color(0xFF3B82F6),
+    Color(0xFF84CC16),
+    Color(0xFFF97316),
+  ];
+
+  static const List<Color> _calm = [
+    Color(0xFF5B7DB1),
+    Color(0xFF6BA292),
+    Color(0xFFC9A66B),
+    Color(0xFFB77D7D),
+    Color(0xFF8C7BB0),
+    Color(0xFF6FA3B5),
+    Color(0xFFA3B26B),
+    Color(0xFFC08A6B),
+    Color(0xFF7A8FA6),
+    Color(0xFF9C8AA5),
+  ];
+
+  /// Ten series colours for a palette style. Brand is today's palette with
+  /// the brand colour first; vivid leads with the brand too; calm is muted;
+  /// mono steps through shades of the brand colour.
+  static List<Color> _chartColors(ChartPaletteStyle style, Color brand) {
+    switch (style) {
+      case ChartPaletteStyle.brand:
+        return [brand, ...AppColors.chartSeries.skip(1)];
+      case ChartPaletteStyle.vivid:
+        return [brand, ..._vivid.skip(1)];
+      case ChartPaletteStyle.calm:
+        return _calm;
+      case ChartPaletteStyle.mono:
+        final hsl = HSLColor.fromColor(brand);
+        return [
+          for (var i = 0; i < 10; i++)
+            hsl
+                .withLightness(0.30 + i * 0.05)
+                .withSaturation(
+                    (hsl.saturation * (1 - i * 0.04)).clamp(0.0, 1.0))
+                .toColor(),
+        ];
+    }
   }
 
   /// [color], lightened (on a dark [surface]) or darkened (on a light one)

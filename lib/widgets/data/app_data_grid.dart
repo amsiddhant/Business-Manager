@@ -9,6 +9,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/csv_export.dart';
 import '../../core/utils/date_utils.dart';
+import '../../models/app_settings.dart';
+import '../../state/org_settings.dart';
 import '../../state/user_prefs.dart';
 import '../common/confirm_dialog.dart';
 import '../common/state_views.dart';
@@ -65,7 +67,7 @@ class AppDataGrid<T> extends StatefulWidget {
     this.emptyIcon = Icons.inbox_outlined,
     this.emptyAction,
     this.initialSort = const [],
-    this.pageSize = 25,
+    this.pageSize,
     this.framed = true,
     this.cardBreakpoint = AppSpacing.mobileMax,
   });
@@ -118,7 +120,9 @@ class AppDataGrid<T> extends StatefulWidget {
   final IconData emptyIcon;
   final Widget? emptyAction;
   final List<GridSort> initialSort;
-  final int pageSize;
+
+  /// Rows per page; null follows the organisation's default.
+  final int? pageSize;
 
   /// Draws the grid's own card. Turn off inside a card that already has one.
   final bool framed;
@@ -217,7 +221,22 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
 
   GridController get _c => widget.controller ?? _own!;
 
-  bool get _selectable => widget.selectable ?? widget.bulkActions.isNotEmpty;
+  // Set in build from the organisation's settings.
+  bool _bulkOn = true;
+  bool _zebra = false;
+  bool _sticky = true;
+  AppDensity? _orgDensity;
+  bool _savedViewsOn = true;
+  bool _exportOn = true;
+
+  /// Tick boxes and bulk actions are off for everyone when the organisation
+  /// turns bulk actions off.
+  bool get _selectable =>
+      _bulkOn && (widget.selectable ?? widget.bulkActions.isNotEmpty);
+
+  /// Rows per page before the user picks their own.
+  int get _startPageSize =>
+      widget.pageSize ?? context.readOrgSettings().defaults.pageSize;
 
   Object _key(T row) => widget.rowKey?.call(row) ?? row as Object;
 
@@ -225,7 +244,8 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
   void initState() {
     super.initState();
     if (widget.controller == null) {
-      _own = GridController(sorts: widget.initialSort, pageSize: widget.pageSize);
+      _own = GridController(
+          sorts: widget.initialSort, pageSize: _startPageSize);
     }
     _c.addListener(_onChanged);
   }
@@ -236,21 +256,30 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
     if (_restored) return;
     _restored = true;
     final id = widget.gridId;
-    if (id == null) return;
     UserPrefs? prefs;
-    try {
-      prefs = context.read<UserPrefs>();
-    } on ProviderNotFoundException {
-      prefs = null;
+    if (id != null) {
+      try {
+        prefs = context.read<UserPrefs>();
+      } on ProviderNotFoundException {
+        prefs = null;
+      }
     }
-    if (prefs == null) return;
-    final store = _store = GridViewStore(prefs, id);
-    final layout = store.loadLayout();
-    if (layout != null) {
-      _c.removeListener(_onChanged);
-      _c.restore(layout, layoutOnly: true);
-      _c.addListener(_onChanged);
+    final store = prefs == null ? null : _store = GridViewStore(prefs, id!);
+    final layout = store?.loadLayout();
+    _c.removeListener(_onChanged);
+    if (layout != null) _c.restore(layout, layoutOnly: true);
+    // The organisation's defaults fill in whatever the user hasn't chosen.
+    if (layout?.pageSize == null && widget.controller == null) {
+      _c.applyPageSize(_startPageSize);
     }
+    final orgColumns =
+        id == null ? null : context.readOrgSettings().tables.columnsFor(id);
+    if (orgColumns != null &&
+        (layout == null ||
+            (layout.visibility.isEmpty && layout.order.isEmpty))) {
+      _c.applyColumns(widget.columns, orgColumns);
+    }
+    _c.addListener(_onChanged);
     _savedLayout = _c.layoutVersion;
   }
 
@@ -261,7 +290,7 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
       (old.controller ?? _own)?.removeListener(_onChanged);
       if (widget.controller == null) {
         _own ??= GridController(
-            sorts: widget.initialSort, pageSize: widget.pageSize);
+            sorts: widget.initialSort, pageSize: _startPageSize);
       }
       _c.addListener(_onChanged);
     }
@@ -383,6 +412,13 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final org = context.orgSettings((s) => s);
+    _bulkOn = org.features.isOn(AppFeature.bulkActions);
+    _savedViewsOn = org.features.isOn(AppFeature.savedViews);
+    _exportOn = org.features.isOn(AppFeature.csvExport);
+    _zebra = org.tables.zebra;
+    _sticky = org.tables.stickyHeader;
+    _orgDensity = org.tables.density;
     final result = _c.apply<T>(
       widget.rows,
       widget.columns,
@@ -494,7 +530,7 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
           slivers: [
             if (top != null) SliverToBoxAdapter(child: top),
             SliverPersistentHeader(
-              pinned: true,
+              pinned: _sticky,
               delegate: _PinnedHeader(
                 (overlaps) => _header(context, r, layout,
                     roundTop: top == null && !overlaps, raised: overlaps),
@@ -565,7 +601,7 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
         matching: r.total,
         onSelectAll: () => _c.setSelected([for (final row in r.all) _key(row)], true),
         onClear: _c.clearSelection,
-        onExport: widget.exportName == null
+        onExport: widget.exportName == null || !_exportOn
             ? null
             : () => _export(selected, selected: true),
         actions: widget.bulkActions,
@@ -577,13 +613,15 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
         controller: _c,
         columns: widget.columns,
         rows: widget.rows,
-        store: _store,
+        store: _savedViewsOn ? _store : null,
+        gridId: widget.gridId,
         compact: compact,
         showSearch: widget.showSearch,
         searchHint: widget.searchHint,
-        onExportView:
-            widget.exportName == null ? null : () => _export(r.all, selected: false),
-        onExportAll: widget.onExportAll,
+        onExportView: widget.exportName == null || !_exportOn
+            ? null
+            : () => _export(r.all, selected: false),
+        onExportAll: _exportOn ? widget.onExportAll : null,
         exportAllLabel: widget.exportAllLabel,
         actions: widget.toolbarActions,
       );
@@ -690,7 +728,7 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
 
   Widget _row(BuildContext context, GridResult<T> r, _ColumnLayout<T> l, int i) {
     final t = context.tokens;
-    final density = _c.density ?? context.density;
+    final density = _c.density ?? _orgDensity ?? context.density;
     final row = r.pageRows[i];
     final key = _key(row);
     final selected = _selectable && _c.isSelected(key);
@@ -708,6 +746,7 @@ class _AppDataGridState<T> extends State<AppDataGrid<T>> {
     return _GridRow(
       focusNode: _nodeFor(i),
       selected: selected,
+      striped: _zebra && i.isOdd,
       minHeight: density.rowHeight,
       onTap: widget.onRowTap == null ? null : () => widget.onRowTap!(row),
       onToggle: _selectable ? toggle : null,
@@ -1062,6 +1101,7 @@ class _GridRow extends StatefulWidget {
   const _GridRow({
     required this.focusNode,
     required this.selected,
+    required this.striped,
     required this.minHeight,
     required this.onTap,
     required this.onToggle,
@@ -1071,6 +1111,9 @@ class _GridRow extends StatefulWidget {
 
   final FocusNode focusNode;
   final bool selected;
+
+  /// Shaded for the organisation's alternating rows.
+  final bool striped;
   final double minHeight;
   final VoidCallback? onTap;
   final VoidCallback? onToggle;
@@ -1120,7 +1163,9 @@ class _GridRowState extends State<_GridRow> {
         ? t.primarySurface
         : _hover
             ? t.hover
-            : null;
+            : widget.striped
+                ? t.surfaceAlt
+                : null;
     return Focus(
       focusNode: widget.focusNode,
       onKeyEvent: _onKey,

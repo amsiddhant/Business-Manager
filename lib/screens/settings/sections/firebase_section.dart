@@ -1,0 +1,568 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:universal_html/html.dart' as html;
+
+import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/theme_x.dart';
+import '../../../core/validators.dart';
+import '../../../models/firebase_config.dart';
+import '../../../state/app_state.dart';
+import '../../../widgets/common/app_card.dart';
+import '../../../widgets/common/confirm_dialog.dart';
+import '../../../widgets/common/status_badge.dart';
+import '../../../widgets/forms/form_dialog.dart';
+import '../../../widgets/forms/form_fields.dart';
+import '../settings_widgets.dart';
+
+/// Connect the app to your own Firebase project.
+///
+/// Firebase configuration handled here is limited to *public* client
+/// configuration values (apiKey/authDomain/projectId/…). Service-account keys,
+/// admin credentials and other secrets are never entered or stored.
+class FirebaseSection extends StatelessWidget {
+  const FirebaseSection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final appState = context.watch<AppState>();
+    return SettingsPanel(
+      title: 'Firebase',
+      subtitle: 'Connect your own Firebase project',
+      children: [_FirebaseCard(appState: appState)],
+    );
+  }
+}
+
+class _FirebaseCard extends StatelessWidget {
+  const _FirebaseCard({required this.appState});
+  final AppState appState;
+
+  @override
+  Widget build(BuildContext context) {
+    final isFirebase = appState.isFirebaseMode;
+    return SectionCard(
+      title: 'Connection',
+      subtitle: 'Where your data is stored',
+      trailing: StatusBadge(
+        label: isFirebase ? 'Connected' : 'Demo mode',
+        tone: isFirebase ? BadgeTone.success : BadgeTone.warning,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: isFirebase
+                  ? context.tokens.successSurface
+                  : context.tokens.warningSurface,
+              borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isFirebase ? Icons.cloud_done : Icons.cloud_off,
+                  size: 20,
+                  color: isFirebase
+                      ? context.tokens.success
+                      : context.tokens.warning,
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    isFirebase
+                        ? 'The app is running against your configured Firebase '
+                            'project. Data is stored in Firestore.'
+                        : 'The app is running on built-in demo data stored in '
+                            'this browser. Configure Firebase to go live.',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'Only public client configuration values are stored (apiKey, '
+            'authDomain, projectId, …). Never enter service-account keys or '
+            'other secrets here.',
+            style: TextStyle(fontSize: 12, color: context.tokens.textTertiary),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => _openWizard(context),
+                icon: const Icon(Icons.settings_suggest_outlined, size: 18),
+                label: Text(isFirebase ? 'Reconfigure' : 'Set up Firebase'),
+              ),
+              if (isFirebase)
+                OutlinedButton.icon(
+                  onPressed: () => _deactivate(context),
+                  icon: const Icon(Icons.link_off, size: 18),
+                  label: const Text('Switch to demo'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openWizard(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _FirebaseWizardDialog(appState: appState),
+    );
+  }
+
+  Future<void> _deactivate(BuildContext context) async {
+    final ok = await showConfirmDialog(
+      context,
+      title: 'Switch to demo mode?',
+      message: 'This clears your saved Firebase configuration and reverts to '
+          'local demo data. You will be signed out.',
+      confirmLabel: 'Switch',
+      destructive: true,
+    );
+    if (ok != true) return;
+    try {
+      await appState.deactivateFirebase();
+      if (context.mounted) showSuccessSnack(context, 'Reverted to demo mode');
+    } catch (e) {
+      if (context.mounted) showErrorSnack(context, e);
+    }
+  }
+}
+
+/// Multi-step Firebase setup wizard. Steps 1–4 are guidance; step 5 collects
+/// the public config, tests the connection, then activates it.
+class _FirebaseWizardDialog extends StatefulWidget {
+  const _FirebaseWizardDialog({required this.appState});
+  final AppState appState;
+
+  @override
+  State<_FirebaseWizardDialog> createState() => _FirebaseWizardDialogState();
+}
+
+class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
+  static const _console = 'https://console.firebase.google.com/';
+
+  int _step = 0;
+  bool _busy = false;
+  String? _testResult; // null = untested; '' = ok; else error text
+  bool _testOk = false;
+
+  final _formKey = GlobalKey<FormState>();
+  final _apiKey = TextEditingController();
+  final _authDomain = TextEditingController();
+  final _projectId = TextEditingController();
+  final _storageBucket = TextEditingController();
+  final _messagingSenderId = TextEditingController();
+  final _appId = TextEditingController();
+  final _measurementId = TextEditingController();
+  final _databaseURL = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.appState.configStore.firebaseConfig;
+    if (existing != null) {
+      _apiKey.text = existing.apiKey;
+      _authDomain.text = existing.authDomain;
+      _projectId.text = existing.projectId;
+      _storageBucket.text = existing.storageBucket;
+      _messagingSenderId.text = existing.messagingSenderId;
+      _appId.text = existing.appId;
+      _measurementId.text = existing.measurementId;
+      _databaseURL.text = existing.databaseURL;
+    }
+  }
+
+  @override
+  void dispose() {
+    _apiKey.dispose();
+    _authDomain.dispose();
+    _projectId.dispose();
+    _storageBucket.dispose();
+    _messagingSenderId.dispose();
+    _appId.dispose();
+    _measurementId.dispose();
+    _databaseURL.dispose();
+    super.dispose();
+  }
+
+  FirebaseConfig _buildConfig() => FirebaseConfig(
+        apiKey: _apiKey.text.trim(),
+        authDomain: _authDomain.text.trim(),
+        projectId: _projectId.text.trim(),
+        storageBucket: _storageBucket.text.trim(),
+        messagingSenderId: _messagingSenderId.text.trim(),
+        appId: _appId.text.trim(),
+        measurementId: _measurementId.text.trim(),
+        databaseURL: _databaseURL.text.trim(),
+      );
+
+  static const _steps = [
+    _WizardStepInfo(
+      title: 'Create a Firebase project',
+      icon: Icons.add_box_outlined,
+      points: [
+        'Open the Firebase Console.',
+        'Click "Add project" and give it a name.',
+        'Continue through the setup steps to finish.',
+      ],
+    ),
+    _WizardStepInfo(
+      title: 'Enable Authentication',
+      icon: Icons.lock_outline,
+      points: [
+        'In the console, open Build → Authentication.',
+        'Click "Get started".',
+        'Enable the Email/Password sign-in provider and save.',
+      ],
+    ),
+    _WizardStepInfo(
+      title: 'Create the Firestore database',
+      icon: Icons.storage_outlined,
+      points: [
+        'Open Build → Firestore Database.',
+        'Click "Create database" and pick a region.',
+        'Start in production mode, then deploy the security rules from the '
+            'README.',
+      ],
+    ),
+    _WizardStepInfo(
+      title: 'Register a Web App',
+      icon: Icons.web_outlined,
+      points: [
+        'Open Project settings → your apps.',
+        'Add a Web app (</> icon) and register it.',
+        'Copy the firebaseConfig object shown — you will paste the values '
+            'in the next step.',
+      ],
+    ),
+  ];
+
+  bool get _isFinalStep => _step == _steps.length; // step index 4 == form
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppSpacing.radius)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 640),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.local_fire_department,
+                      color: context.tokens.primary),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      'Firebase Setup — Step ${_step + 1} of ${_steps.length + 1}',
+                      style: const TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _StepProgress(current: _step, total: _steps.length + 1),
+              const SizedBox(height: AppSpacing.lg),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: _isFinalStep ? _buildForm() : _buildInfoStep(),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              _buildActions(context),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoStep() {
+    final info = _steps[_step];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(info.icon, color: context.tokens.primary, size: 22),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(info.title,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        for (var i = 0; i < info.points.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: context.tokens.primarySurface,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text('${i + 1}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: context.tokens.primary)),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(child: Text(info.points[i])),
+              ],
+            ),
+          ),
+        const SizedBox(height: AppSpacing.sm),
+        OutlinedButton.icon(
+          onPressed: () => html.window.open(_console, '_blank'),
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: const Text('Open Firebase Console'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildForm() {
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Configure Application',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Paste the values from your Web app\'s firebaseConfig.',
+            style: TextStyle(fontSize: 13, color: context.tokens.textSecondary),
+          ),
+          const FormGap(),
+          AppTextField(
+            label: 'API Key',
+            controller: _apiKey,
+            isRequired: true,
+            validator: (v) => Validators.required(v, field: 'API key'),
+          ),
+          const FormGap(),
+          FormRow([
+            AppTextField(
+              label: 'Auth Domain',
+              controller: _authDomain,
+              isRequired: true,
+              hintText: 'my-app.firebaseapp.com',
+              validator: (v) => Validators.required(v, field: 'Auth domain'),
+            ),
+            AppTextField(
+              label: 'Project ID',
+              controller: _projectId,
+              isRequired: true,
+              validator: (v) => Validators.required(v, field: 'Project ID'),
+            ),
+          ]),
+          const FormGap(),
+          FormRow([
+            AppTextField(
+              label: 'Storage Bucket',
+              controller: _storageBucket,
+              hintText: 'my-app.appspot.com',
+            ),
+            AppTextField(
+              label: 'Messaging Sender ID',
+              controller: _messagingSenderId,
+              isRequired: true,
+              validator: (v) =>
+                  Validators.required(v, field: 'Messaging sender ID'),
+            ),
+          ]),
+          const FormGap(),
+          FormRow([
+            AppTextField(
+              label: 'App ID',
+              controller: _appId,
+              isRequired: true,
+              validator: (v) => Validators.required(v, field: 'App ID'),
+            ),
+            AppTextField(
+              label: 'Measurement ID',
+              controller: _measurementId,
+              hintText: 'Optional',
+            ),
+          ]),
+          const FormGap(),
+          AppTextField(
+            label: 'Realtime Database URL',
+            controller: _databaseURL,
+            hintText: 'Optional — https://<project>-default-rtdb.firebaseio.com',
+          ),
+          if (_testResult != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            Container(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: _testOk
+                    ? context.tokens.successSurface
+                    : context.tokens.errorSurface,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _testOk ? Icons.check_circle : Icons.error_outline,
+                    size: 18,
+                    color:
+                        _testOk ? context.tokens.success : context.tokens.error,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      _testOk
+                          ? 'Connection successful. You can save now.'
+                          : 'Connection failed: $_testResult',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActions(BuildContext context) {
+    return Row(
+      children: [
+        if (_step > 0)
+          TextButton(
+            onPressed: _busy ? null : () => setState(() => _step--),
+            child: const Text('Back'),
+          ),
+        const Spacer(),
+        if (!_isFinalStep)
+          ElevatedButton(
+            onPressed: () => setState(() => _step++),
+            child: const Text('Next'),
+          )
+        else ...[
+          OutlinedButton.icon(
+            onPressed: _busy ? null : _test,
+            icon: _busy && !_testOk
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.wifi_tethering, size: 18),
+            label: const Text('Test Connection'),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          ElevatedButton.icon(
+            onPressed: (_busy || !_testOk) ? null : _saveAndActivate,
+            icon: const Icon(Icons.save, size: 18),
+            label: const Text('Save & Activate'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _test() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() {
+      _busy = true;
+      _testResult = null;
+      _testOk = false;
+    });
+    try {
+      await widget.appState.testFirebaseConfig(_buildConfig());
+      setState(() {
+        _testOk = true;
+        _testResult = '';
+      });
+    } catch (e) {
+      setState(() {
+        _testOk = false;
+        _testResult = e.toString();
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _saveAndActivate() async {
+    setState(() => _busy = true);
+    try {
+      await widget.appState.activateFirebase(_buildConfig());
+      if (mounted) {
+        Navigator.of(context).pop();
+        showSuccessSnack(context,
+            'Firebase connected. Please sign in with your Firebase account.');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        showErrorSnack(context, e);
+      }
+    }
+  }
+}
+
+class _WizardStepInfo {
+  const _WizardStepInfo(
+      {required this.title, required this.icon, required this.points});
+  final String title;
+  final IconData icon;
+  final List<String> points;
+}
+
+class _StepProgress extends StatelessWidget {
+  const _StepProgress({required this.current, required this.total});
+  final int current;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < total; i++) ...[
+          Expanded(
+            child: Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color:
+                    i <= current ? context.tokens.primary : context.tokens.border,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          if (i < total - 1) const SizedBox(width: 4),
+        ],
+      ],
+    );
+  }
+}

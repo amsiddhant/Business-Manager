@@ -10,6 +10,7 @@ import '../../core/theme/theme_x.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
+import '../../models/app_settings.dart';
 import '../../models/business.dart';
 import '../../models/product.dart';
 import '../../services/profit_calculation_service.dart';
@@ -17,6 +18,7 @@ import '../../services/summaries/product_summaries.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../state/org_settings.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/csv_actions.dart';
 import '../../widgets/common/currency_display.dart';
@@ -79,6 +81,10 @@ class _ProductsScreenState extends State<ProductsScreen> {
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     final canCreate = user?.can(Permission.createProduct) ?? false;
     final canExport = user?.can(Permission.exportData) ?? false;
+    final csvExportOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.csvExport));
+    final csvImportOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.csvImport));
     final canEdit = user?.can(Permission.editProduct) ?? false;
     final canDelete = user?.can(Permission.deleteProduct) ?? false;
     final needsBusiness = bizId == null && data.selectableBusinesses.length > 1;
@@ -111,7 +117,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
             count: products.length,
             subtitle: 'Track catalogue, pricing and profitability',
             actions: [
-              if (canExport)
+              if (canExport && csvExportOn)
                 OutlinedButton.icon(
                   onPressed: products.isEmpty
                       ? null
@@ -119,7 +125,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   icon: const Icon(Icons.file_download_outlined, size: 18),
                   label: const Text('Export CSV'),
                 ),
-              if (canCreate)
+              if (canCreate && csvImportOn)
                 OutlinedButton.icon(
                   onPressed: () => importProductsCsv(context),
                   icon: const Icon(Icons.file_upload_outlined, size: 18),

@@ -428,6 +428,34 @@ class GridController extends ChangeNotifier {
     _changed(layout: true);
   }
 
+  /// Shows exactly the columns [ids] (in that order) from [columns]; pinned
+  /// columns always stay. Unknown ids are ignored, and nothing changes when
+  /// none are known. With [remember] it counts as the user's own layout and
+  /// is saved; without, it is only a starting point (the organisation's
+  /// default).
+  void applyColumns<T>(List<GridColumn<T>> columns, List<String> ids,
+      {bool remember = false}) {
+    final known = {for (final c in columns) c.id};
+    final shown = [for (final id in ids) if (known.contains(id)) id];
+    if (shown.isEmpty) return;
+    _visibility
+      ..clear()
+      ..addAll({
+        for (final c in columns)
+          if (!c.pinned) c.id: shown.contains(c.id),
+      });
+    _order = List.unmodifiable(shown);
+    _changed(layout: remember);
+  }
+
+  /// Starts at [size] rows a page, without counting as the user's choice.
+  /// Ignored when [size] isn't one of [pageSizes].
+  void applyPageSize(int size) {
+    if (size == _pageSize || !pageSizes.contains(size)) return;
+    _pageSize = size;
+    _changed(resetPage: true);
+  }
+
   bool get hasColumnChanges => _visibility.isNotEmpty || _order.isNotEmpty;
 
   void resetColumns() {

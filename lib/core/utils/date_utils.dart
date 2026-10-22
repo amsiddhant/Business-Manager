@@ -29,7 +29,9 @@ class DateRange {
       '${DateFormat('dd-MMM-yyyy').format(start)} → ${DateFormat('dd-MMM-yyyy').format(end)}';
 }
 
-/// Indian financial year helpers. The FY runs 1 April → 31 March.
+/// Financial year helpers. By default the FY runs 1 April → 31 March (the
+/// Indian FY); Settings can start it in January, July or October instead
+/// ([FinancialYear.configureStartMonth]).
 ///
 /// A FY is identified by its **starting** calendar year, so FY 2026-27 has
 /// [startYear] == 2026.
@@ -38,25 +40,50 @@ class FinancialYear {
 
   final int startYear;
 
-  int get endYear => startYear + 1;
+  /// April: the Indian financial year.
+  static const defaultStartMonth = 4;
+
+  /// The months a financial year may start in (Settings → Defaults).
+  static const startMonths = [1, 4, 7, 10];
+
+  static int _startMonth = defaultStartMonth;
+
+  /// The month (1–12) every financial year starts in.
+  static int get startMonth => _startMonth;
+
+  /// Sets the month financial years start in; anything but Jan, Apr, Jul or
+  /// Oct falls back to April. Returns whether it changed.
+  static bool configureStartMonth(int month) {
+    final m = startMonths.contains(month) ? month : defaultStartMonth;
+    if (m == _startMonth) return false;
+    _startMonth = m;
+    return true;
+  }
+
+  /// The calendar year the FY ends in (the start year when it starts in
+  /// January).
+  int get endYear => _startMonth == 1 ? startYear : startYear + 1;
 
   /// The FY that contains [date].
   factory FinancialYear.forDate(DateTime date) {
-    // Jan–Mar belong to the FY that started the previous calendar year.
-    if (date.month < 4) return FinancialYear(date.year - 1);
+    // Months before the start month belong to the FY that started the
+    // previous calendar year (Jan–Mar, for an April start).
+    if (date.month < _startMonth) return FinancialYear(date.year - 1);
     return FinancialYear(date.year);
   }
 
   DateRange get range => DateRange(
-        DateTime(startYear, 4, 1),
-        DateTime(endYear, 3, 31),
+        DateTime(startYear, _startMonth, 1),
+        // Day 0 is the last day of the month before.
+        DateTime(startYear + 1, _startMonth, 0),
       );
 
   FinancialYear get previous => FinancialYear(startYear - 1);
   FinancialYear get next => FinancialYear(startYear + 1);
 
-  /// e.g. "FY 2026-27".
+  /// e.g. "FY 2026-27", or "FY 2026" when it starts in January.
   String get label {
+    if (endYear == startYear) return 'FY $startYear';
     final shortEnd = (endYear % 100).toString().padLeft(2, '0');
     return 'FY $startYear-$shortEnd';
   }
@@ -121,16 +148,40 @@ enum PeriodType {
   final String label;
 }
 
-/// Named quarters within a financial year (Q1 = Apr–Jun).
+/// Named quarters within a financial year, counted from its start month
+/// (Q1 = Apr–Jun for an April start).
 enum FinancialQuarter {
-  q1('Q1 (Apr–Jun)', 4),
-  q2('Q2 (Jul–Sep)', 7),
-  q3('Q3 (Oct–Dec)', 10),
-  q4('Q4 (Jan–Mar)', 1);
+  q1,
+  q2,
+  q3,
+  q4;
 
-  const FinancialQuarter(this.label, this.startMonth);
-  final String label;
-  final int startMonth;
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  /// First calendar month (1–12).
+  int get startMonth => (FinancialYear.startMonth - 1 + index * 3) % 12 + 1;
+
+  /// Last calendar month (1–12).
+  int get endMonth => (startMonth + 1) % 12 + 1;
+
+  /// e.g. "Q1 (Apr–Jun)".
+  String get label =>
+      'Q${index + 1} (${_months[startMonth - 1]}–${_months[endMonth - 1]})';
+
+  /// This quarter's dates within [fy].
+  DateRange rangeIn(FinancialYear fy) {
+    // Months past December roll into the next year.
+    final start =
+        DateTime(fy.startYear, FinancialYear.startMonth + index * 3, 1);
+    return DateRange(start, DateTime(start.year, start.month + 3, 0));
+  }
+
+  /// The quarter [date] falls in (of its own financial year).
+  static FinancialQuarter forDate(DateTime date) =>
+      values[((date.month - FinancialYear.startMonth) % 12) ~/ 3];
 }
 
 /// Common date formatting used across the app.

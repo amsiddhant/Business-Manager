@@ -140,4 +140,71 @@ void main() {
       expect(AppDate.format(null), '—');
     });
   });
+
+  group('Configurable FY start month', () {
+    tearDown(() => FinancialYear.configureStartMonth(4));
+
+    void expectRange(DateRange r, DateTime start, DateTime end) {
+      expect(r.start, start);
+      expect(DateTime(r.end.year, r.end.month, r.end.day), end);
+    }
+
+    test('April stays the default', () {
+      expect(FinancialYear.startMonth, FinancialYear.defaultStartMonth);
+      expect(FinancialQuarter.q1.label, 'Q1 (Apr–Jun)');
+      expect(FinancialQuarter.q4.label, 'Q4 (Jan–Mar)');
+      expect(FinancialQuarter.forDate(DateTime(2026, 2, 1)),
+          FinancialQuarter.q4);
+    });
+
+    test('only Jan, Apr, Jul and Oct are accepted', () {
+      expect(FinancialYear.configureStartMonth(5), isFalse);
+      expect(FinancialYear.startMonth, 4);
+      expect(FinancialYear.configureStartMonth(7), isTrue);
+      expect(FinancialYear.configureStartMonth(7), isFalse);
+      expect(FinancialYear.configureStartMonth(13), isTrue);
+      expect(FinancialYear.startMonth, 4);
+    });
+
+    test('January: the FY is the calendar year', () {
+      FinancialYear.configureStartMonth(1);
+      final fy = FinancialYear.forDate(DateTime(2026, 3, 15));
+      expect(fy.startYear, 2026);
+      expect(fy.endYear, 2026);
+      expect(fy.label, 'FY 2026');
+      expectRange(fy.range, DateTime(2026, 1, 1), DateTime(2026, 12, 31));
+      expect(FinancialQuarter.q1.label, 'Q1 (Jan–Mar)');
+      expect(FinancialQuarter.forDate(DateTime(2026, 11, 1)),
+          FinancialQuarter.q4);
+      expectRange(FinancialQuarter.q4.rangeIn(fy), DateTime(2026, 10, 1),
+          DateTime(2026, 12, 31));
+    });
+
+    test('July: Jan–Jun belong to the FY that started last year', () {
+      FinancialYear.configureStartMonth(7);
+      final fy = FinancialYear.forDate(DateTime(2026, 6, 30));
+      expect(fy.startYear, 2025);
+      expect(fy.label, 'FY 2025-26');
+      expectRange(fy.range, DateTime(2025, 7, 1), DateTime(2026, 6, 30));
+      expect(FinancialYear.forDate(DateTime(2026, 7, 1)).startYear, 2026);
+      expect(FinancialQuarter.q3.label, 'Q3 (Jan–Mar)');
+      expect(FinancialQuarter.forDate(DateTime(2026, 2, 1)),
+          FinancialQuarter.q3);
+      expectRange(FinancialQuarter.q3.rangeIn(fy), DateTime(2026, 1, 1),
+          DateTime(2026, 3, 31));
+    });
+
+    test('October: quarters roll over the calendar year', () {
+      FinancialYear.configureStartMonth(10);
+      final fy = FinancialYear.forDate(DateTime(2026, 9, 30));
+      expect(fy.startYear, 2025);
+      expectRange(fy.range, DateTime(2025, 10, 1), DateTime(2026, 9, 30));
+      expect(FinancialQuarter.q1.label, 'Q1 (Oct–Dec)');
+      expect(FinancialQuarter.q2.label, 'Q2 (Jan–Mar)');
+      expect(FinancialQuarter.forDate(DateTime(2026, 10, 22)),
+          FinancialQuarter.q1);
+      expectRange(FinancialQuarter.q2.rangeIn(const FinancialYear(2026)),
+          DateTime(2027, 1, 1), DateTime(2027, 3, 31));
+    });
+  });
 }

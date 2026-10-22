@@ -6,9 +6,11 @@ import '../../core/routing/app_routes.dart';
 import '../../core/routing/nav_registry.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../state/org_settings.dart';
 import '../../state/user_prefs.dart';
 import 'app_sidebar.dart';
 
@@ -29,7 +31,10 @@ class AppBottomNav extends StatelessWidget {
     final user = context.select<AppState, AppUser?>((s) => s.currentUser);
     if (user == null) return const SizedBox.shrink();
     final pending = context.select<DataController, int>(pendingOrderCount);
-    final primary = NavRegistry.mobilePrimary(user);
+    final modules = context.orgSettings((s) => s.modules);
+    final navigation = context.orgSettings((s) => s.navigation);
+    final primary = NavRegistry.mobilePrimary(user,
+        modules: modules, navigation: navigation);
     final section = Routes.sectionOf(location);
     final index = primary.indexWhere((d) => d.route == section);
 
@@ -45,7 +50,7 @@ class AppBottomNav extends StatelessWidget {
         if (i < primary.length) {
           onSelect(primary[i].route);
         } else {
-          _showMore(context, user, section);
+          _showMore(context, user, section, primary);
         }
       },
       destinations: [
@@ -64,10 +69,17 @@ class AppBottomNav extends StatelessWidget {
     );
   }
 
-  Future<void> _showMore(BuildContext context, AppUser user, String? section) {
+  Future<void> _showMore(BuildContext context, AppUser user, String? section,
+      List<NavDestination> bar) {
     final t = context.tokens;
-    final pinned = context.read<UserPrefs>().favourites;
-    final primary = {for (final d in NavRegistry.mobilePrimary(user)) d.route};
+    final settings = context.readOrgSettings();
+    final modules = settings.modules;
+    final whatsNewOn = settings.features.isOn(AppFeature.whatsNew);
+    final pinned = [
+      for (final p in context.read<UserPrefs>().favourites)
+        if (modules.allows(p.path)) p,
+    ];
+    final primary = {for (final d in bar) d.route};
     final router = GoRouter.of(context);
 
     return showModalBottomSheet<void>(
@@ -120,7 +132,7 @@ class AppBottomNav extends StatelessWidget {
                     () => router.go(p.path),
                   ),
               ],
-              for (final g in NavRegistry.groupsFor(user))
+              for (final g in NavRegistry.groupsFor(user, modules: modules))
                 if (g.items.where((d) => !primary.contains(d.route)).toList()
                     case final rest when rest.isNotEmpty) ...[
                   header(g.group.label),
@@ -130,14 +142,15 @@ class AppBottomNav extends StatelessWidget {
                 ],
               header('App'),
               if (!primary.contains(Routes.settings) &&
-                  !NavRegistry.visible(user)
+                  !NavRegistry.visible(user, modules: modules)
                       .any((d) => d.route == Routes.settings))
                 tile(Icons.settings_outlined, 'Settings',
                     section == Routes.settings,
                     () => onSelect(Routes.settings)),
-              tile(Icons.new_releases_outlined, "What's new",
-                  section == Routes.whatsNew,
-                  () => onSelect(Routes.whatsNew)),
+              if (whatsNewOn)
+                tile(Icons.new_releases_outlined, "What's new",
+                    section == Routes.whatsNew,
+                    () => onSelect(Routes.whatsNew)),
             ],
           ),
         );

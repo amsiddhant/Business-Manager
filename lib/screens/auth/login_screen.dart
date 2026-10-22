@@ -11,7 +11,9 @@ import '../../core/theme/theme_x.dart';
 import '../../core/validators.dart';
 import '../../data/demo_seed.dart';
 import '../../state/app_state.dart';
+import '../../state/org_settings.dart';
 import '../../state/user_prefs.dart';
+import '../../widgets/common/org_logo.dart';
 import '../../widgets/common/responsive.dart';
 import '../../widgets/forms/form_fields.dart';
 import '../../widgets/layout/theme_toggle_button.dart';
@@ -215,6 +217,23 @@ class _BrandMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    // The organisation's own logo, when it has one and shows it here.
+    final showLogo = context.orgSettings((s) => s.branding.showLogoOnLogin) &&
+        OrgLogo.has(context);
+    if (showLogo) {
+      return Container(
+        height: size,
+        constraints: BoxConstraints(maxWidth: size * 3),
+        padding: onBrand ? const EdgeInsets.all(4) : EdgeInsets.zero,
+        decoration: onBrand
+            ? BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(size * 0.28),
+              )
+            : null,
+        child: OrgLogo(size: onBrand ? size - 8 : size, maxWidth: size * 3),
+      );
+    }
     return Container(
       width: size,
       height: size,
@@ -247,6 +266,7 @@ class _BrandPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     final on = t.textOnPrimary;
+    final tagline = context.orgSettings((s) => s.branding.tagline.trim());
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -283,6 +303,16 @@ class _BrandPanel extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (tagline.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    tagline,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: on.withValues(alpha: 0.85), fontSize: 14),
+                  ),
+                ],
                 const Spacer(),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 520),
@@ -472,6 +502,12 @@ class _LoginCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (context.orgSettings((s) => s.branding.tagline.trim()) case final tag
+                  when tag.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(tag,
+                    style: TextStyle(fontSize: 13, color: t.textSecondary)),
+              ],
               const SizedBox(height: AppSpacing.xl),
             ],
             Text('Welcome back',

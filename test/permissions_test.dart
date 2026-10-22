@@ -36,7 +36,10 @@ void main() {
       expect(admin.contains(Permission.exportData), isTrue);
       expect(admin.contains(Permission.manageUsers), isFalse);
       expect(admin.contains(Permission.configureFirebase), isFalse);
-      expect(admin.contains(Permission.manageSettings), isFalse);
+      // P4: Admins customise the organisation's settings and goals (the
+      // Owner can revoke either per Admin).
+      expect(admin.contains(Permission.manageSettings), isTrue);
+      expect(admin.contains(Permission.manageGoals), isTrue);
       expect(admin.contains(Permission.createBusiness), isFalse);
       // Admin has full CRUD over customer records.
       expect(admin.contains(Permission.viewCustomer), isTrue);

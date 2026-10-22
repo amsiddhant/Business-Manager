@@ -6,8 +6,10 @@ import '../../core/routing/app_routes.dart';
 import '../../core/routing/nav_registry.dart';
 import '../../core/shortcuts.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../state/app_state.dart';
+import '../../state/org_settings.dart';
 import '../../state/user_prefs.dart';
 import '../common/responsive.dart';
 import 'app_bottom_nav.dart';
@@ -65,7 +67,8 @@ class _AppShellState extends State<AppShell> {
     final page = Column(
       children: [
         AppTopBar(location: location, mobile: type == ScreenType.mobile),
-        const WhatsNewPrompt(),
+        if (context.orgSettings((s) => s.features.isOn(AppFeature.whatsNew)))
+          const WhatsNewPrompt(),
         // Each page owns its scrolling (AppPage / DetailPage).
         Expanded(child: widget.navigationShell),
       ],
@@ -142,7 +145,8 @@ class _CreateFab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!NavRegistry.isSectionRoot(location)) return const SizedBox.shrink();
     final user = context.select<AppState, AppUser?>((s) => s.currentUser);
-    final action = createActionForLocation(user, location);
+    final modules = context.orgSettings((s) => s.modules);
+    final action = createActionForLocation(user, location, modules: modules);
     if (action == null) return const SizedBox.shrink();
     return FloatingActionButton(
       tooltip: action.label,

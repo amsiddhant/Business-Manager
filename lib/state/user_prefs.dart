@@ -142,6 +142,16 @@ class UserPrefs extends ChangeNotifier {
   Future<void> setScope(Map<String, dynamic> value) =>
       writeJson('scope', value, notify: false);
 
+  /// Alert types (`AlertType` names) this user chose not to see.
+  Set<String> get hiddenAlertTypes =>
+      {...?_prefs.getStringList(_key('alertTypesHidden'))};
+
+  Future<void> setHiddenAlertTypes(Set<String> types) => _set(() =>
+      types.isEmpty
+          ? _prefs.remove(_key('alertTypesHidden'))
+          : _prefs.setStringList(
+              _key('alertTypesHidden'), types.toList()..sort()));
+
   // ------------------------------------------------------------- device --
 
   /// The login ID (or email) last used to sign in on this device.

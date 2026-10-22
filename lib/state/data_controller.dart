@@ -13,6 +13,7 @@ import '../models/campaign.dart';
 import '../models/customer.dart';
 import '../models/dealer.dart';
 import '../models/expense.dart';
+import '../models/goal.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import 'memo.dart';
@@ -86,6 +87,13 @@ class DataController extends ChangeNotifier {
   List<Expense> expenses = [];
   List<Dealer> dealers = [];
   List<Customer> customers = [];
+
+  /// Goals the user can see (the Owner's include the organisation-wide ones).
+  List<Goal> goals = [];
+
+  /// True when goals couldn't be read (typically: the rules for them haven't
+  /// been deployed yet). Goals are optional, so this is not a [warnings] entry.
+  bool goalsUnavailable = false;
 
   /// Non-fatal, per-collection load failures (e.g. one collection is denied by
   /// the security rules while the rest load cleanly). Surfaced as a dismissible
@@ -267,6 +275,13 @@ class DataController extends ChangeNotifier {
     final expenses = guard('Expenses', repo.fetchExpenses);
     final dealers = guard('Dealers', repo.fetchDealers);
     final customers = guard('Customers', repo.fetchCustomers);
+    // Optional: a failure hides goals rather than raising a warning.
+    var goalsUnavailable = false;
+    final goals = repo.fetchGoals().catchError((Object e) {
+      goalsUnavailable = true;
+      debugPrint('DataController.load: Goals unavailable: $e');
+      return <Goal>[];
+    });
     return _Fetched(
       businesses: businesses,
       products: await products,
@@ -275,6 +290,8 @@ class DataController extends ChangeNotifier {
       expenses: await expenses,
       dealers: await dealers,
       customers: await customers,
+      goals: await goals,
+      goalsUnavailable: goalsUnavailable,
       warnings: warnings,
     );
   }
@@ -287,6 +304,8 @@ class DataController extends ChangeNotifier {
     expenses = [...f.expenses];
     dealers = [...f.dealers];
     customers = [...f.customers];
+    goals = [...f.goals];
+    goalsUnavailable = f.goalsUnavailable;
   }
 
   /// Clears cached data (e.g. on sign-out).
@@ -346,6 +365,11 @@ class DataController extends ChangeNotifier {
       case Collections.customers:
         customers = _put(customers, id, entity as Customer?, (c) => c.id,
             visible: (c) => c.businessIds.any(_canSee));
+      case Collections.goals:
+        goals = _put(goals, id, entity as Goal?, (g) => g.id,
+            visible: (g) => g.isOrgWide
+                ? _repository.currentUser?.isOwner ?? false
+                : _canSee(g.businessId));
     }
   }
 
@@ -465,6 +489,13 @@ class DataController extends ChangeNotifier {
       : _memo.get(_version, (#dealers, businessId),
           () => dealers.where((d) => d.businessId == businessId).toList());
 
+  /// Goals set for exactly [businessId] (null = the organisation-wide ones).
+  List<Goal> goalsFor(String? businessId) {
+    final scope = businessId ?? Goal.allBusinesses;
+    return _memo.get(_version, (#goals, scope),
+        () => goals.where((g) => g.businessId == scope).toList());
+  }
+
   List<Customer> customersFor(String? businessId) => businessId == null
       ? customers
       : _memo.get(
@@ -549,6 +580,8 @@ class _Fetched {
     required this.expenses,
     required this.dealers,
     required this.customers,
+    this.goals = const [],
+    this.goalsUnavailable = false,
     this.warnings = const [],
   }) : error = null;
 
@@ -560,6 +593,8 @@ class _Fetched {
         expenses = const [],
         dealers = const [],
         customers = const [],
+        goals = const [],
+        goalsUnavailable = false,
         warnings = const [],
         error = null;
 
@@ -571,6 +606,8 @@ class _Fetched {
         expenses = const [],
         dealers = const [],
         customers = const [],
+        goals = const [],
+        goalsUnavailable = false,
         warnings = const [];
 
   final List<Business> businesses;
@@ -580,6 +617,8 @@ class _Fetched {
   final List<Expense> expenses;
   final List<Dealer> dealers;
   final List<Customer> customers;
+  final List<Goal> goals;
+  final bool goalsUnavailable;
   final List<String> warnings;
 
   /// Set when the essential businesses read failed.

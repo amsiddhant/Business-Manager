@@ -8,11 +8,14 @@ import '../../core/routing/app_routes.dart';
 import '../../core/routing/nav_registry.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../state/org_settings.dart';
 import '../../state/user_prefs.dart';
 import '../common/initials_avatar.dart';
+import '../common/org_logo.dart';
 import '../common/status_badge.dart';
 import 'theme_toggle_button.dart';
 
@@ -60,9 +63,14 @@ class AppSidebar extends StatelessWidget {
     if (user == null) return const SizedBox.shrink();
     final appName = context.select<AppState, String>((s) => s.appName);
     final pending = context.select<DataController, int>(pendingOrderCount);
-    final pinned = context.select<UserPrefs, List<PinnedPage>>(
-      (p) => p.favourites,
-    );
+    final modules = context.orgSettings((s) => s.modules);
+    final shortName = context.orgSettings((s) => s.branding.shortName);
+    final whatsNewOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.whatsNew));
+    final pinned = context
+        .select<UserPrefs, List<PinnedPage>>((p) => p.favourites)
+        .where((p) => modules.allows(p.path))
+        .toList();
     final t = context.tokens;
     final section = Routes.sectionOf(location);
     final path = Uri.tryParse(location)?.path ?? location;
@@ -84,6 +92,7 @@ class AppSidebar extends StatelessWidget {
             children: [
               _Header(
                 appName: appName,
+                shortName: shortName,
                 wide: wide,
                 onToggle: onToggle,
                 toggleOpensMenu: toggleOpensMenu,
@@ -116,7 +125,7 @@ class AppSidebar extends StatelessWidget {
                               .toggleFavourite(p.path, p.label),
                         ),
                     ],
-                    for (final g in NavRegistry.groupsFor(user)) ...[
+                    for (final g in NavRegistry.groupsFor(user, modules: modules)) ...[
                       _GroupLabel(g.group.label, wide: wide),
                       for (final d in g.items)
                         _NavTile(
@@ -142,6 +151,7 @@ class AppSidebar extends StatelessWidget {
               _Footer(
                 user: user,
                 wide: wide,
+                showWhatsNew: whatsNewOn,
                 onWhatsNew: () {
                   onNavigate?.call();
                   onSelect(Routes.whatsNew);
@@ -158,12 +168,16 @@ class AppSidebar extends StatelessWidget {
 class _Header extends StatelessWidget {
   const _Header({
     required this.appName,
+    required this.shortName,
     required this.wide,
     required this.onToggle,
     required this.toggleOpensMenu,
   });
 
   final String appName;
+
+  /// Shown under the mark when the sidebar is collapsed (empty = nothing).
+  final String shortName;
   final bool wide;
   final VoidCallback? onToggle;
   final bool toggleOpensMenu;
@@ -171,19 +185,24 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-    final mark = Container(
-      width: 34,
-      height: 34,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [t.primary, t.primaryDark],
-        ),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Icon(Icons.insights_rounded, color: t.textOnPrimary, size: 20),
-    );
+    final logo = OrgLogo.has(context)
+        ? const OrgLogo(size: 34)
+        : null;
+    final mark = logo ??
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [t.primary, t.primaryDark],
+            ),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child:
+              Icon(Icons.insights_rounded, color: t.textOnPrimary, size: 20),
+        );
     final toggle = onToggle == null
         ? null
         : IconButton(
@@ -208,6 +227,22 @@ class _Header extends StatelessWidget {
         child: Column(
           children: [
             Tooltip(message: appName, child: mark),
+            if (shortName.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(
+                    top: AppSpacing.xs, left: AppSpacing.xs, right: AppSpacing.xs),
+                child: Text(
+                  shortName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: t.textSecondary,
+                  ),
+                ),
+              ),
             if (toggle != null) ...[
               const SizedBox(height: AppSpacing.xs),
               toggle,
@@ -437,11 +472,16 @@ class _Footer extends StatelessWidget {
     required this.user,
     required this.wide,
     required this.onWhatsNew,
+    this.showWhatsNew = true,
   });
 
   final AppUser user;
   final bool wide;
   final VoidCallback onWhatsNew;
+
+  /// False when the organisation switched "What's new" off: the version
+  /// stays, the link goes.
+  final bool showWhatsNew;
 
   @override
   Widget build(BuildContext context) {
@@ -504,15 +544,22 @@ class _Footer extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.xs),
-          TextButton(
-            onPressed: onWhatsNew,
-            style: TextButton.styleFrom(
-              foregroundColor: t.textTertiary,
-              textStyle: const TextStyle(fontSize: 12),
-              visualDensity: VisualDensity.compact,
+          if (showWhatsNew)
+            TextButton(
+              onPressed: onWhatsNew,
+              style: TextButton.styleFrom(
+                foregroundColor: t.textTertiary,
+                textStyle: const TextStyle(fontSize: 12),
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text("Version $kAppVersion · What's new"),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Text('Version $kAppVersion',
+                  style: TextStyle(fontSize: 12, color: t.textTertiary)),
             ),
-            child: const Text("Version $kAppVersion · What's new"),
-          ),
         ],
       ),
     );

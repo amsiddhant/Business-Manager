@@ -1,5 +1,6 @@
 import 'package:intl/intl.dart';
 
+import '../../models/app_settings.dart' show NumberGrouping;
 import '../enums.dart';
 
 /// A money value stored in integer **minor units** (e.g. paise for INR, cents
@@ -64,9 +65,35 @@ class MoneyFormatter {
 
   static final Map<String, NumberFormat> _cache = {};
 
+  static NumberGrouping _grouping = NumberGrouping.byCurrency;
+
+  /// The organisation's number grouping: by currency (the default: lakh and
+  /// crore for ₹, thousands otherwise), Indian for every currency, or
+  /// international for every currency.
+  static NumberGrouping get grouping => _grouping;
+
+  static void configureGrouping(NumberGrouping grouping) {
+    if (grouping == _grouping) return;
+    _grouping = grouping;
+    _cache.clear();
+  }
+
+  static bool _indianFor(CurrencyCode currency) => switch (_grouping) {
+        NumberGrouping.byCurrency => currency == CurrencyCode.inr,
+        NumberGrouping.indian => true,
+        NumberGrouping.international => false,
+      };
+
   static NumberFormat _formatterFor(CurrencyCode currency, int decimals) {
     final key = '${currency.wire}_$decimals';
     return _cache.putIfAbsent(key, () {
+      if (_grouping != NumberGrouping.byCurrency) {
+        return NumberFormat.currency(
+          locale: _indianFor(currency) ? 'en_IN' : 'en_US',
+          symbol: currency.symbol,
+          decimalDigits: decimals,
+        );
+      }
       switch (currency) {
         case CurrencyCode.inr:
           // Indian grouping: 1,25,000
@@ -103,7 +130,7 @@ class MoneyFormatter {
     final value = money.major;
     final sign = value < 0 ? '-' : '';
     final abs = value.abs();
-    if (currency == CurrencyCode.inr) {
+    if (_indianFor(currency)) {
       if (abs >= 10000000) {
         return '$sign${currency.symbol}${(abs / 10000000).toStringAsFixed(2)}Cr';
       }

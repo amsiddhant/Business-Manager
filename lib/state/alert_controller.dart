@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 
 import '../core/enums.dart';
 import '../core/utils/date_utils.dart';
+import '../models/app_settings.dart';
 import '../services/alert_service.dart';
 import 'data_controller.dart';
 import 'memo.dart';
+import 'settings_controller.dart';
 import 'user_prefs.dart';
 
 enum AlertState { active, snoozed, dismissed }
@@ -12,13 +14,33 @@ enum AlertState { active, snoozed, dismissed }
 /// The alerts center's state: which alerts the current user dismissed or
 /// snoozed (kept per user on this device), plus the alerts themselves,
 /// computed from the loaded data and cached until it changes.
+///
+/// Thresholds and switched-off types come from the organisation's settings
+/// ([SettingsController]); each user can also hide types for themselves.
 class AlertController extends ChangeNotifier {
-  AlertController(this._prefs) {
+  AlertController(this._prefs, [this._settings]) {
     _load();
+    _alertSettings = _orgAlerts();
     _prefs.addListener(_onPrefs);
+    _settings?.addListener(_onSettings);
   }
 
   final UserPrefs _prefs;
+  final SettingsController? _settings;
+  late AlertSettings _alertSettings;
+  Set<String> _hidden = const {};
+
+  /// The alert types this user has hidden for themselves.
+  Set<String> get hiddenTypes => _hidden;
+
+  Future<void> setHiddenTypes(Set<String> types) =>
+      _prefs.setHiddenAlertTypes(types);
+
+  /// The organisation's alert settings with this user's hidden types added.
+  AlertSettings get effectiveSettings => _hidden.isEmpty
+      ? _alertSettings
+      : _alertSettings.copyWith(
+          disabledTypes: {..._alertSettings.disabledTypes, ..._hidden});
   static const _service = AlertService();
   static const _prefsName = 'alerts';
 
@@ -38,9 +60,10 @@ class AlertController extends ChangeNotifier {
     DateTime? now,
   }) {
     final n = now ?? DateTime.now();
+    final settings = effectiveSettings;
     return _memo.get(
       data.version,
-      (AppDate.iso(n), demoMode, data.warnings.join('\n')),
+      (AppDate.iso(n), demoMode, data.warnings.join('\n'), settings),
       () => _service.build(
         customers: data.customers,
         campaigns: data.campaigns,
@@ -51,6 +74,8 @@ class AlertController extends ChangeNotifier {
         demoMode: demoMode,
         now: n,
         currencyOf: (id) => data.businessById(id)?.currency ?? CurrencyCode.inr,
+        settings: settings,
+        goals: data.goals,
       ),
     );
   }
@@ -101,13 +126,36 @@ class AlertController extends ChangeNotifier {
   }
 
   void _onPrefs() {
-    if (_prefs.uid == _uid) return;
-    _load();
+    if (_prefs.uid == _uid) {
+      final hidden = _prefs.hiddenAlertTypes;
+      if (setEquals(hidden, _hidden)) return;
+      _hidden = hidden;
+    } else {
+      _load();
+    }
+    notifyListeners();
+  }
+
+  /// The organisation's alert settings; with anomaly detection switched off,
+  /// unusual-spend alerts go too.
+  AlertSettings _orgAlerts() {
+    final s = _settings?.settings;
+    if (s == null) return const AlertSettings();
+    if (s.features.isOn(AppFeature.anomalies)) return s.alerts;
+    return s.alerts.copyWith(
+        disabledTypes: {...s.alerts.disabledTypes, AlertType.unusualSpend.name});
+  }
+
+  void _onSettings() {
+    final next = _orgAlerts();
+    if (next == _alertSettings) return;
+    _alertSettings = next;
     notifyListeners();
   }
 
   void _load({DateTime? now}) {
     _uid = _prefs.uid;
+    _hidden = _prefs.hiddenAlertTypes;
     final n = now ?? DateTime.now();
     final json = _prefs.readJson(_prefsName);
     Map<String, DateTime> read(String name, bool Function(DateTime) keep) {
@@ -146,6 +194,7 @@ class AlertController extends ChangeNotifier {
   @override
   void dispose() {
     _prefs.removeListener(_onPrefs);
+    _settings?.removeListener(_onSettings);
     super.dispose();
   }
 }

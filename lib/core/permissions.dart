@@ -36,6 +36,9 @@ enum Permission {
   manageUsers,
   configureFirebase,
   manageSettings,
+
+  /// Set and edit goals & targets for the businesses one can access.
+  manageGoals,
 }
 
 /// Central role→permission resolver. UI hiding is a convenience; the same
@@ -65,8 +68,10 @@ class Permissions {
     Permission.viewReports,
   };
 
-  /// Everything an ADMIN can do within assigned businesses (no owner-only
-  /// administration such as user management or firebase configuration).
+  /// Everything an ADMIN can do within assigned businesses, plus the
+  /// organisation's settings and goals (no owner-only administration such as
+  /// user management, firebase configuration, the danger zone or the audit
+  /// log). The Owner can revoke `manageSettings` / `manageGoals` per Admin.
   static const Set<Permission> _adminPermissions = {
     Permission.viewDashboard,
     Permission.viewBusiness,
@@ -96,6 +101,8 @@ class Permissions {
     Permission.deleteCustomer,
     Permission.viewReports,
     Permission.exportData,
+    Permission.manageSettings,
+    Permission.manageGoals,
   };
 
   /// Resolves the default permission set for a role. OWNER gets everything.

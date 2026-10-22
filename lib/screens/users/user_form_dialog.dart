@@ -114,6 +114,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
       ]
     ),
     ('Data', [Permission.exportData]),
+    ('Organisation', [Permission.manageSettings, Permission.manageGoals]),
   ];
 
   static const _permLabels = <Permission, String>{
@@ -130,6 +131,8 @@ class _UserFormDialogState extends State<UserFormDialog> {
     Permission.editDealer: 'Edit dealers',
     Permission.deleteDealer: 'Delete dealers',
     Permission.exportData: 'Export data',
+    Permission.manageSettings: 'Customise settings',
+    Permission.manageGoals: 'Set goals',
   };
 
   @override

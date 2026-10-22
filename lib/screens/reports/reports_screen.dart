@@ -10,6 +10,7 @@ import '../../core/theme/theme_x.dart';
 import '../../core/utils/csv_export.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
+import '../../models/app_settings.dart';
 import '../../models/business.dart';
 import '../../models/campaign.dart';
 import '../../models/expense.dart';
@@ -20,6 +21,7 @@ import '../../services/summaries/reports_summaries.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../state/org_settings.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/state_views.dart';
@@ -156,7 +158,9 @@ class _ReportsScreenState extends State<ReportsScreen>
 
     final bizId = filter.selectedBusinessId;
     final range = filter.range;
-    final canExport = user?.can(Permission.exportData) ?? false;
+    final csvExportOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.csvExport));
+    final canExport = (user?.can(Permission.exportData) ?? false) && csvExportOn;
 
     final orders = data.ordersFor(bizId);
     final campaigns = data.campaignsFor(bizId);
@@ -194,13 +198,14 @@ class _ReportsScreenState extends State<ReportsScreen>
             icon: Icons.assessment_outlined,
             subtitle: '${_reports[active]} · ${filter.periodLabel}',
             actions: [
-              OutlinedButton.icon(
-                onPressed: canExport && report.total > 0
-                    ? () => _export(report)
-                    : null,
-                icon: const Icon(Icons.download, size: 18),
-                label: const Text('Export CSV'),
-              ),
+              if (csvExportOn)
+                OutlinedButton.icon(
+                  onPressed: canExport && report.total > 0
+                      ? () => _export(report)
+                      : null,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('Export CSV'),
+                ),
             ],
           ),
         ),

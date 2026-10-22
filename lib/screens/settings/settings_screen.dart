@@ -1,898 +1,582 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:universal_html/html.dart' as html;
 
-import '../../core/permissions.dart';
+import '../../core/app_exception.dart';
+import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
-import '../../core/validators.dart';
-import '../../models/firebase_config.dart';
+import '../../core/utils/date_utils.dart';
 import '../../state/app_state.dart';
-import '../../state/data_controller.dart';
-import '../../widgets/common/app_card.dart';
+import '../../state/settings_controller.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/page_header.dart';
-import '../../widgets/common/status_badge.dart';
-import '../../widgets/forms/form_dialog.dart';
-import '../../widgets/forms/form_fields.dart';
-import '../../widgets/layout/app_page.dart';
+import 'settings_draft.dart';
+import 'settings_registry.dart';
+import 'settings_widgets.dart';
 
-/// Application settings: general preferences, the Firebase setup wizard,
-/// connection status, profile/password management and demo-data reset.
+/// Settings: a list of sections (Personal for everyone, Organisation for
+/// people who can manage settings, System for the Owner) with the chosen
+/// section beside it, or on its own page on a phone.
 ///
-/// Firebase configuration handled here is limited to *public* client
-/// configuration values (apiKey/authDomain/projectId/…). Service-account keys,
-/// admin credentials and other secrets are never entered or stored.
-class SettingsScreen extends StatelessWidget {
+/// Organisation sections edit one shared draft that is kept while you move
+/// between sections, and saved in one go from the bar at the bottom.
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final appState = context.watch<AppState>();
-    final user = appState.currentUser;
-    final canConfigureFirebase = user?.can(Permission.configureFirebase) ?? false;
-    final canManageSettings = user?.can(Permission.manageSettings) ?? false;
-
-    return AppPage(
-      children: [
-        const PageHeader(
-          title: 'Settings',
-          icon: Icons.settings_outlined,
-          subtitle: 'Preferences, Firebase configuration and your profile',
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        if (canManageSettings) ...[
-          _GeneralSettingsCard(appState: appState),
-          const SizedBox(height: AppSpacing.lg),
-        ],
-        if (canConfigureFirebase) ...[
-          _FirebaseCard(appState: appState),
-          const SizedBox(height: AppSpacing.lg),
-        ],
-        const _ProfileCard(),
-        if (canManageSettings) ...[
-          const SizedBox(height: AppSpacing.lg),
-          _DangerZoneCard(appState: appState),
-        ],
-      ],
-    );
-  }
+  State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-// ---- General ----------------------------------------------------------------
+class _SettingsScreenState extends State<SettingsScreen> {
+  static const _wideAt = 900.0;
 
-class _GeneralSettingsCard extends StatefulWidget {
-  const _GeneralSettingsCard({required this.appState});
-  final AppState appState;
-
-  @override
-  State<_GeneralSettingsCard> createState() => _GeneralSettingsCardState();
-}
-
-class _GeneralSettingsCardState extends State<_GeneralSettingsCard> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _appName;
-  late String _dateFormat;
+  final _search = TextEditingController();
+  SettingsDraft? _draft;
+  bool _dirty = false;
   bool _saving = false;
-
-  static const _dateFormats = [
-    'dd-MMM-yyyy',
-    'dd/MM/yyyy',
-    'MM/dd/yyyy',
-    'yyyy-MM-dd',
-  ];
+  String? _saveError;
+  String? _selected;
+  GoRouter? _router;
 
   @override
   void initState() {
     super.initState();
-    _appName = TextEditingController(text: widget.appState.appName);
-    _dateFormat = widget.appState.dateFormat;
-    if (!_dateFormats.contains(_dateFormat)) _dateFormat = _dateFormats.first;
+    _search.addListener(() => setState(() {}));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final router = GoRouter.maybeOf(context);
+    if (!identical(router, _router)) {
+      _router?.routeInformationProvider.removeListener(_onRoute);
+      _router = router;
+      router?.routeInformationProvider.addListener(_onRoute);
+      _selected = _sectionFromUrl() ?? _selected;
+    }
   }
 
   @override
   void dispose() {
-    _appName.dispose();
+    _router?.routeInformationProvider.removeListener(_onRoute);
+    _draft?.removeListener(_onDraft);
+    _draft?.dispose();
+    _search.dispose();
     super.dispose();
   }
 
-  Future<void> _save() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _saving = true);
+  String? _sectionFromUrl() =>
+      _router?.routeInformationProvider.value.uri.queryParameters['section'];
+
+  void _onRoute() {
+    final id = _sectionFromUrl();
+    if (!mounted || id == _selected) return;
+    setState(() => _selected = id);
+  }
+
+  void _onDraft() {
+    final dirty = _draft?.isDirty ?? false;
+    if (dirty != _dirty && mounted) setState(() => _dirty = dirty);
+  }
+
+  void _open(String? id) {
+    setState(() => _selected = id);
+    _router?.go(id == null ? Routes.settings : '${Routes.settings}?section=$id');
+  }
+
+  /// The draft, created the first time an editor needs it and re-seeded
+  /// (when nothing is being edited) as the saved settings load.
+  SettingsDraft _draftFor(SettingsController ctl) {
+    var draft = _draft;
+    if (draft == null) {
+      draft = SettingsDraft(ctl.editorSeed, logo: ctl.logo);
+      draft.addListener(_onDraft);
+      _draft = draft;
+    } else if (!draft.isDirty && !draft.seed.sameAs(ctl.editorSeed)) {
+      final d = draft;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && identical(_draft, d)) {
+          d.reseed(ctl.editorSeed, logo: ctl.logo);
+        }
+      });
+    }
+    return draft;
+  }
+
+  Future<void> _save(SettingsController ctl, bool isOwner) async {
+    final draft = _draft;
+    if (draft == null || _saving) return;
+    if (draft.settings.branding.appName.trim().isEmpty) {
+      setState(() => _saveError = 'Give the app a name before saving.');
+      _open('branding');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
     try {
-      await widget.appState.setAppName(_appName.text);
-      await widget.appState.setDateFormat(_dateFormat);
-      if (mounted) showSuccessSnack(context, 'Preferences saved');
+      await ctl.save(draft.settings,
+          logoChanged: draft.logoChanged, logoDataUrl: draft.logo);
+      draft.markSaved(ctl.settings, logo: ctl.logo);
+      if (mounted) showSuccessSnack(context, 'Settings saved');
     } catch (e) {
-      if (mounted) showErrorSnack(context, e);
+      if (mounted) setState(() => _saveError = _explain(e, isOwner));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return SectionCard(
-      title: 'General',
-      subtitle: 'Application name and formatting preferences',
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FormRow([
-              AppTextField(
-                label: 'Application Name',
-                controller: _appName,
-                isRequired: true,
-                validator: (v) =>
-                    Validators.required(v, field: 'Application name'),
-              ),
-              AppDropdown<String>(
-                label: 'Date Format',
-                value: _dateFormat,
-                items: _dateFormats,
-                itemLabel: (f) => f,
-                onChanged: (v) => setState(() => _dateFormat = v ?? _dateFormat),
-              ),
-            ]),
-            const SizedBox(height: AppSpacing.lg),
-            Align(
-              alignment: Alignment.centerRight,
-              child: ElevatedButton.icon(
-                onPressed: _saving ? null : _save,
-                icon: _saving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.save_outlined, size: 18),
-                label: const Text('Save Preferences'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---- Firebase ---------------------------------------------------------------
-
-class _FirebaseCard extends StatelessWidget {
-  const _FirebaseCard({required this.appState});
-  final AppState appState;
-
-  @override
-  Widget build(BuildContext context) {
-    final isFirebase = appState.isFirebaseMode;
-    return SectionCard(
-      title: 'Firebase',
-      subtitle: 'Connect your own Firebase project',
-      trailing: StatusBadge(
-        label: isFirebase ? 'Connected' : 'Demo mode',
-        tone: isFirebase ? BadgeTone.success : BadgeTone.warning,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: isFirebase
-                  ? context.tokens.successSurface
-                  : context.tokens.warningSurface,
-              borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  isFirebase ? Icons.cloud_done : Icons.cloud_off,
-                  size: 20,
-                  color: isFirebase ? context.tokens.success : context.tokens.warning,
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    isFirebase
-                        ? 'The app is running against your configured Firebase '
-                            'project. Data is stored in Firestore.'
-                        : 'The app is running on built-in demo data stored in '
-                            'this browser. Configure Firebase to go live.',
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            'Only public client configuration values are stored (apiKey, '
-            'authDomain, projectId, …). Never enter service-account keys or '
-            'other secrets here.',
-            style: TextStyle(fontSize: 12, color: context.tokens.textTertiary),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Row(
-            children: [
-              ElevatedButton.icon(
-                onPressed: () => _openWizard(context),
-                icon: const Icon(Icons.settings_suggest_outlined, size: 18),
-                label: Text(isFirebase ? 'Reconfigure' : 'Set up Firebase'),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              if (isFirebase)
-                OutlinedButton.icon(
-                  onPressed: () => _deactivate(context),
-                  icon: const Icon(Icons.link_off, size: 18),
-                  label: const Text('Switch to demo'),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
+  static String _explain(Object e, bool isOwner) {
+    final denied = (e is AppException && e.code == 'permission-denied') ||
+        e.toString().contains('permission-denied');
+    if (!denied) return ErrorMapper.friendly(e);
+    return isOwner ? _deployRules : _rulesGeneric;
   }
 
-  Future<void> _openWizard(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _FirebaseWizardDialog(appState: appState),
-    );
-  }
+  static const _deployRules =
+      'Deploy the latest Firestore rules (`firebase deploy --only '
+      'firestore:rules`) to save organisation settings.';
+  static const _rulesGeneric =
+      'Organisation settings can’t be saved right now. Ask the Owner to '
+      'check that the latest Firestore rules are deployed.';
 
-  Future<void> _deactivate(BuildContext context) async {
+  Future<void> _resetAll() async {
     final ok = await showConfirmDialog(
       context,
-      title: 'Switch to demo mode?',
-      message: 'This clears your saved Firebase configuration and reverts to '
-          'local demo data. You will be signed out.',
-      confirmLabel: 'Switch',
-      destructive: true,
+      title: 'Reset all organisation settings?',
+      message: 'Every organisation setting goes back to its default, and the '
+          'logo is removed. Nothing changes for anyone until you save.',
+      confirmLabel: 'Reset all',
     );
-    if (ok != true) return;
-    try {
-      await appState.deactivateFirebase();
-      if (context.mounted) showSuccessSnack(context, 'Reverted to demo mode');
-    } catch (e) {
-      if (context.mounted) showErrorSnack(context, e);
-    }
-  }
-}
-
-/// Multi-step Firebase setup wizard. Steps 1–4 are guidance; step 5 collects
-/// the public config, tests the connection, then activates it.
-class _FirebaseWizardDialog extends StatefulWidget {
-  const _FirebaseWizardDialog({required this.appState});
-  final AppState appState;
-
-  @override
-  State<_FirebaseWizardDialog> createState() => _FirebaseWizardDialogState();
-}
-
-class _FirebaseWizardDialogState extends State<_FirebaseWizardDialog> {
-  static const _console = 'https://console.firebase.google.com/';
-
-  int _step = 0;
-  bool _busy = false;
-  String? _testResult; // null = untested; '' = ok; else error text
-  bool _testOk = false;
-
-  final _formKey = GlobalKey<FormState>();
-  final _apiKey = TextEditingController();
-  final _authDomain = TextEditingController();
-  final _projectId = TextEditingController();
-  final _storageBucket = TextEditingController();
-  final _messagingSenderId = TextEditingController();
-  final _appId = TextEditingController();
-  final _measurementId = TextEditingController();
-  final _databaseURL = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    final existing = widget.appState.configStore.firebaseConfig;
-    if (existing != null) {
-      _apiKey.text = existing.apiKey;
-      _authDomain.text = existing.authDomain;
-      _projectId.text = existing.projectId;
-      _storageBucket.text = existing.storageBucket;
-      _messagingSenderId.text = existing.messagingSenderId;
-      _appId.text = existing.appId;
-      _measurementId.text = existing.measurementId;
-      _databaseURL.text = existing.databaseURL;
-    }
+    if (ok) _draft?.resetAll();
   }
 
-  @override
-  void dispose() {
-    _apiKey.dispose();
-    _authDomain.dispose();
-    _projectId.dispose();
-    _storageBucket.dispose();
-    _messagingSenderId.dispose();
-    _appId.dispose();
-    _measurementId.dispose();
-    _databaseURL.dispose();
-    super.dispose();
-  }
-
-  FirebaseConfig _buildConfig() => FirebaseConfig(
-        apiKey: _apiKey.text.trim(),
-        authDomain: _authDomain.text.trim(),
-        projectId: _projectId.text.trim(),
-        storageBucket: _storageBucket.text.trim(),
-        messagingSenderId: _messagingSenderId.text.trim(),
-        appId: _appId.text.trim(),
-        measurementId: _measurementId.text.trim(),
-        databaseURL: _databaseURL.text.trim(),
-      );
-
-  static const _steps = [
-    _WizardStepInfo(
-      title: 'Create a Firebase project',
-      icon: Icons.add_box_outlined,
-      points: [
-        'Open the Firebase Console.',
-        'Click "Add project" and give it a name.',
-        'Continue through the setup steps to finish.',
-      ],
-    ),
-    _WizardStepInfo(
-      title: 'Enable Authentication',
-      icon: Icons.lock_outline,
-      points: [
-        'In the console, open Build → Authentication.',
-        'Click "Get started".',
-        'Enable the Email/Password sign-in provider and save.',
-      ],
-    ),
-    _WizardStepInfo(
-      title: 'Create the Firestore database',
-      icon: Icons.storage_outlined,
-      points: [
-        'Open Build → Firestore Database.',
-        'Click "Create database" and pick a region.',
-        'Start in production mode, then deploy the security rules from the '
-            'README.',
-      ],
-    ),
-    _WizardStepInfo(
-      title: 'Register a Web App',
-      icon: Icons.web_outlined,
-      points: [
-        'Open Project settings → your apps.',
-        'Add a Web app (</> icon) and register it.',
-        'Copy the firebaseConfig object shown — you will paste the values '
-            'in the next step.',
-      ],
-    ),
-  ];
-
-  bool get _isFinalStep => _step == _steps.length; // step index 4 == form
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      shape:
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppSpacing.radius)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 640),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.local_fire_department,
-                      color: context.tokens.primary),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      'Firebase Setup — Step ${_step + 1} of ${_steps.length + 1}',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed:
-                        _busy ? null : () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              _StepProgress(current: _step, total: _steps.length + 1),
-              const SizedBox(height: AppSpacing.lg),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: _isFinalStep ? _buildForm() : _buildInfoStep(),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _buildActions(context),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoStep() {
-    final info = _steps[_step];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(info.icon, color: context.tokens.primary, size: 22),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(info.title,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w600)),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        for (var i = 0; i < info.points.length; i++)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 22,
-                  height: 22,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: context.tokens.primarySurface,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text('${i + 1}',
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: context.tokens.primary)),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(child: Text(info.points[i])),
-              ],
-            ),
-          ),
-        const SizedBox(height: AppSpacing.sm),
-        OutlinedButton.icon(
-          onPressed: () => html.window.open(_console, '_blank'),
-          icon: const Icon(Icons.open_in_new, size: 18),
-          label: const Text('Open Firebase Console'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildForm() {
-    return Form(
-      key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Configure Application',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Paste the values from your Web app\'s firebaseConfig.',
-            style: TextStyle(fontSize: 13, color: context.tokens.textSecondary),
-          ),
-          const FormGap(),
-          AppTextField(
-            label: 'API Key',
-            controller: _apiKey,
-            isRequired: true,
-            validator: (v) => Validators.required(v, field: 'API key'),
-          ),
-          const FormGap(),
-          FormRow([
-            AppTextField(
-              label: 'Auth Domain',
-              controller: _authDomain,
-              isRequired: true,
-              hintText: 'my-app.firebaseapp.com',
-              validator: (v) => Validators.required(v, field: 'Auth domain'),
-            ),
-            AppTextField(
-              label: 'Project ID',
-              controller: _projectId,
-              isRequired: true,
-              validator: (v) => Validators.required(v, field: 'Project ID'),
-            ),
-          ]),
-          const FormGap(),
-          FormRow([
-            AppTextField(
-              label: 'Storage Bucket',
-              controller: _storageBucket,
-              hintText: 'my-app.appspot.com',
-            ),
-            AppTextField(
-              label: 'Messaging Sender ID',
-              controller: _messagingSenderId,
-              isRequired: true,
-              validator: (v) =>
-                  Validators.required(v, field: 'Messaging sender ID'),
-            ),
-          ]),
-          const FormGap(),
-          FormRow([
-            AppTextField(
-              label: 'App ID',
-              controller: _appId,
-              isRequired: true,
-              validator: (v) => Validators.required(v, field: 'App ID'),
-            ),
-            AppTextField(
-              label: 'Measurement ID',
-              controller: _measurementId,
-              hintText: 'Optional',
-            ),
-          ]),
-          const FormGap(),
-          AppTextField(
-            label: 'Realtime Database URL',
-            controller: _databaseURL,
-            hintText: 'Optional — https://<project>-default-rtdb.firebaseio.com',
-          ),
-          if (_testResult != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color:
-                    _testOk ? context.tokens.successSurface : context.tokens.errorSurface,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _testOk ? Icons.check_circle : Icons.error_outline,
-                    size: 18,
-                    color: _testOk ? context.tokens.success : context.tokens.error,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Text(
-                      _testOk
-                          ? 'Connection successful. You can save now.'
-                          : 'Connection failed: $_testResult',
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActions(BuildContext context) {
-    return Row(
-      children: [
-        if (_step > 0)
+  Future<bool> _confirmDiscard() async {
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Leave without saving?'),
+        content: const Text('You have unsaved organisation settings.'),
+        actions: [
           TextButton(
-            onPressed: _busy ? null : () => setState(() => _step--),
-            child: const Text('Back'),
-          ),
-        const Spacer(),
-        if (!_isFinalStep)
-          ElevatedButton(
-            onPressed: () => setState(() => _step++),
-            child: const Text('Next'),
-          )
-        else ...[
-          OutlinedButton.icon(
-            onPressed: _busy ? null : _test,
-            icon: _busy && !_testOk
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.wifi_tethering, size: 18),
-            label: const Text('Test Connection'),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          ElevatedButton.icon(
-            onPressed: (_busy || !_testOk) ? null : _saveAndActivate,
-            icon: const Icon(Icons.save, size: 18),
-            label: const Text('Save & Activate'),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Keep editing')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Discard')),
         ],
-      ],
+      ),
     );
+    return discard ?? false;
   }
-
-  Future<void> _test() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() {
-      _busy = true;
-      _testResult = null;
-      _testOk = false;
-    });
-    try {
-      await widget.appState.testFirebaseConfig(_buildConfig());
-      setState(() {
-        _testOk = true;
-        _testResult = '';
-      });
-    } catch (e) {
-      setState(() {
-        _testOk = false;
-        _testResult = e.toString();
-      });
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _saveAndActivate() async {
-    setState(() => _busy = true);
-    try {
-      await widget.appState.activateFirebase(_buildConfig());
-      if (mounted) {
-        Navigator.of(context).pop();
-        showSuccessSnack(context,
-            'Firebase connected. Please sign in with your Firebase account.');
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _busy = false);
-        showErrorSnack(context, e);
-      }
-    }
-  }
-}
-
-class _WizardStepInfo {
-  const _WizardStepInfo(
-      {required this.title, required this.icon, required this.points});
-  final String title;
-  final IconData icon;
-  final List<String> points;
-}
-
-class _StepProgress extends StatelessWidget {
-  const _StepProgress({required this.current, required this.total});
-  final int current;
-  final int total;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        for (var i = 0; i < total; i++) ...[
-          Expanded(
-            child: Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: i <= current ? context.tokens.primary : context.tokens.border,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          if (i < total - 1) const SizedBox(width: 4),
-        ],
-      ],
-    );
-  }
-}
-
-// ---- Profile ----------------------------------------------------------------
-
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard();
 
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
+    final ctl = context.watch<SettingsController>();
     final user = appState.currentUser;
-    if (user == null) return const SizedBox.shrink();
+    final isOwner = user?.isOwner ?? false;
+    final canEdit = ctl.canEdit(user);
 
-    return SectionCard(
-      title: 'Profile',
-      subtitle: 'Your account details',
-      trailing: StatusBadge.role(user.role),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _ProfileRow(label: 'Name', value: user.name),
-          _ProfileRow(label: 'Login ID', value: user.loginId),
-          _ProfileRow(label: 'Email', value: user.email),
-          const SizedBox(height: AppSpacing.md),
-          OutlinedButton.icon(
-            onPressed: () => _changePassword(context, appState),
-            icon: const Icon(Icons.password, size: 18),
-            label: const Text('Change Password'),
-          ),
-        ],
-      ),
-    );
-  }
+    final visible = [
+      for (final s in kSettingsSections)
+        if (switch (s.group) {
+          SettingsGroup.personal => true,
+          SettingsGroup.organisation => canEdit,
+          SettingsGroup.system => isOwner,
+        })
+          s,
+    ];
+    final draft = canEdit ? _draftFor(ctl) : null;
 
-  Future<void> _changePassword(
-      BuildContext context, AppState appState) async {
-    await showDialog<bool>(
-      context: context,
-      builder: (_) => _ChangePasswordDialog(appState: appState),
-    );
-  }
-}
+    return LayoutBuilder(builder: (context, constraints) {
+      final wide = constraints.maxWidth >= _wideAt;
+      var current = visible.where((s) => s.id == _selected).firstOrNull;
+      if (current == null && wide) current = visible.first;
+      final inDetailOnPhone = !wide && current != null;
+      final blocked = _dirty && !inDetailOnPhone;
 
-class _ProfileRow extends StatelessWidget {
-  const _ProfileRow({required this.label, required this.value});
-  final String label;
-  final String value;
+      final list = _SectionList(
+        sections: visible,
+        query: _search.text,
+        searchController: _search,
+        selectedId: wide ? current?.id : null,
+        showSubtitles: !wide,
+        onSelect: (s) => _open(s.id),
+        onResetAll: canEdit ? _resetAll : null,
+      );
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 13, color: context.tokens.textSecondary)),
-          ),
-          Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    fontSize: 14, fontWeight: FontWeight.w500)),
-          ),
-        ],
-      ),
-    );
-  }
-}
+      final detail = current == null
+          ? const SizedBox.shrink()
+          : _Detail(
+              section: current,
+              draft: draft ?? SettingsDraft(ctl.editorSeed),
+              controller: ctl,
+              isOwner: isOwner,
+              saveError: _saveError,
+              showBack: !wide,
+              onBack: () => _open(null),
+            );
 
-class _ChangePasswordDialog extends StatefulWidget {
-  const _ChangePasswordDialog({required this.appState});
-  final AppState appState;
+      final bar = (draft != null && _dirty)
+          ? _SaveBar(
+              saving: _saving,
+              onDiscard: () {
+                draft.discard();
+                setState(() => _saveError = null);
+              },
+              onSave: () => _save(ctl, isOwner),
+            )
+          : null;
 
-  @override
-  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
-}
-
-class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _current = TextEditingController();
-  final _next = TextEditingController();
-  final _confirm = TextEditingController();
-
-  @override
-  void dispose() {
-    _current.dispose();
-    _next.dispose();
-    _confirm.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FormDialog(
-      title: 'Change Password',
-      submitLabel: 'Update',
-      onSubmit: _submit,
-      child: Form(
-        key: _formKey,
+      final pad = wide ? AppSpacing.xl : AppSpacing.lg;
+      return PopScope(
+        canPop: !inDetailOnPhone && !blocked,
+        onPopInvokedWithResult: (didPop, _) async {
+          if (didPop) return;
+          if (inDetailOnPhone) {
+            _open(null);
+            return;
+          }
+          if (await _confirmDiscard() && mounted) {
+            draft?.discard();
+            if (context.mounted) Navigator.of(context).maybePop();
+          }
+        },
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            AppTextField(
-              label: 'Current Password',
-              controller: _current,
-              isRequired: true,
-              obscureText: true,
-              validator: (v) => Validators.required(v, field: 'Current password'),
+            if (wide || current == null)
+              Padding(
+                padding: EdgeInsets.fromLTRB(pad, pad, pad, AppSpacing.md),
+                child: const PageHeader(
+                  title: 'Settings',
+                  icon: Icons.settings_outlined,
+                  subtitle: 'Your preferences and your organisation’s setup',
+                ),
+              ),
+            Expanded(
+              child: wide
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(width: 300, child: list),
+                        VerticalDivider(
+                            width: 1, color: context.tokens.border),
+                        Expanded(child: detail),
+                      ],
+                    )
+                  : (current == null ? list : detail),
             ),
-            const FormGap(),
-            AppTextField(
-              label: 'New Password',
-              controller: _next,
-              isRequired: true,
-              obscureText: true,
-              validator: Validators.password,
-            ),
-            const FormGap(),
-            AppTextField(
-              label: 'Confirm New Password',
-              controller: _confirm,
-              isRequired: true,
-              obscureText: true,
-              validator: (v) =>
-                  v != _next.text ? 'Passwords do not match' : null,
-            ),
+            ?bar,
           ],
+        ),
+      );
+    });
+  }
+}
+
+// ---- Section list -----------------------------------------------------------
+
+class _SectionList extends StatelessWidget {
+  const _SectionList({
+    required this.sections,
+    required this.query,
+    required this.searchController,
+    required this.selectedId,
+    required this.showSubtitles,
+    required this.onSelect,
+    required this.onResetAll,
+  });
+
+  final List<SettingsSectionDef> sections;
+  final String query;
+  final TextEditingController searchController;
+  final String? selectedId;
+  final bool showSubtitles;
+  final ValueChanged<SettingsSectionDef> onSelect;
+  final VoidCallback? onResetAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final matches = [for (final s in sections) if (s.matches(query)) s];
+    return ListView(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      children: [
+        TextField(
+          controller: searchController,
+          decoration: InputDecoration(
+            hintText: 'Search settings',
+            prefixIcon: const Icon(Icons.search, size: 20),
+            isDense: true,
+            suffixIcon: query.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Clear search',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: searchController.clear,
+                  ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        if (matches.isEmpty)
+          Text('No settings match “${query.trim()}”.',
+              style: TextStyle(fontSize: 13, color: t.textSecondary)),
+        for (final group in SettingsGroup.values)
+          if (matches.any((s) => s.group == group)) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.sm, AppSpacing.sm, AppSpacing.sm, AppSpacing.xs),
+              child: Text(group.label,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                      color: t.textTertiary)),
+            ),
+            for (final s in matches.where((s) => s.group == group))
+              _SectionTile(
+                section: s,
+                selected: s.id == selectedId,
+                showSubtitle: showSubtitles,
+                onTap: () => onSelect(s),
+              ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+        if (onResetAll != null && query.isEmpty) ...[
+          const Divider(),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onResetAll,
+              icon: const Icon(Icons.restart_alt, size: 18),
+              label: const Text('Reset all organisation settings'),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SectionTile extends StatelessWidget {
+  const _SectionTile({
+    required this.section,
+    required this.selected,
+    required this.showSubtitle,
+    required this.onTap,
+  });
+
+  final SettingsSectionDef section;
+  final bool selected;
+  final bool showSubtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Material(
+        color: selected ? t.primarySurface : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md, vertical: AppSpacing.md),
+            child: Row(
+              children: [
+                Icon(section.icon,
+                    size: 20, color: selected ? t.primary : t.textSecondary),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(section.title,
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight:
+                                  selected ? FontWeight.w600 : FontWeight.w500,
+                              color: selected ? t.primary : t.textPrimary)),
+                      if (showSubtitle)
+                        Text(section.subtitle,
+                            style: TextStyle(
+                                fontSize: 12.5, color: t.textSecondary)),
+                    ],
+                  ),
+                ),
+                if (showSubtitle)
+                  Icon(Icons.chevron_right, size: 20, color: t.textTertiary),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
-
-  Future<bool> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return false;
-    try {
-      await widget.appState.changePassword(_current.text, _next.text);
-      if (mounted) showSuccessSnack(context, 'Password updated');
-      return true;
-    } catch (e) {
-      if (mounted) showErrorSnack(context, e);
-      return false;
-    }
-  }
 }
 
-// ---- Danger zone ------------------------------------------------------------
+// ---- Detail -----------------------------------------------------------------
 
-class _DangerZoneCard extends StatelessWidget {
-  const _DangerZoneCard({required this.appState});
-  final AppState appState;
+class _Detail extends StatelessWidget {
+  const _Detail({
+    required this.section,
+    required this.draft,
+    required this.controller,
+    required this.isOwner,
+    required this.saveError,
+    required this.showBack,
+    required this.onBack,
+  });
+
+  final SettingsSectionDef section;
+  final SettingsDraft draft;
+  final SettingsController controller;
+  final bool isOwner;
+  final String? saveError;
+  final bool showBack;
+  final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
-    // Demo reset only makes sense while running on the local demo backend.
-    if (appState.isFirebaseMode) return const SizedBox.shrink();
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final t = context.tokens;
+    final isOrg = section.group == SettingsGroup.organisation;
+    final saved = controller.settings;
+
+    Widget body;
+    if (isOrg) {
+      // Rebuild when the draft changes. Keyed by revision so text fields
+      // reload after a reset or discard.
+      body = ListenableBuilder(
+        listenable: draft,
+        builder: (context, _) => KeyedSubtree(
+          key: ValueKey('${section.id}-${draft.revision}'),
+          child: section.builder(context, draft),
+        ),
+      );
+    } else {
+      body = section.builder(context, draft);
+    }
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(showBack ? AppSpacing.lg : AppSpacing.xl),
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 880),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(Icons.warning_amber_rounded,
-                  color: context.tokens.warning, size: 20),
-              SizedBox(width: AppSpacing.sm),
-              Text('Demo Data',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              if (showBack)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: onBack,
+                    icon: const Icon(Icons.arrow_back, size: 18),
+                    label: const Text('All settings'),
+                  ),
+                ),
+              if (isOrg) ...[
+                if (controller.hasRemote && saved.updatedAt != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: Text(
+                      saved.updatedBy.isEmpty
+                          ? 'Last changed ${AppDate.format(saved.updatedAt)}'
+                          : 'Last changed by ${saved.updatedBy} · '
+                              '${AppDate.format(saved.updatedAt)}',
+                      style: TextStyle(fontSize: 12.5, color: t.textTertiary),
+                    ),
+                  ),
+                if (controller.rulesMissing)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: SettingsNote(
+                      isOwner
+                          ? _SettingsScreenState._deployRules
+                          : _SettingsScreenState._rulesGeneric,
+                      tone: SettingsNoteTone.warning,
+                    ),
+                  ),
+                if (saveError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: SettingsNote(saveError!,
+                        tone: SettingsNoteTone.error),
+                  ),
+              ],
+              body,
             ],
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Reset all demo data back to the original seed. This clears any '
-            'changes you have made in demo mode.',
-            style: TextStyle(fontSize: 13, color: context.tokens.textSecondary),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(foregroundColor: context.tokens.error),
-            onPressed: () => _reset(context),
-            icon: const Icon(Icons.restart_alt, size: 18),
-            label: const Text('Reset Demo Data'),
-          ),
-        ],
+        ),
       ),
     );
   }
+}
 
-  Future<void> _reset(BuildContext context) async {
-    final data = context.read<DataController>();
-    final ok = await showConfirmDialog(
-      context,
-      title: 'Reset demo data?',
-      message: 'This restores the original demo dataset and signs you out. '
-          'Any changes made in demo mode will be lost.',
-      confirmLabel: 'Reset',
-      destructive: true,
+// ---- Save bar ---------------------------------------------------------------
+
+class _SaveBar extends StatelessWidget {
+  const _SaveBar({
+    required this.saving,
+    required this.onDiscard,
+    required this.onSave,
+  });
+
+  final bool saving;
+  final VoidCallback onDiscard;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Material(
+      color: t.card,
+      elevation: 6,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg, vertical: AppSpacing.md),
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: t.border)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.edit_note, color: t.warning, size: 20),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Unsaved changes',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600, color: t.textPrimary),
+                ),
+              ),
+              TextButton(
+                onPressed: saving ? null : onDiscard,
+                child: const Text('Discard'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              ElevatedButton.icon(
+                onPressed: saving ? null : onSave,
+                icon: saving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.save_outlined, size: 18),
+                label: const Text('Save'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-    if (ok != true) return;
-    try {
-      await appState.resetDemoData();
-      data.clear();
-      if (context.mounted) showSuccessSnack(context, 'Demo data reset');
-    } catch (e) {
-      if (context.mounted) showErrorSnack(context, e);
-    }
   }
 }

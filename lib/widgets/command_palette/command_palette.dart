@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
+import '../../state/org_settings.dart';
 import '../../services/search_index.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
@@ -35,8 +37,13 @@ class CommandPalette extends StatefulWidget {
   static Future<void> show(BuildContext context, {String initialQuery = ''}) {
     final user = context.read<AppState>().currentUser;
     if (user == null) return Future.value();
+    // Switched off by the organisation: no palette, whatever opened it.
+    if (!context.readOrgSettings().features.isOn(AppFeature.commandPalette)) {
+      return Future.value();
+    }
     final registry = CommandRegistry(context, nav: ShellNav.maybeOf(context));
     final mobile = Responsive.isMobile(context);
+    final shape = AppShape.of(context);
     return showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
@@ -57,7 +64,7 @@ class CommandPalette extends StatefulWidget {
             child: Material(
               type: MaterialType.card,
               elevation: 12,
-              borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+              borderRadius: shape.lg,
               clipBehavior: Clip.antiAlias,
               child: palette,
             ),
@@ -134,7 +141,11 @@ class _CommandPaletteState extends State<CommandPalette> {
     return [
       ...best(r.navigate(user), 6),
       ...best(r.create(user), 4),
-      for (final hit in index.search(q, limit: 12)) r.record(hit),
+      for (final hit in index
+          .search(q, limit: 48)
+          .where((h) => r.allowsRoute(h.route))
+          .take(12))
+        r.record(hit),
       ...best(r.actions(), 6),
     ];
   }

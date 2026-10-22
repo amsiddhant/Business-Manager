@@ -1,10 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
+import '../../state/app_state.dart';
+import '../../state/org_settings.dart';
+import '../../state/settings_controller.dart';
+import '../common/confirm_dialog.dart';
 import 'grid_column.dart';
 import 'grid_controller.dart';
 import 'grid_view_store.dart';
@@ -19,6 +24,7 @@ class GridToolbar<T> extends StatefulWidget {
     required this.columns,
     required this.rows,
     this.store,
+    this.gridId,
     this.compact = false,
     this.showSearch = true,
     this.searchHint = 'Search…',
@@ -34,6 +40,9 @@ class GridToolbar<T> extends StatefulWidget {
   /// All rows, for the filter choices.
   final List<T> rows;
   final GridViewStore? store;
+
+  /// The grid's id, for the organisation's default columns.
+  final String? gridId;
   final bool compact;
   final bool showSearch;
   final String searchHint;
@@ -286,7 +295,8 @@ class _GridToolbarState<T> extends State<GridToolbar<T>> {
         icon: Icons.view_column_outlined,
         label: 'Columns',
         highlighted: _c.hasColumnChanges,
-        onPressed: () => showGridColumns(context, _c, widget.columns),
+        onPressed: () => showGridColumns(context, _c, widget.columns,
+            gridId: widget.gridId),
       );
 
   Widget _densityButton(BuildContext context) => MenuAnchor(
@@ -294,7 +304,10 @@ class _GridToolbarState<T> extends State<GridToolbar<T>> {
           for (final d in AppDensity.values)
             MenuItemButton(
               leadingIcon: Icon(
-                (_c.density ?? context.density) == d
+                (_c.density ??
+                        context.readOrgSettings().tables.density ??
+                        context.density) ==
+                    d
                     ? Icons.radio_button_checked
                     : Icons.radio_button_unchecked,
                 size: 18,
@@ -572,10 +585,12 @@ Future<void> editGridFilter<T>(BuildContext context, GridController controller,
 
 /// Show, hide and reorder columns.
 Future<void> showGridColumns<T>(BuildContext context, GridController controller,
-    List<GridColumn<T>> columns) {
+    List<GridColumn<T>> columns,
+    {String? gridId}) {
   return showDialog<void>(
     context: context,
-    builder: (_) => _ColumnsDialog<T>(controller: controller, columns: columns),
+    builder: (_) => _ColumnsDialog<T>(
+        controller: controller, columns: columns, gridId: gridId),
   );
 }
 
@@ -919,10 +934,12 @@ class _SaveViewDialogState extends State<_SaveViewDialog> {
 }
 
 class _ColumnsDialog<T> extends StatefulWidget {
-  const _ColumnsDialog({required this.controller, required this.columns});
+  const _ColumnsDialog(
+      {required this.controller, required this.columns, this.gridId});
 
   final GridController controller;
   final List<GridColumn<T>> columns;
+  final String? gridId;
 
   @override
   State<_ColumnsDialog<T>> createState() => _ColumnsDialogState<T>();
@@ -930,6 +947,60 @@ class _ColumnsDialog<T> extends StatefulWidget {
 
 class _ColumnsDialogState<T> extends State<_ColumnsDialog<T>> {
   GridController get _c => widget.controller;
+  bool _saving = false;
+
+  SettingsController? get _settingsController {
+    try {
+      return context.read<SettingsController>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
+  /// Whether this user may set the organisation's default columns here.
+  bool get _canSetDefault {
+    final settings = _settingsController;
+    if (settings == null || widget.gridId == null) return false;
+    return settings.canEdit(context.read<AppState>().currentUser);
+  }
+
+  /// Saves the columns as shown now as everyone's starting point.
+  Future<void> _saveDefault() async {
+    final settings = _settingsController!;
+    final id = widget.gridId!;
+    final shown = [
+      for (final c in _c.visibleColumns(widget.columns))
+        if (!c.pinned) c.id,
+    ];
+    final current = settings.settings;
+    setState(() => _saving = true);
+    try {
+      await settings.save(current.copyWith(
+        tables: current.tables.copyWith(
+          defaultColumns: {...current.tables.defaultColumns, id: shown},
+        ),
+      ));
+      if (mounted) {
+        showSuccessSnack(context, 'These columns are now the default for everyone');
+      }
+    } catch (e) {
+      if (mounted) showErrorSnack(context, e);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// Puts this user's columns back to the organisation's (or the built-in)
+  /// default.
+  void _resetToDefault() {
+    final org = widget.gridId == null
+        ? null
+        : context.readOrgSettings().tables.columnsFor(widget.gridId!);
+    setState(() {
+      _c.resetColumns();
+      if (org != null) _c.applyColumns(widget.columns, org, remember: true);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -993,11 +1064,18 @@ class _ColumnsDialogState<T> extends State<_ColumnsDialog<T>> {
         ),
       ),
       actions: [
+        if (_canSetDefault)
+          TextButton(
+            onPressed: _saving ? null : _saveDefault,
+            child: const Text('Save as default for everyone'),
+          ),
         TextButton(
-          onPressed: _c.hasColumnChanges
-              ? () => setState(_c.resetColumns)
-              : null,
-          child: const Text('Reset'),
+          onPressed: _c.hasColumnChanges ? _resetToDefault : null,
+          child: Text(widget.gridId != null &&
+                  context.readOrgSettings().tables.columnsFor(widget.gridId!) !=
+                      null
+              ? 'Reset to organisation default'
+              : 'Reset'),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(context),

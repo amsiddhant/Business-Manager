@@ -101,6 +101,14 @@ class Collections {
   static const customers = 'customers';
   static const auditLogs = 'auditLogs';
 
+  /// Organisation settings: `settings/app` (one document, read once per
+  /// session) and `settings/logo` (the logo as a data URL, read only when it
+  /// changes).
+  static const settings = 'settings';
+
+  /// Goals & targets, one document per business + period + metric.
+  static const goals = 'goals';
+
   /// Pending access requests raised when a signed-in identity (e.g. Google)
   /// has no `users/{uid}` profile yet. Keyed by the auth uid so the Owner can
   /// provision a profile against the *existing* account.

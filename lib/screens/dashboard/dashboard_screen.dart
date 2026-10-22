@@ -8,12 +8,14 @@ import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
 import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../services/profit_calculation_service.dart';
 import '../../state/alert_controller.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../state/org_settings.dart';
 import '../../view_models/dashboard_view_model.dart';
 import '../../widgets/alerts/alerts_panel.dart';
 import '../../widgets/charts/business_comparison_chart.dart';
@@ -27,6 +29,7 @@ import '../../widgets/charts/trend_forecast_chart.dart';
 import '../../widgets/common/page_header.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/layout/app_page.dart';
+import '../goals/widgets/goals_summary_card.dart';
 import 'widgets/attention_strip.dart';
 import 'widgets/dashboard_hero.dart';
 import 'widgets/dashboard_registry.dart';
@@ -58,16 +61,24 @@ class DashboardScreen extends StatelessWidget {
     }
 
     final user = context.select<AppState, AppUser?>((s) => s.currentUser);
+    final settings = context.orgSettings((s) => s);
     final sections = _Sections(
       context: context,
       vm: DashboardViewModel.of(data, filter),
       data: data,
       filter: filter,
       user: user,
+      settings: settings,
     );
+    // The organisation's order and visibility; nothing is ever removed from
+    // the totals, only from view.
+    final dash = settings.dashboard;
     final built = [
-      for (final id in kDefaultDashboardSections)
-        if (sections.build(id) case final w?) (id: id, child: w),
+      for (final name in dash.arrange(
+          [for (final id in DashboardSectionId.values) id.name]))
+        if (dash.isVisible(name))
+          if (DashboardSectionId.values.byName(name) case final id)
+            if (sections.build(id) case final w?) (id: id, child: w),
     ];
 
     return AppPage(
@@ -94,6 +105,7 @@ class _Sections {
     required this.data,
     required this.filter,
     required this.user,
+    required this.settings,
   });
 
   final BuildContext context;
@@ -101,6 +113,10 @@ class _Sections {
   final DataController data;
   final FilterController filter;
   final AppUser? user;
+  final AppSettings settings;
+
+  bool get _insightsOn => settings.features.isOn(AppFeature.insights);
+  bool get _forecastsOn => settings.features.isOn(AppFeature.forecasts);
 
   CurrencyCode get currency => vm.currency;
   ProfitSummary get summary => vm.summary;
@@ -113,7 +129,9 @@ class _Sections {
   String get versus =>
       '${vm.basis.shortLabel}${vm.window.isToDate ? ', to date' : ''}';
 
-  bool can(String route) => Routes.canOpen(user, route);
+  /// Whether to link to [route]: the user may open it and its section is on.
+  bool can(String route) =>
+      Routes.canOpen(user, route) && settings.modules.allows(route);
 
   VoidCallback? link(String? route) =>
       route != null && can(route) ? () => context.go(route) : null;
@@ -121,6 +139,7 @@ class _Sections {
   Widget? build(DashboardSectionId id) => switch (id) {
     DashboardSectionId.hero => _hero(),
     DashboardSectionId.attention => _attention(),
+    DashboardSectionId.goals => _goals(),
     DashboardSectionId.overview => _overview(),
     DashboardSectionId.profit => _profit(),
     DashboardSectionId.scorecards => _scorecards(),
@@ -129,6 +148,14 @@ class _Sections {
     DashboardSectionId.breakdowns => _breakdowns(),
     DashboardSectionId.tables => _tables(),
   };
+
+  /// Running goals for the scope; hidden when none are set.
+  Widget? _goals() {
+    if (!settings.modules.isEnabled(Routes.goals)) return null;
+    final businessId = filter.selectedBusinessId;
+    if (data.goalsFor(businessId).isEmpty) return null;
+    return GoalsSummaryCard(businessId: businessId);
+  }
 
   // ── KPIs ────────────────────────────────────────────────────────────────
 
@@ -192,39 +219,73 @@ class _Sections {
       tooltip: 'Number of recognised orders.',
       tab: 'sales');
 
-  List<KpiData> get _secondary => [
-    _kpi(KpiMetric.productCost,
+  KpiData _kpiOf(KpiMetric m) => switch (m) {
+    KpiMetric.revenue => _revenue,
+    KpiMetric.netProfit => _netProfit,
+    KpiMetric.netMargin => _netMargin,
+    KpiMetric.orders => _orders,
+    KpiMetric.productCost => _kpi(KpiMetric.productCost,
         icon: Icons.inventory_2_outlined,
         accent: t.chartSeries[3],
         tooltip: 'Total product purchasing cost for recognised orders.',
         tab: 'products'),
-    _kpi(KpiMetric.marketingCost,
+    KpiMetric.marketingCost => _kpi(KpiMetric.marketingCost,
         icon: Icons.campaign_outlined,
         accent: t.chartSeries[6],
         tooltip: 'Total advertising spend in the selected period.',
         tab: 'marketing'),
-    _kpi(KpiMetric.operatingExpenses,
+    KpiMetric.operatingExpenses => _kpi(KpiMetric.operatingExpenses,
         icon: Icons.receipt_long_outlined,
         accent: t.chartSeries[5],
         tooltip: 'Prorated operating costs (excluding advertising).',
         tab: 'expenses'),
-    _kpi(KpiMetric.grossProfit,
+    KpiMetric.grossProfit => _kpi(KpiMetric.grossProfit,
         icon: Icons.savings_outlined,
         accent: t.success,
         caption: 'Margin ${PercentFormatter.format(summary.grossMargin)}',
         tooltip: 'Revenue − Product Cost.',
         tab: 'products'),
-    _kpi(KpiMetric.contributionProfit,
+    KpiMetric.contributionProfit => _kpi(KpiMetric.contributionProfit,
         icon: Icons.stacked_line_chart,
         accent: t.chartSeries[7],
         tooltip: 'Gross Profit − Marketing Cost.',
         tab: 'business'),
-    _kpi(KpiMetric.units,
+    KpiMetric.units => _kpi(KpiMetric.units,
         icon: Icons.local_shipping_outlined,
         accent: t.chartSeries[9],
         tooltip: 'Total quantity across recognised orders.',
         tab: 'sales'),
-  ];
+    // Not one of the dashboard's figures (see kDashboardKpis).
+    KpiMetric.grossMargin => _kpi(KpiMetric.grossMargin,
+        icon: Icons.percent,
+        accent: t.success,
+        tooltip: 'Gross Profit as a share of Revenue.',
+        tab: 'products'),
+  };
+
+  /// The four headline figures: the organisation's pick, or the first
+  /// [kHeroKpiCount] of [kDashboardKpis].
+  List<KpiMetric> get _heroMetrics {
+    final named = [
+      for (final n in settings.dashboard.heroKpis)
+        kDashboardKpis.where((m) => m.name == n).firstOrNull,
+    ];
+    if (named.length == kHeroKpiCount &&
+        !named.contains(null) &&
+        named.toSet().length == kHeroKpiCount) {
+      return [for (final m in named) m!];
+    }
+    return kDashboardKpis.take(kHeroKpiCount).toList();
+  }
+
+  /// Every other figure, in [kDashboardKpis] order ("More figures").
+  List<KpiData> get _secondary {
+    final hero = _heroMetrics;
+    return [
+      for (final m in kDashboardKpis)
+        if (!hero.contains(m)) _kpiOf(m),
+    ];
+  }
 
   // ── Sections ────────────────────────────────────────────────────────────
 
@@ -233,7 +294,7 @@ class _Sections {
     final business = bizId == null
         ? 'All Businesses'
         : (data.businessById(bizId)?.name ?? 'Business');
-    final p = vm.projection;
+    final p = _forecastsOn ? vm.projection : null;
     return DashboardHero(
       name: user?.name,
       scope: '$business · ${filter.periodLabel} · ${vm.range}',
@@ -242,7 +303,7 @@ class _Sections {
       onSync: () => data.sync(),
       syncing: data.syncing,
       versus: versus,
-      kpis: [_revenue, _netProfit, _netMargin, _orders],
+      kpis: [for (final m in _heroMetrics) _kpiOf(m)],
       projection: p == null
           ? null
           : 'On pace for ${MoneyFormatter.compact(p.revenue, currency)} '
@@ -261,7 +322,7 @@ class _Sections {
           span: 12,
           child: AttentionStrip(
             alerts: alerts.active(alertsOf(context)),
-            insights: vm.insights,
+            insights: _insightsOn ? vm.insights : const [],
             onOpenAlerts: () => AlertsPanel.open(context),
             onOpen: link,
           ),
@@ -344,7 +405,14 @@ class _Sections {
 
   Widget _profit() {
     final steps = vm.waterfall;
-    final forecast = vm.forecast;
+    final projecting = _forecastsOn && vm.projection != null;
+    final forecast = _forecastsOn
+        ? vm.forecast
+        : [
+            for (final p in vm.forecast)
+              ForecastPoint(
+                  label: p.label, revenue: p.revenue, netProfit: p.netProfit),
+          ];
     String opt(Money? m) => m == null ? '—' : money(m);
     return DashboardSection(
       title: 'Profit',
@@ -371,19 +439,18 @@ class _Sections {
           child: ChartCard(
             icon: Icons.auto_graph,
             title: 'Revenue & Profit Trend',
-            subtitle: vm.projection == null
+            subtitle: !projecting
                 ? 'Revenue and net profit over the period'
                 : 'Projected at the current pace to '
                     '${AppDate.short(vm.range.end)}',
             height: 300,
             isEmpty: forecast.isEmpty,
             table: ChartTableData(
-              headers: const [
+              headers: [
                 'Period',
                 'Revenue',
                 'Net Profit',
-                'Projected revenue',
-                'Projected net profit',
+                if (_forecastsOn) ...['Projected revenue', 'Projected net profit'],
               ],
               rows: [
                 for (final p in forecast)
@@ -391,8 +458,10 @@ class _Sections {
                     p.label,
                     opt(p.revenue),
                     opt(p.netProfit),
-                    opt(p.projectedRevenue),
-                    opt(p.projectedNetProfit),
+                    if (_forecastsOn) ...[
+                      opt(p.projectedRevenue),
+                      opt(p.projectedNetProfit),
+                    ],
                   ],
               ],
             ),

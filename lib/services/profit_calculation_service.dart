@@ -4,6 +4,7 @@ import '../core/utils/money.dart';
 import '../models/business.dart';
 import '../models/campaign.dart';
 import '../models/expense.dart';
+import '../models/goal.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 
@@ -362,6 +363,73 @@ class OrderListSummary {
   double? get grossMargin => revenue.isZero
       ? null
       : grossProfit.minor / revenue.minor * 100;
+}
+
+/// Where a goal stands.
+enum GoalStatus {
+  notStarted('Not started'),
+  achieved('Achieved'),
+  onTrack('On track'),
+  atRisk('At risk'),
+  behind('Behind'),
+  missed('Missed');
+
+  const GoalStatus(this.label);
+  final String label;
+
+  /// The period is under way and the target not yet reached.
+  bool get isRunning => this == onTrack || this == atRisk || this == behind;
+}
+
+/// A goal's progress as of a day. Values are minor units for money metrics,
+/// a count otherwise.
+class GoalProgress {
+  const GoalProgress({
+    required this.goal,
+    required this.actual,
+    required this.expectedToDate,
+    required this.projected,
+    required this.requiredPerDay,
+    required this.elapsedDays,
+    required this.totalDays,
+    required this.status,
+  });
+
+  final Goal goal;
+  final int actual;
+
+  /// Where a straight line from 0 to the target would be today.
+  final int expectedToDate;
+
+  /// Where the run rate (or a forecast) lands by the end; null before the
+  /// period starts or once it's over.
+  final int? projected;
+
+  /// What's needed per remaining day to hit the target; null when it's hit or
+  /// the period is over.
+  final int? requiredPerDay;
+  final int elapsedDays;
+  final int totalDays;
+  final GoalStatus status;
+
+  int get target => goal.target;
+  int get remaining => actual >= target ? 0 : target - actual;
+
+  /// Share of the target reached, in percent (may pass 100).
+  double get percent =>
+      target <= 0 ? (actual >= 0 ? 100 : 0) : actual / target * 100;
+
+  /// Actual against where it should be by now, in percent (100 = on pace).
+  double get pace => expectedToDate <= 0
+      ? (actual >= 0 ? 100 : 0)
+      : actual / expectedToDate * 100;
+
+  /// Projected end against the target, in percent.
+  double? get projectedPercent => projected == null
+      ? null
+      : target <= 0
+          ? 100
+          : projected! / target * 100;
 }
 
 class ProfitCalculationService {
@@ -924,6 +992,145 @@ class ProfitCalculationService {
       }
     }
     return result;
+  }
+
+  // ---- Goals ---------------------------------------------------------------
+
+  /// [metric]'s value in [summary]: minor units for money, a count otherwise.
+  int metricOf(ProfitSummary summary, GoalMetric metric) => switch (metric) {
+        GoalMetric.revenue => summary.revenue.minor,
+        GoalMetric.grossProfit => summary.grossProfit.minor,
+        GoalMetric.contributionProfit => summary.contributionProfit.minor,
+        GoalMetric.netProfit => summary.netProfit.minor,
+        GoalMetric.orders => summary.orderCount,
+        GoalMetric.units => summary.unitsSold,
+      };
+
+  /// [metric] for each of [ranges] (e.g. last year's months, to split a
+  /// target the way the year actually went).
+  List<int> metricByRange({
+    required GoalMetric metric,
+    required List<Order> orders,
+    required List<Campaign> campaigns,
+    required List<Expense> expenses,
+    required List<DateRange> ranges,
+  }) =>
+      [
+        for (final r in ranges)
+          metricOf(
+              summarise(
+                  orders: orders,
+                  campaigns: campaigns,
+                  expenses: expenses,
+                  range: r),
+              metric),
+      ];
+
+  /// How [goal] is going as of [asOf]. Pass the goal's business's records
+  /// (or everyone's for an organisation-wide goal).
+  ///
+  /// Expected-to-date is a straight line over the period; the projection is
+  /// the run rate so far ([projectedOverride] lets a forecast replace it).
+  /// Running goals projected to reach [atRiskPercent]% of the target or more
+  /// are at risk, below that behind. The first two days are too early to
+  /// judge and count as on track.
+  GoalProgress goalProgress({
+    required Goal goal,
+    required List<Order> orders,
+    required List<Campaign> campaigns,
+    required List<Expense> expenses,
+    required DateTime asOf,
+    double atRiskPercent = 90,
+    int? projectedOverride,
+  }) {
+    final period = goal.period.range;
+    final today = AppDate.dayOnly(asOf);
+    final total = period.days;
+    if (today.isBefore(period.start)) {
+      return GoalProgress(
+        goal: goal,
+        actual: 0,
+        expectedToDate: 0,
+        projected: null,
+        requiredPerDay: (goal.target / total).ceil(),
+        elapsedDays: 0,
+        totalDays: total,
+        status: GoalStatus.notStarted,
+      );
+    }
+    final over = today.isAfter(period.end);
+    final upTo = over ? period.end : today;
+    final elapsed = DateRange(period.start, upTo).days;
+    final actual = metricOf(
+        summarise(
+            orders: orders,
+            campaigns: campaigns,
+            expenses: expenses,
+            range: DateRange(period.start, upTo)),
+        goal.metric);
+    final expected = (goal.target.toDouble() * elapsed / total).round();
+    final achieved = actual >= goal.target;
+    final int? projected = over
+        ? null
+        : projectedOverride ?? (actual.toDouble() / elapsed * total).round();
+    final left = total - elapsed;
+    final int? requiredPerDay = achieved || over
+        ? null
+        : ((goal.target - actual) / (left < 1 ? 1 : left)).ceil();
+
+    final GoalStatus status;
+    if (achieved) {
+      status = GoalStatus.achieved;
+    } else if (over) {
+      status = GoalStatus.missed;
+    } else if (elapsed < 3 && projectedOverride == null) {
+      status = GoalStatus.onTrack;
+    } else {
+      final ratio = goal.target <= 0 ? 1.0 : projected! / goal.target;
+      status = ratio >= 1
+          ? GoalStatus.onTrack
+          : ratio * 100 >= atRiskPercent
+              ? GoalStatus.atRisk
+              : GoalStatus.behind;
+    }
+    return GoalProgress(
+      goal: goal,
+      actual: actual,
+      expectedToDate: expected,
+      projected: projected,
+      requiredPerDay: requiredPerDay,
+      elapsedDays: elapsed,
+      totalDays: total,
+      status: status,
+    );
+  }
+
+  /// Splits [target] across [weights] (e.g. months by last year's figures),
+  /// in whole units that add up exactly (largest remainder). No usable
+  /// weights splits evenly.
+  List<int> seasonalSplit(int target, List<double> weights) {
+    final n = weights.length;
+    if (n == 0) return const [];
+    final clean = [for (final w in weights) w.isFinite && w > 0 ? w : 0.0];
+    final sum = clean.fold(0.0, (a, b) => a + b);
+    final shares =
+        sum <= 0 ? List.filled(n, 1.0 / n) : [for (final w in clean) w / sum];
+    final raw = [for (final share in shares) target * share];
+    final out = [for (final r in raw) r.floor()];
+    // Hand the units lost to rounding to the largest remainders first.
+    final order = List.generate(n, (i) => i)
+      ..sort((a, b) {
+        final c = (raw[b] - out[b]).compareTo(raw[a] - out[a]);
+        return c != 0 ? c : a.compareTo(b);
+      });
+    var left = target - out.fold(0, (a, b) => a + b);
+    for (var k = 0; left > 0; k++, left--) {
+      out[order[k % n]]++;
+    }
+    for (var k = n - 1; left < 0; k--, left++) {
+      out[order[(k % n + n) % n]]--;
+    }
+    return out;
   }
 }
 

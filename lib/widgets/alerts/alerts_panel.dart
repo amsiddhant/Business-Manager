@@ -8,6 +8,7 @@ import '../../core/theme/theme_x.dart';
 import '../../services/alert_service.dart';
 import '../../state/alert_controller.dart';
 import '../../state/app_state.dart';
+import '../../state/org_settings.dart';
 import '../../state/data_controller.dart';
 import '../common/responsive.dart';
 import 'alert_tile.dart';
@@ -181,16 +182,17 @@ class AlertsPanel extends StatelessWidget {
                     'center.',
                     style: TextStyle(fontSize: 12, color: t.textTertiary)),
               ),
-              TextButton.icon(
-                iconAlignment: IconAlignment.end,
-                icon: const Icon(Icons.arrow_forward, size: 16),
-                label: const Text('Alerts center'),
-                onPressed: () {
-                  final router = GoRouter.of(context);
-                  close();
-                  router.go(Routes.alerts);
-                },
-              ),
+              if (context.orgSettings((s) => s.modules.isEnabled(Routes.alerts)))
+                TextButton.icon(
+                  iconAlignment: IconAlignment.end,
+                  icon: const Icon(Icons.arrow_forward, size: 16),
+                  label: const Text('Alerts center'),
+                  onPressed: () {
+                    final router = GoRouter.of(context);
+                    close();
+                    router.go(Routes.alerts);
+                  },
+                ),
             ],
           ),
         ),

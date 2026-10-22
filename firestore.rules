@@ -303,6 +303,81 @@ service cloud.firestore {
          (isAdmin() || hasGrant('deleteCustomer'))));
     }
 
+    // ---- Organisation settings ----------------------------------------------
+    // settings/app holds the organisation's customisation (branding, theme,
+    // modules, defaults, …); settings/logo holds the logo as a small data URL.
+    // Every active user reads them (one read per session); the Owner and
+    // Admins (unless revoked) — or a User granted manageSettings — save them.
+    // A missing document simply means "all defaults"; nothing is seeded.
+    match /settings/{doc} {
+      function canEditSettings() {
+        return isOwner() ||
+          (isAdmin() && !isRevoked('manageSettings')) ||
+          (isUser() && hasGrant('manageSettings'));
+      }
+      function validApp() {
+        let d = request.resource.data;
+        return d.schemaVersion is int &&
+          (!('branding' in d) ||
+           (d.branding is map &&
+            (!('appName' in d.branding) ||
+             (d.branding.appName is string &&
+              d.branding.appName.size() <= 60)) &&
+            (!('primaryColor' in d.branding) ||
+             d.branding.primaryColor == null ||
+             d.branding.primaryColor is int))) &&
+          (!('defaults' in d) ||
+           (d.defaults is map &&
+            (!('fyStartMonth' in d.defaults) ||
+             d.defaults.fyStartMonth in [1, 4, 7, 10])));
+      }
+      function validLogo() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['dataUrl', 'hash', 'updatedAt', 'updatedBy']) &&
+          d.dataUrl is string &&
+          d.dataUrl.size() <= 210000 &&
+          d.dataUrl.matches('^data:image/(png|jpeg|webp);base64,.*') &&
+          (!('hash' in d) || (d.hash is string && d.hash.size() <= 64));
+      }
+      allow get: if isSignedIn() && isActive();
+      allow list: if false;
+      allow create, update: if canEditSettings() &&
+        ((doc == 'app' && validApp()) || (doc == 'logo' && validLogo()));
+      allow delete: if canEditSettings() && doc == 'logo';
+    }
+
+    // ---- Goals ----------------------------------------------------------------
+    // One target per business (or 'ALL', the Owner's organisation-wide goals),
+    // period and metric; the id is derived from those, so saving again
+    // replaces the goal. Read with business access; set by the Owner, an Admin
+    // (unless manageGoals is revoked) or a User granted manageGoals.
+    match /goals/{id} {
+      function validGoal() {
+        let d = request.resource.data;
+        return d.businessId is string &&
+          d.periodKey is string &&
+          d.periodKey.size() <= 12 &&
+          d.metric in ['revenue', 'grossProfit', 'contributionProfit',
+                       'netProfit', 'orders', 'units'] &&
+          d.periodType in ['month', 'quarter', 'financialYear'] &&
+          id == d.businessId + '_' + d.periodKey + '_' + d.metric &&
+          d.target is int &&
+          d.target >= 0 &&
+          (!('note' in d) || (d.note is string && d.note.size() <= 500));
+      }
+      function canSetGoals(businessId) {
+        return isOwner() ||
+          (businessId != 'ALL' &&
+           canAccessBusiness(businessId) &&
+           ((isAdmin() && !isRevoked('manageGoals')) ||
+            (isUser() && hasGrant('manageGoals'))));
+      }
+      allow read: if canAccessBusiness(resource.data.businessId);
+      allow create, update: if validGoal() &&
+        canSetGoals(request.resource.data.businessId);
+      allow delete: if canSetGoals(resource.data.businessId);
+    }
+
     // ---- Audit logs ---------------------------------------------------------
     // Append-only trail. Any signed-in, active user may append a log entry;
     // only the owner may read the trail. Logs are never updated or deleted.

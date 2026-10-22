@@ -195,22 +195,30 @@ class FilterController extends ChangeNotifier {
     notifyListeners();
   }
 
-  DateRange _quarterRange(FinancialYear fy, FinancialQuarter q) {
-    // Q1 Apr–Jun, Q2 Jul–Sep, Q3 Oct–Dec (all in start year),
-    // Q4 Jan–Mar (in end year).
-    switch (q) {
-      case FinancialQuarter.q1:
-        return DateRange(
-            DateTime(fy.startYear, 4, 1), DateTime(fy.startYear, 6, 30));
-      case FinancialQuarter.q2:
-        return DateRange(
-            DateTime(fy.startYear, 7, 1), DateTime(fy.startYear, 9, 30));
-      case FinancialQuarter.q3:
-        return DateRange(
-            DateTime(fy.startYear, 10, 1), DateTime(fy.startYear, 12, 31));
-      case FinancialQuarter.q4:
-        return DateRange(
-            DateTime(fy.endYear, 1, 1), DateTime(fy.endYear, 3, 31));
-    }
+  /// Re-resolves the period after the financial-year start month changed
+  /// (Settings): the selected FY becomes the one containing today, and the
+  /// quarter and range follow the new boundaries.
+  void financialYearStartChanged({DateTime? now}) {
+    _financialYear = FinancialYear.forDate(now ?? DateTime.now());
+    _recompute();
   }
+
+  /// Applies the organisation's default period and comparison for someone
+  /// with no remembered selection.
+  void applyDefaults(PeriodType period, ComparisonBasis comparison,
+      {DateTime? now}) {
+    final n = now ?? DateTime.now();
+    _comparison = comparison;
+    _financialYear = FinancialYear.forDate(n);
+    _quarter = FinancialQuarter.forDate(n);
+    _calendarYear = n.year;
+    _month = n.month;
+    _monthYear = n.year;
+    _periodType = period == PeriodType.custom ? PeriodType.financialYear : period;
+    _announced = null;
+    _recompute();
+  }
+
+  DateRange _quarterRange(FinancialYear fy, FinancialQuarter q) =>
+      q.rangeIn(fy);
 }

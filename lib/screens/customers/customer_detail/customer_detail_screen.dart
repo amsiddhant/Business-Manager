@@ -8,6 +8,7 @@ import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/theme_x.dart';
 import '../../../core/utils/date_utils.dart';
 import '../../../core/utils/money.dart';
+import '../../../models/app_settings.dart';
 import '../../../models/customer.dart';
 import '../../../models/entity_comment.dart';
 import '../../../services/profit_calculation_service.dart';
@@ -15,6 +16,7 @@ import '../../../services/summaries/customer_summaries.dart';
 import '../../../state/app_state.dart';
 import '../../../state/data_controller.dart';
 import '../../../state/filter_controller.dart';
+import '../../../state/org_settings.dart';
 import '../../../widgets/common/comment_thread.dart';
 import '../../../widgets/common/team_access_card.dart';
 import '../../../widgets/layout/detail_page.dart';
@@ -165,7 +167,8 @@ class CustomerDetailScreen extends StatelessWidget {
             )
           : null,
       actions: [
-        if (contractBusinesses.isNotEmpty)
+        if (contractBusinesses.isNotEmpty &&
+            context.orgSettings((s) => s.features.isOn(AppFeature.invoices)))
           OutlinedButton.icon(
             onPressed: () => generateCustomerInvoice(
               context,

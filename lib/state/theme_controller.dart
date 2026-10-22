@@ -7,6 +7,7 @@ import '../core/theme/app_density.dart';
 import '../core/theme/app_motion.dart';
 import '../core/theme/app_palette.dart';
 import '../core/theme/app_theme.dart';
+import '../models/app_settings.dart' show ChartPaletteStyle, CornerStyle;
 import 'user_prefs.dart';
 
 /// The organisation-wide look, set by the Owner or an Admin (Settings, P4).
@@ -18,6 +19,8 @@ class OrgTheme {
     this.allowUserOverride = true,
     this.density = AppDensity.comfortable,
     this.motion = MotionLevel.full,
+    this.corners = CornerStyle.standard,
+    this.chartPalette = ChartPaletteStyle.brand,
   });
 
   final Color brand;
@@ -27,6 +30,8 @@ class OrgTheme {
   final bool allowUserOverride;
   final AppDensity density;
   final MotionLevel motion;
+  final CornerStyle corners;
+  final ChartPaletteStyle chartPalette;
 
   Map<String, dynamic> toJson() => {
         'brand': brand.toARGB32(),
@@ -34,6 +39,8 @@ class OrgTheme {
         'allowUserOverride': allowUserOverride,
         'density': density.name,
         'motion': motion.name,
+        'corners': corners.name,
+        'chartPalette': chartPalette.name,
       };
 
   /// Tolerant: anything missing or unknown falls back to the default.
@@ -48,6 +55,14 @@ class OrgTheme {
       allowUserOverride: json['allowUserOverride'] != false,
       density: AppDensity.fromName(json['density'] as String?),
       motion: MotionLevel.fromName(json['motion'] as String?),
+      corners: CornerStyle.values.firstWhere(
+        (c) => c.name == json['corners'],
+        orElse: () => CornerStyle.standard,
+      ),
+      chartPalette: ChartPaletteStyle.values.firstWhere(
+        (c) => c.name == json['chartPalette'],
+        orElse: () => ChartPaletteStyle.brand,
+      ),
     );
   }
 
@@ -58,11 +73,19 @@ class OrgTheme {
       other.defaultMode == defaultMode &&
       other.allowUserOverride == allowUserOverride &&
       other.density == density &&
-      other.motion == motion;
+      other.motion == motion &&
+      other.corners == corners &&
+      other.chartPalette == chartPalette;
 
   @override
   int get hashCode => Object.hash(
-      brand.toARGB32(), defaultMode, allowUserOverride, density, motion);
+      brand.toARGB32(),
+      defaultMode,
+      allowUserOverride,
+      density,
+      motion,
+      corners,
+      chartPalette);
 }
 
 /// Resolves the theme the app should use right now from the organisation's
@@ -131,6 +154,8 @@ class ThemeController extends ChangeNotifier {
   }
 
   Color? _builtBrand;
+  CornerStyle? _builtCorners;
+  ChartPaletteStyle? _builtChart;
 
   void _resolve({bool notify = true}) {
     final mode = (_org.allowUserOverride ? _user.themeMode : null) ??
@@ -143,6 +168,8 @@ class ThemeController extends ChangeNotifier {
     final first = _builtBrand == null;
     final looksChanged = first ||
         _builtBrand!.toARGB32() != _org.brand.toARGB32() ||
+        _builtCorners != _org.corners ||
+        _builtChart != _org.chartPalette ||
         density != _density ||
         motion != _motion;
     final changed = looksChanged || mode != _mode;
@@ -152,6 +179,8 @@ class ThemeController extends ChangeNotifier {
     _motion = motion;
     if (looksChanged) {
       _builtBrand = _org.brand;
+      _builtCorners = _org.corners;
+      _builtChart = _org.chartPalette;
       _light = null;
       _dark = null;
     }
@@ -163,6 +192,8 @@ class ThemeController extends ChangeNotifier {
         brightness: brightness,
         density: _density,
         motion: _motion,
+        corners: _org.corners,
+        chartPalette: _org.chartPalette,
       );
 
   @override

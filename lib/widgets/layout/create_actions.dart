@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/permissions.dart';
 import '../../core/routing/app_routes.dart';
 import '../../core/routing/create_requests.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../screens/businesses/businesses_screen.dart';
 import '../../screens/campaigns/campaigns_screen.dart';
@@ -109,15 +110,27 @@ final List<CreateAction> kCreateActions = [
   ),
 ];
 
-List<CreateAction> createActionsFor(AppUser? user) =>
-    [for (final a in kCreateActions) if (a.allowedFor(user)) a];
+/// The create actions [user] may use. Sections switched off in [modules] are
+/// left out.
+List<CreateAction> createActionsFor(AppUser? user, {ModuleSettings? modules}) =>
+    [
+      for (final a in kCreateActions)
+        if (a.allowedFor(user) && (modules?.isEnabled(a.section) ?? true)) a,
+    ];
 
 /// The create action for the section [location] belongs to, if [user] may
-/// use it.
-CreateAction? createActionForLocation(AppUser? user, String location) {
+/// use it (and the section is on).
+CreateAction? createActionForLocation(
+  AppUser? user,
+  String location, {
+  ModuleSettings? modules,
+}) {
   final section = Routes.sectionOf(location);
   for (final a in kCreateActions) {
-    if (a.section == section) return a.allowedFor(user) ? a : null;
+    if (a.section == section) {
+      final on = modules?.isEnabled(a.section) ?? true;
+      return a.allowedFor(user) && on ? a : null;
+    }
   }
   return null;
 }

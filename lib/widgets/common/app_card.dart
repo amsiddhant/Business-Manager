@@ -33,7 +33,7 @@ class _AppCardState extends State<AppCard> {
   Widget build(BuildContext context) {
     final t = context.tokens;
     final motion = context.motion;
-    final radius = BorderRadius.circular(AppSpacing.radius);
+    final radius = AppShape.of(context).md;
     final interactive = widget.onTap != null;
     final hovered = interactive && _hover;
 

@@ -15,6 +15,7 @@ import '../../services/profit_calculation_service.dart';
 import '../../services/summaries/business_summaries.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../state/org_settings.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/initials_avatar.dart';
 import '../../widgets/common/page_header.dart';
@@ -643,7 +644,8 @@ class _BusinessFormDialogState extends State<_BusinessFormDialog> {
     _linkedin = TextEditingController(text: b?.linkedinUrl ?? '');
     _reddit = TextEditingController(text: b?.redditUrl ?? '');
     _otherSocial = TextEditingController(text: b?.otherSocialUrl ?? '');
-    _currency = b?.currency ?? CurrencyCode.inr;
+    // A new business starts in the organisation's default currency.
+    _currency = b?.currency ?? context.readOrgSettings().defaults.currency;
     _status = b?.status ?? EntityStatus.active;
     _size = b?.size ?? CompanySize.small;
     _lifecycle = b?.lifecycle ?? BusinessLifecycle.active;

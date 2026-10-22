@@ -5,9 +5,11 @@ import '../../core/routing/app_routes.dart';
 import '../../core/shortcuts.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../state/org_settings.dart';
 import '../../state/theme_controller.dart';
 import '../../state/user_prefs.dart';
 import '../common/initials_avatar.dart';
@@ -29,6 +31,8 @@ class ProfileMenu extends StatelessWidget {
     final chosen = context.select<UserPrefs, ThemeMode?>((p) => p.themeMode) ??
         theme.org.defaultMode;
     final t = context.tokens;
+    final whatsNewOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.whatsNew));
 
     Widget check(bool on) =>
         Icon(Icons.check, size: 18, color: on ? t.primary : Colors.transparent);
@@ -87,11 +91,12 @@ class ProfileMenu extends StatelessWidget {
           onPressed: () => ShellNav.go(context, Routes.settings),
           child: const Text('Settings'),
         ),
-        MenuItemButton(
-          leadingIcon: const Icon(Icons.new_releases_outlined, size: 20),
-          onPressed: () => ShellNav.go(context, Routes.whatsNew),
-          child: const Text("What's new"),
-        ),
+        if (whatsNewOn)
+          MenuItemButton(
+            leadingIcon: const Icon(Icons.new_releases_outlined, size: 20),
+            onPressed: () => ShellNav.go(context, Routes.whatsNew),
+            child: const Text("What's new"),
+          ),
         MenuItemButton(
           leadingIcon: const Icon(Icons.keyboard_outlined, size: 20),
           onPressed: () => showShortcutsHelp(context),

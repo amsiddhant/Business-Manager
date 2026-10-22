@@ -17,6 +17,7 @@ import '../../models/product.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../state/org_settings.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/currency_display.dart';
 import '../../widgets/common/page_header.dart';
@@ -940,7 +941,10 @@ class _OrderFormDialogState extends State<_OrderFormDialog> {
             ? ''
             : o.buyingCost.major.toString());
     _notes = TextEditingController(text: o?.notes ?? '');
-    _status = _existing?.status ?? OrderStatus.confirmed;
+    // A new order starts with the organisation's default status, if it has one.
+    _status = _existing?.status ??
+        context.readOrgSettings().defaults.orderStatus ??
+        OrderStatus.confirmed;
     _orderDate = _existing == null
         ? (widget.template == null ? null : DateTime.now())
         : _existing!.orderDate ?? _existing!.audit.createdAt;

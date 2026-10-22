@@ -6,9 +6,11 @@ import 'package:provider/provider.dart';
 import '../../core/routing/nav_registry.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
 import '../../models/app_user.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
+import '../../state/org_settings.dart';
 import '../../state/user_prefs.dart';
 import '../alerts/alerts_bell.dart';
 import '../command_palette/command_palette.dart';
@@ -77,6 +79,8 @@ class _WideBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final wide = width >= 1100;
     final inlineScope = width >= 820;
+    final paletteOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.commandPalette));
     return SizedBox(
       height: 64,
       child: Padding(
@@ -92,14 +96,16 @@ class _WideBar extends StatelessWidget {
                   : Flexible(flex: 2, child: ScopePill(use: scope)),
             ],
             const SizedBox(width: AppSpacing.md),
-            wide
-                ? const _PaletteField()
-                : IconButton(
-                    tooltip: 'Search ($paletteShortcutLabel)',
-                    icon: const Icon(Icons.search),
-                    onPressed: () => CommandPalette.show(context),
-                  ),
-            const SizedBox(width: AppSpacing.xs),
+            if (paletteOn) ...[
+              wide
+                  ? const _PaletteField()
+                  : IconButton(
+                      tooltip: 'Search ($paletteShortcutLabel)',
+                      icon: const Icon(Icons.search),
+                      onPressed: () => CommandPalette.show(context),
+                    ),
+              const SizedBox(width: AppSpacing.xs),
+            ],
             _CreateMenu(location: location, compact: !wide),
             SyncStatus(showLabel: width >= 1400),
             const AlertsBell(),
@@ -121,6 +127,8 @@ class _MobileBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final paletteOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.commandPalette));
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -148,11 +156,12 @@ class _MobileBar extends StatelessWidget {
                   ),
                 ),
               ),
-              IconButton(
-                tooltip: 'Search',
-                icon: const Icon(Icons.search),
-                onPressed: () => CommandPalette.show(context),
-              ),
+              if (paletteOn)
+                IconButton(
+                  tooltip: 'Search',
+                  icon: const Icon(Icons.search),
+                  onPressed: () => CommandPalette.show(context),
+                ),
               const AlertsBell(),
               const ProfileMenu(showSync: true),
               const SizedBox(width: AppSpacing.xs),
@@ -295,9 +304,10 @@ class _CreateMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final user = context.select<AppState, AppUser?>((s) => s.currentUser);
-    final actions = createActionsFor(user);
+    final modules = context.orgSettings((s) => s.modules);
+    final actions = createActionsFor(user, modules: modules);
     if (actions.isEmpty) return const SizedBox.shrink();
-    final primary = createActionForLocation(user, location);
+    final primary = createActionForLocation(user, location, modules: modules);
     final ordered = [?primary, ...actions.where((a) => a != primary)];
 
     return MenuAnchor(

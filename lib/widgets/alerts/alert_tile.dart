@@ -43,6 +43,7 @@ class AlertTile extends StatelessWidget {
     AlertType.campaignEnding => Icons.campaign_outlined,
     AlertType.lowMargin => Icons.trending_down,
     AlertType.unusualSpend => Icons.bolt_outlined,
+    AlertType.goalAtRisk => Icons.flag_outlined,
     AlertType.dataWarning => Icons.cloud_off_outlined,
     AlertType.demoMode => Icons.science_outlined,
   };

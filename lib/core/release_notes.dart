@@ -20,6 +20,41 @@ class ReleaseNote {
 /// Every release, newest first. Add an entry with each version bump.
 const List<ReleaseNote> kReleaseNotes = [
   ReleaseNote(
+    version: '1.5.0',
+    date: 'October 2026',
+    title: 'Make it yours: organisation settings, and goals',
+    highlights: [
+      'Settings is redesigned and open to everyone. Search it, or browse '
+          'Personal, Organisation and System sections.',
+      'Personal settings: choose light, dark or system appearance, reduce '
+          'motion, pick a density, and hide alert types you don\'t need.',
+      'Owners and admins can now customise the app for everyone: name, '
+          'tagline, logo and brand colour (with a live light and dark '
+          'preview), corners, chart colours, density and motion.',
+      'Switch off sections and features you don\'t use. Hidden sections '
+          'disappear from menus, but every total still includes their data.',
+      'Choose where people land after signing in and which sections sit in '
+          'the phone\'s bottom bar.',
+      'Set organisation defaults: currency for new businesses, date and '
+          'number formats, the dashboard\'s period and comparison, the '
+          'financial year\'s start month, the new-order status, rows per '
+          'table page and how often data refreshes.',
+      'Rearrange or hide dashboard sections and pick its four headline '
+          'figures. Tables can use zebra stripes, a fixed header and default '
+          'columns for everyone.',
+      'Tune alerts: switch types off and set the windows and thresholds '
+          'that raise them.',
+      'New Goals page: set monthly, quarterly or yearly targets for revenue, '
+          'profit, orders or units. Progress rings show where you are, '
+          'whether you are on pace, where you are heading and what you need '
+          'each day.',
+      'Plan a whole year at once: split a yearly target evenly or in line '
+          'with last year, and copy targets forward month to month.',
+      'Goals appear on the dashboard, and the alerts center warns you when '
+          'one is at risk or falling behind.',
+    ],
+  ),
+  ReleaseNote(
     version: '1.4.0',
     date: 'October 2026',
     title: 'Every page redesigned: smarter tables, easier forms',

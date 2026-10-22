@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../models/app_settings.dart' show ChartPaletteStyle, CornerStyle;
 import 'app_density.dart';
 import 'app_motion.dart';
 import 'app_palette.dart';
@@ -25,6 +26,36 @@ class AppSpacing {
   static const double tabletMax = 1024;
 }
 
+/// The corner radii in effect: the base radii times the organisation's
+/// corner style (sharp 0.5, standard 1, rounded 1.5). Read it with
+/// `AppShape.of(context)`; outside a themed tree it is the standard shape.
+@immutable
+class AppShape extends ThemeExtension<AppShape> {
+  const AppShape([this.scale = 1]);
+
+  final double scale;
+
+  static const AppShape standard = AppShape();
+
+  static AppShape of(BuildContext context) =>
+      Theme.of(context).extension<AppShape>() ?? standard;
+
+  double get radiusSm => AppSpacing.radiusSm * scale;
+  double get radius => AppSpacing.radius * scale;
+  double get radiusLg => AppSpacing.radiusLg * scale;
+
+  BorderRadius get sm => BorderRadius.circular(radiusSm);
+  BorderRadius get md => BorderRadius.circular(radius);
+  BorderRadius get lg => BorderRadius.circular(radiusLg);
+
+  @override
+  AppShape copyWith({double? scale}) => AppShape(scale ?? this.scale);
+
+  @override
+  AppShape lerp(AppShape? other, double t) =>
+      other == null ? this : AppShape(scale + (other.scale - scale) * t);
+}
+
 /// Builds the app's [ThemeData] from a brand colour, brightness, density and
 /// motion level. Every component reads its colours from [AppTokens], so the
 /// whole app follows light/dark mode and the admin's brand colour.
@@ -39,10 +70,13 @@ class AppTheme {
     Brightness brightness = Brightness.light,
     AppDensity density = AppDensity.comfortable,
     MotionLevel motion = MotionLevel.full,
+    CornerStyle corners = CornerStyle.standard,
+    ChartPaletteStyle chartPalette = ChartPaletteStyle.brand,
   }) {
     final t = brightness == Brightness.dark
-        ? AppPalette.dark(brand: brand)
-        : AppPalette.light(brand: brand);
+        ? AppPalette.dark(brand: brand, chartPalette: chartPalette)
+        : AppPalette.light(brand: brand, chartPalette: chartPalette);
+    final shape = AppShape(corners.scale);
     final base = ThemeData(useMaterial3: true, brightness: brightness);
     final textTheme = GoogleFonts.interTextTheme(base.textTheme).apply(
       bodyColor: t.textPrimary,
@@ -75,7 +109,7 @@ class AppTheme {
       scrim: t.scrim,
     );
 
-    final radiusSm = BorderRadius.circular(AppSpacing.radiusSm);
+    final radiusSm = shape.sm;
     OutlineInputBorder field(Color color, [double width = 1]) =>
         OutlineInputBorder(
           borderRadius: radiusSm,
@@ -90,7 +124,7 @@ class AppTheme {
 
     return base.copyWith(
       colorScheme: colorScheme,
-      extensions: [t, AppDensityTheme(density), motionTheme],
+      extensions: [t, AppDensityTheme(density), motionTheme, shape],
       visualDensity: density.visualDensity,
       scaffoldBackgroundColor: t.background,
       canvasColor: t.background,
@@ -114,7 +148,7 @@ class AppTheme {
         color: t.card,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radius),
+          borderRadius: shape.md,
           side: BorderSide(color: t.border),
         ),
         margin: EdgeInsets.zero,
@@ -241,9 +275,7 @@ class AppTheme {
           fontWeight: FontWeight.w600,
         ),
         contentTextStyle: TextStyle(color: t.textSecondary, fontSize: 14),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: shape.lg),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: t.card,
@@ -251,9 +283,9 @@ class AppTheme {
         modalBarrierColor: t.scrim,
         showDragHandle: true,
         dragHandleColor: t.borderStrong,
-        shape: const RoundedRectangleBorder(
+        shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
-            top: Radius.circular(AppSpacing.radiusLg),
+            top: Radius.circular(shape.radiusLg),
           ),
         ),
       ),
@@ -350,9 +382,7 @@ class AppTheme {
         foregroundColor: t.textOnPrimary,
         elevation: 2,
         highlightElevation: 4,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: shape.lg),
       ),
       tabBarTheme: TabBarThemeData(
         labelColor: t.primary,
@@ -404,9 +434,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         headerBackgroundColor: t.primary,
         headerForegroundColor: t.textOnPrimary,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: shape.lg),
       ),
       dataTableTheme: DataTableThemeData(
         headingTextStyle: TextStyle(

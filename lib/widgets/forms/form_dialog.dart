@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/theme/theme_x.dart';
+import '../../models/app_settings.dart';
+import '../../state/org_settings.dart';
 import '../../state/user_prefs.dart';
 import '../common/responsive.dart';
 import 'app_form.dart';
@@ -95,6 +97,8 @@ class _FormDialogState extends State<FormDialog> implements FormHooks {
     _draftsChecked = true;
     final key = widget.draftKey;
     if (key == null) return;
+    // No drafts (saving or offering) when the organisation turns them off.
+    if (!context.readOrgSettings().features.isOn(AppFeature.drafts)) return;
     try {
       _drafts = FormDraftStore(context.read<UserPrefs>());
     } on ProviderNotFoundException {

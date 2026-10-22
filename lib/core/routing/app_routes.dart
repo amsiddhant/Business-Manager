@@ -10,6 +10,7 @@ class Routes {
   static const forgotPassword = '/forgot-password';
   static const dashboard = '/dashboard';
   static const alerts = '/alerts';
+  static const goals = '/goals';
   static const businesses = '/businesses';
   static const businessDetail = '/businesses/:id';
   static const products = '/products';
@@ -114,6 +115,13 @@ const List<NavDestination> kNavDestinations = [
     permission: Permission.viewDashboard,
   ),
   NavDestination(
+    label: 'Goals',
+    icon: Icons.flag_outlined,
+    selectedIcon: Icons.flag,
+    route: Routes.goals,
+    permission: Permission.viewDashboard,
+  ),
+  NavDestination(
     label: 'Businesses',
     icon: Icons.business_outlined,
     selectedIcon: Icons.business,
@@ -182,6 +190,7 @@ const List<NavDestination> kNavDestinations = [
     icon: Icons.settings_outlined,
     selectedIcon: Icons.settings,
     route: Routes.settings,
-    permission: Permission.manageSettings,
+    // Everyone has Personal settings; the screen hides what they can't manage.
+    permission: Permission.viewDashboard,
   ),
 ];

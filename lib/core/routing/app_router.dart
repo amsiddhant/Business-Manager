@@ -10,6 +10,7 @@ import '../../screens/campaigns/campaigns_screen.dart';
 import '../../screens/customers/customer_detail_screen.dart';
 import '../../screens/customers/customers_screen.dart';
 import '../../screens/alerts/alerts_screen.dart';
+import '../../screens/goals/goals_screen.dart';
 import '../../screens/dashboard/dashboard_screen.dart';
 import '../../screens/dealers/dealer_detail_screen.dart';
 import '../../screens/dealers/dealers_screen.dart';
@@ -21,10 +22,11 @@ import '../../screens/products/product_detail_screen.dart';
 import '../../screens/products/products_screen.dart';
 // Rarely-opened, heavy screens load on first visit (smaller main.dart.js).
 import '../../screens/reports/reports_screen.dart' deferred as reports;
-import '../../screens/settings/settings_screen.dart' deferred as settings;
+import '../../screens/settings/settings_screen.dart' deferred as settings_page;
 import '../../screens/users/users_screen.dart' deferred as users;
 import '../../screens/whats_new/whats_new_screen.dart';
 import '../../state/app_state.dart';
+import '../../state/settings_controller.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/layout/app_shell.dart';
 import '../theme/app_theme.dart';
@@ -39,7 +41,19 @@ import 'app_routes.dart';
 ///
 /// Each section is its own shell branch with its own navigator, so switching
 /// sections and coming back keeps the list's scroll, search and sort.
-GoRouter buildRouter(AppState appState) {
+GoRouter buildRouter(AppState appState, {SettingsController? settings}) {
+  /// Where people land: the organisation's landing page when it is on and
+  /// they may open it, otherwise the dashboard.
+  String landing() {
+    final s = settings?.settings;
+    if (s == null) return Routes.dashboard;
+    final route = s.navigation.landingRoute;
+    return s.modules.isEnabled(route) &&
+            Routes.canOpen(appState.currentUser, route)
+        ? route
+        : Routes.dashboard;
+  }
+
   Widget guard(GoRouterState state, Widget child) => PermissionGuard(
         appState: appState,
         location: state.matchedLocation,
@@ -72,7 +86,9 @@ GoRouter buildRouter(AppState appState) {
 
   return GoRouter(
     initialLocation: Routes.dashboard,
-    refreshListenable: appState,
+    refreshListenable: settings == null
+        ? appState
+        : Listenable.merge([appState, settings]),
     redirect: (context, state) {
       final status = appState.status;
       final loc = state.matchedLocation;
@@ -85,8 +101,12 @@ GoRouter buildRouter(AppState appState) {
       if (!signedIn) {
         return isAuthRoute ? null : Routes.login;
       }
-      // Signed in but sitting on an auth route (or the bare root) → dashboard.
-      if (isAuthRoute || loc == '/') return Routes.dashboard;
+      // Signed in but sitting on an auth route (or the bare root) → landing.
+      if (isAuthRoute || loc == '/') return landing();
+      // A section the organisation has switched off → landing page.
+      if (settings != null && !settings.settings.modules.allows(loc)) {
+        return landing();
+      }
       return null;
     },
     routes: [
@@ -104,6 +124,7 @@ GoRouter buildRouter(AppState appState) {
         branches: [
           section(Routes.dashboard, (_) => const DashboardScreen()),
           section(Routes.alerts, (_) => const AlertsScreen()),
+          section(Routes.goals, (_) => const GoalsScreen()),
           section(
             Routes.businesses,
             (_) => const BusinessesScreen(),
@@ -157,8 +178,8 @@ GoRouter buildRouter(AppState appState) {
           section(
             Routes.settings,
             (_) => DeferredPage(
-              loader: settings.loadLibrary,
-              builder: () => settings.SettingsScreen(),
+              loader: settings_page.loadLibrary,
+              builder: () => settings_page.SettingsScreen(),
             ),
           ),
           section(Routes.whatsNew, (_) => const WhatsNewScreen()),

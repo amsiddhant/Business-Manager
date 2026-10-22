@@ -11,6 +11,7 @@ import '../../core/utils/date_utils.dart';
 import '../../core/utils/money.dart';
 import '../../core/validators.dart';
 import '../../data/repository.dart';
+import '../../models/app_settings.dart';
 import '../../models/business.dart';
 import '../../models/customer.dart';
 import '../../services/profit_calculation_service.dart';
@@ -18,6 +19,7 @@ import '../../services/summaries/customer_summaries.dart';
 import '../../state/app_state.dart';
 import '../../state/data_controller.dart';
 import '../../state/filter_controller.dart';
+import '../../state/org_settings.dart';
 import '../../widgets/common/confirm_dialog.dart';
 import '../../widgets/common/csv_actions.dart';
 import '../../widgets/common/currency_display.dart';
@@ -108,6 +110,10 @@ class _CustomersScreenState extends State<CustomersScreen> {
     final bizId = filter.selectedBusinessId;
     final canCreate = user?.can(Permission.createCustomer) ?? false;
     final canExport = user?.can(Permission.exportData) ?? false;
+    final csvExportOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.csvExport));
+    final csvImportOn =
+        context.orgSettings((s) => s.features.isOn(AppFeature.csvImport));
     final canEdit = user?.can(Permission.editCustomer) ?? false;
     final canDelete = user?.can(Permission.deleteCustomer) ?? false;
     final repo = appState.repository;
@@ -167,7 +173,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
             count: customers.length,
             subtitle: 'Manage leads, contacts and deal pipeline',
             actions: [
-              if (canExport)
+              if (canExport && csvExportOn)
                 OutlinedButton.icon(
                   onPressed: customers.isEmpty
                       ? null
@@ -175,7 +181,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   icon: const Icon(Icons.file_download_outlined, size: 18),
                   label: const Text('Export CSV'),
                 ),
-              if (canCreate)
+              if (canCreate && csvImportOn)
                 OutlinedButton.icon(
                   onPressed: () => importCustomersCsv(context),
                   icon: const Icon(Icons.file_upload_outlined, size: 18),
@@ -590,7 +596,8 @@ class _RowActions extends StatelessWidget {
           onPressed: () =>
               context.go(Routes.customerDetailPath(customer.id)),
         ),
-        if (CustomerActions.canInvoice(customer, businessId))
+        if (context.orgSettings((s) => s.features.isOn(AppFeature.invoices)) &&
+            CustomerActions.canInvoice(customer, businessId))
           IconButton(
             tooltip: 'Generate invoice',
             icon: const Icon(Icons.receipt_long_outlined, size: 18),
