@@ -11,6 +11,7 @@ import '../common/responsive.dart';
 import 'business_selector.dart';
 import 'global_search.dart';
 import 'period_selector.dart';
+import 'sync_status.dart';
 
 /// The top application bar: menu (mobile), business selector, period selector,
 /// search, notifications and the user profile menu (spec §4).
@@ -48,6 +49,7 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
             const PeriodSelector(),
           ],
           const Spacer(),
+          const SyncStatus(),
           IconButton(
             tooltip: 'Search',
             icon: const Icon(Icons.search),
@@ -209,6 +211,8 @@ class _ProfileMenu extends StatelessWidget {
         switch (value) {
           case 'settings':
             context.go(Routes.settings);
+          case 'whatsnew':
+            context.go(Routes.whatsNew);
           case 'signout':
             appState.signOut();
         }
@@ -236,6 +240,15 @@ class _ProfileMenu extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.settings_outlined, size: 20),
             title: Text('Settings'),
+          ),
+        ),
+        const PopupMenuItem<String>(
+          value: 'whatsnew',
+          child: ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.new_releases_outlined, size: 20),
+            title: Text("What's new"),
           ),
         ),
         const PopupMenuItem<String>(

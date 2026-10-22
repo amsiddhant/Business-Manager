@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
+import 'data/local_backend.dart';
 import 'state/app_state.dart';
 import 'state/data_controller.dart';
 import 'state/filter_controller.dart';
@@ -52,6 +53,7 @@ class _AppView extends StatefulWidget {
 
 class _AppViewState extends State<_AppView> {
   late final GoRouter _router = buildRouter(widget.appState);
+  late final AppLifecycleListener _lifecycle;
   AuthStatus? _lastStatus;
 
   @override
@@ -60,10 +62,27 @@ class _AppViewState extends State<_AppView> {
     widget.appState.addListener(_onAppStateChanged);
     // Handle a session that was already primed during AppState.create().
     WidgetsBinding.instance.addPostFrameCallback((_) => _onAppStateChanged());
+    _lifecycle = AppLifecycleListener(
+      // Back on the tab after a while: pick up other people's changes.
+      onResume: () {
+        if (widget.appState.status == AuthStatus.signedIn) {
+          context.read<DataController>().softSyncIfStale();
+        }
+      },
+      // The tab may be closed next: save any pending demo-data changes.
+      onHide: _flushLocal,
+      onPause: _flushLocal,
+    );
+  }
+
+  void _flushLocal() {
+    final backend = widget.appState.backend;
+    if (backend is LocalBackend) backend.flush();
   }
 
   @override
   void dispose() {
+    _lifecycle.dispose();
     widget.appState.removeListener(_onAppStateChanged);
     super.dispose();
   }

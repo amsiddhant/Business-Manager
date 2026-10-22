@@ -54,7 +54,6 @@ class ExpensesScreen extends StatefulWidget {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
             context,
@@ -258,7 +257,6 @@ class _RowActions extends StatelessWidget {
   }
 
   Future<void> _delete(BuildContext context) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -267,8 +265,7 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.deleteExpense(expense.id);
-      await data.refresh();
+      await repo.deleteExpense(expense.id, known: expense);
       if (context.mounted) showSuccessSnack(context, 'Expense deleted');
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);
@@ -372,6 +369,12 @@ class _ExpenseFormDialogState extends State<_ExpenseFormDialog> {
               controller: _name,
               isRequired: true,
               validator: (v) => Validators.required(v, field: 'Expense name'),
+            ),
+            const FormGap(),
+            AppTextField(
+              label: 'Description',
+              controller: _description,
+              maxLines: 2,
             ),
             const FormGap(),
             FormRow([

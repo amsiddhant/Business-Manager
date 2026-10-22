@@ -52,7 +52,6 @@ class DealersScreen extends StatefulWidget {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
             context,
@@ -255,7 +254,6 @@ class _RowActions extends StatelessWidget {
   }
 
   Future<void> _delete(BuildContext context) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -265,8 +263,7 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.deleteDealer(dealer.id);
-      await data.refresh();
+      await repo.deleteDealer(dealer.id, known: dealer);
       if (context.mounted) showSuccessSnack(context, 'Dealer deleted');
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);

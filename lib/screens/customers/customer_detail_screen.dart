@@ -36,6 +36,7 @@ import '../../widgets/common/page_header.dart';
 import '../../widgets/common/responsive.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
+import '../../widgets/layout/app_page.dart';
 import 'customers_screen.dart';
 import 'invoice_action.dart';
 import 'service_contract_form.dart';
@@ -54,8 +55,7 @@ class CustomerDetailScreen extends StatelessWidget {
     final user = appState.currentUser;
 
     if (data.loading && !data.loaded) {
-      return const Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return const AppPage(
         children: [
           PageHeader(title: 'Customer'),
           SizedBox(height: 48),
@@ -66,8 +66,7 @@ class CustomerDetailScreen extends StatelessWidget {
 
     final customer = data.customerById(customerId);
     if (customer == null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return AppPage(
         children: [
           PageHeader(
             title: 'Customer',
@@ -167,8 +166,7 @@ class CustomerDetailScreen extends StatelessWidget {
       subtitle.write(' · ${businesses.length} businesses');
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return AppPage(
       children: [
         PageHeader(
           title: customer.name,
@@ -201,16 +199,12 @@ class CustomerDetailScreen extends StatelessWidget {
           ],
         ),
         const SizedBox(height: AppSpacing.lg),
-        if (isMobile)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              left,
-              const SizedBox(height: AppSpacing.lg),
-              right,
-            ],
-          )
-        else
+        // Separate page sections on mobile, so each is built lazily.
+        if (isMobile) ...[
+          left,
+          const SizedBox(height: AppSpacing.lg),
+          right,
+        ] else
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -235,7 +229,6 @@ class CustomerDetailScreen extends StatelessWidget {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(context, 'Customer updated successfully');
       }
@@ -471,7 +464,6 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
     if (business == null || !mounted) return;
 
     final repo = context.read<AppState>().repository;
-    final data = context.read<DataController>();
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => ServiceContractFormDialog(
@@ -481,7 +473,6 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (mounted) {
         showSuccessSnack(context, 'Deal won — service contract saved');
       }
@@ -508,14 +499,12 @@ class _DealStatusChangerState extends State<_DealStatusChanger> {
 
   Future<void> _persistStatus(DealStatus status) async {
     final repo = context.read<AppState>().repository;
-    final data = context.read<DataController>();
     setState(() => _busy = true);
     try {
       await repo.saveCustomer(
         widget.customer.copyWith(dealStatus: status),
         isNew: false,
       );
-      await data.refresh();
       if (mounted) {
         showSuccessSnack(context, 'Deal status updated to ${status.label}');
       }
@@ -791,7 +780,6 @@ class _ServiceContractCard extends StatelessWidget {
 
   Future<void> _openForm(BuildContext context, {required bool isRenewal}) async {
     final repo = context.read<AppState>().repository;
-    final data = context.read<DataController>();
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => ServiceContractFormDialog(
@@ -802,7 +790,6 @@ class _ServiceContractCard extends StatelessWidget {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
           context,
@@ -1424,7 +1411,7 @@ class _TeamAccessCardState extends State<_TeamAccessCard> {
     super.initState();
     final appState = context.read<AppState>();
     if (appState.currentUser?.isOwner ?? false) {
-      _rosterFuture = appState.repository.fetchUsers();
+      _rosterFuture = appState.repository.fetchUsersCached();
     }
   }
 
@@ -1721,7 +1708,6 @@ class _ContactsCardState extends State<_ContactsCard> {
   /// (the canonical [FormDialog] pattern), so the dialog resolves to `true` on a
   /// successful save; we then refresh and confirm. [existing] null means add.
   Future<void> _openForm({Contact? existing}) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final saved = await showDialog<bool>(
       context: context,
@@ -1729,7 +1715,6 @@ class _ContactsCardState extends State<_ContactsCard> {
           customer: _customer, repo: repo, existing: existing),
     );
     if (saved == true) {
-      await data.refresh();
       if (mounted) {
         showSuccessSnack(
             context, existing == null ? 'Contact added' : 'Contact updated');
@@ -1738,7 +1723,6 @@ class _ContactsCardState extends State<_ContactsCard> {
   }
 
   Future<void> _delete(Contact contact) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final label = contact.name.trim().isEmpty ? 'this contact' : contact.name;
     final confirmed = await showConfirmDialog(
@@ -1751,7 +1735,6 @@ class _ContactsCardState extends State<_ContactsCard> {
     if (!confirmed) return;
     try {
       await CustomerContactsViewModel(repo).remove(_customer, contact.id);
-      await data.refresh();
       if (mounted) showSuccessSnack(context, 'Contact deleted');
     } catch (e) {
       if (mounted) showErrorSnack(context, e);
@@ -2372,7 +2355,6 @@ class _CommentThreadState extends State<_CommentThread> {
     final text = _controller.text.trim();
     if (text.isEmpty || _posting) return;
     final appState = context.read<AppState>();
-    final data = context.read<DataController>();
     final user = appState.currentUser;
     if (user == null) return;
 
@@ -2391,7 +2373,6 @@ class _CommentThreadState extends State<_CommentThread> {
         isNew: false,
       );
       _controller.clear();
-      await data.refresh();
     } catch (e) {
       if (mounted) showErrorSnack(context, e);
     } finally {

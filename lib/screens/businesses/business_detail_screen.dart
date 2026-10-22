@@ -143,7 +143,6 @@ class BusinessDetailScreen extends StatelessWidget {
           business.copyWith(comments: [...business.comments, comment]),
           isNew: false,
         );
-        await data.refresh();
       },
     );
 
@@ -948,7 +947,7 @@ class _TeamAccessCardState extends State<_TeamAccessCard> {
     super.initState();
     final appState = context.read<AppState>();
     if (appState.currentUser?.isOwner ?? false) {
-      _rosterFuture = appState.repository.fetchUsers();
+      _rosterFuture = appState.repository.fetchUsersCached();
     }
   }
 

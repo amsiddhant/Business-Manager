@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/app_exception.dart';
 import 'backend.dart';
+import 'backend_capabilities.dart';
 import 'demo_seed.dart';
 
 /// A browser-persisted backend (via SharedPreferences) used as the default so
@@ -13,8 +15,20 @@ import 'demo_seed.dart';
 /// This is *not* a security boundary — it exists so the product is immediately
 /// demonstrable. Real deployments switch to [FirebaseBackend] via the Owner's
 /// in-app setup wizard, where Firestore security rules enforce authorization.
-class LocalBackend implements Backend {
+///
+/// The store is saved shortly after the last change (see [flush]), so a burst
+/// of writes such as a CSV import serialises it once rather than per row.
+class LocalBackend
+    implements
+        Backend,
+        BatchCapable,
+        CounterCapable,
+        FieldUpdateCapable,
+        QueryCapable {
   LocalBackend(this._prefs);
+
+  static const Duration _persistDelay = Duration(milliseconds: 250);
+  Timer? _persistTimer;
 
   final SharedPreferences _prefs;
 
@@ -89,12 +103,26 @@ class LocalBackend implements Backend {
     });
   }
 
-  void _persist() => _prefs.setString(_storeKey, jsonEncode(_store));
+  void _persist() {
+    _persistTimer?.cancel();
+    _persistTimer = Timer(_persistDelay, flush);
+  }
+
+  /// Saves any pending changes now (e.g. when the tab is being hidden).
+  void flush() {
+    final pending = _persistTimer;
+    if (pending == null) return;
+    pending.cancel();
+    _persistTimer = null;
+    _prefs.setString(_storeKey, jsonEncode(_store));
+  }
+
   void _persistCreds() => _prefs.setString(_credsKey, jsonEncode(_creds));
 
   /// Clears everything and re-seeds. Used by "Reset demo data".
   Future<void> resetToSeed() async {
     _seed();
+    flush();
   }
 
   // ---- Auth -----------------------------------------------------------------
@@ -240,6 +268,59 @@ class LocalBackend implements Backend {
   Future<void> deleteDoc(String collection, String id) async {
     _store[collection]?.remove(id);
     _persist();
+  }
+
+  @override
+  Future<void> updateFields(
+      String collection, String id, Map<String, dynamic> fields) async {
+    final doc = _store[collection]?[id];
+    if (doc == null) throw const NotFoundException();
+    doc.addAll(fields);
+    _persist();
+  }
+
+  @override
+  Future<void> commit(List<WriteOp> ops) async {
+    for (final op in ops) {
+      switch (op) {
+        case SetOp(:final collection, :final id, :final data):
+          _store.putIfAbsent(collection, () => {})[id] =
+              Map<String, dynamic>.from(data);
+        case DeleteOp(:final collection, :final id):
+          _store[collection]?.remove(id);
+      }
+    }
+    _persist();
+  }
+
+  @override
+  Future<int?> reserveNumbers(String prefix, int count,
+      {int floor = 0, bool create = false}) async {
+    final counters = _store.putIfAbsent(Collections.counters, () => {});
+    final stored = (counters[prefix]?['value'] as num?)?.toInt();
+    if (stored == null && !create) return null;
+    final base = max(stored ?? 0, floor);
+    counters[prefix] = {'value': base + count};
+    _persist();
+    return base + 1;
+  }
+
+  @override
+  Future<void> ensureAtLeast(String prefix, int value) async {
+    final counters = _store.putIfAbsent(Collections.counters, () => {});
+    final stored = (counters[prefix]?['value'] as num?)?.toInt();
+    if (stored != null && stored >= value) return;
+    counters[prefix] = {'value': value};
+    _persist();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchLatest(String collection,
+      {required String orderBy, required int limit}) async {
+    final all = await fetchCollection(collection);
+    String key(Map<String, dynamic> d) => d[orderBy]?.toString() ?? '';
+    all.sort((a, b) => key(b).compareTo(key(a)));
+    return all.take(limit).toList();
   }
 
   Future<void> _fakeLatency() =>

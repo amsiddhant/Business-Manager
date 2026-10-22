@@ -124,7 +124,6 @@ class ProductDetailScreen extends StatelessWidget {
           product.copyWith(comments: [...product.comments, comment]),
           isNew: false,
         );
-        await data.refresh();
       },
     );
 
@@ -167,7 +166,6 @@ class ProductDetailScreen extends StatelessWidget {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(context, 'Product updated successfully');
       }

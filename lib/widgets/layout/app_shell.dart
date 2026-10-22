@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_theme.dart';
 import '../common/responsive.dart';
 import 'app_header.dart';
 import 'app_sidebar.dart';
+import 'whats_new_prompt.dart';
 
 /// The authenticated application shell: a responsive scaffold combining the
 /// [AppSidebar] (inline on desktop, drawer on tablet/mobile), the [AppHeader]
@@ -45,15 +45,9 @@ class AppShell extends StatelessWidget {
               ),
             ),
             const MobileFilterBar(),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1400),
-                  child: child,
-                ),
-              ),
-            ),
+            const WhatsNewPrompt(),
+            // Each page owns its scrolling (AppPage, or LegacyScroll).
+            Expanded(child: child),
           ],
         ),
       ),

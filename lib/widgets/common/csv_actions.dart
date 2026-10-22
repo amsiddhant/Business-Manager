@@ -8,6 +8,8 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/csv_export.dart';
 import '../../core/utils/csv_import.dart';
 import '../../core/utils/entity_csv.dart';
+import '../../data/backend.dart';
+import '../../data/repository.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
 import '../../state/app_state.dart';
@@ -103,18 +105,22 @@ Future<void> importProductsCsv(BuildContext context) async {
     }
   }
 
-  // Save sequentially: each save mints its id by scanning the collection, so
-  // parallel saves would collide on the same id and overwrite one another.
-  for (final row in parsed) {
-    try {
-      await repo.saveProduct(row.model, isNew: true);
-      report.created++;
-    } catch (e) {
-      report.addError(row.fileRow, ErrorMapper.friendly(e));
+  // Ids for the whole file are reserved up front (one counter transaction);
+  // saves stay sequential so they take them in file order.
+  await _reserveIds(repo, Collections.products, parsed.length);
+  try {
+    for (final row in parsed) {
+      try {
+        await repo.saveProduct(row.model, isNew: true);
+        report.created++;
+      } catch (e) {
+        report.addError(row.fileRow, ErrorMapper.friendly(e));
+      }
     }
+  } finally {
+    repo.releaseReservedIds();
   }
 
-  if (report.created > 0) await data.refresh();
   if (!context.mounted) return;
   await _reportImport(context, entity: 'product', report: report);
 }
@@ -192,18 +198,31 @@ Future<void> importCustomersCsv(BuildContext context) async {
     }
   }
 
-  for (final row in parsed) {
-    try {
-      await repo.saveCustomer(row.model, isNew: true);
-      report.created++;
-    } catch (e) {
-      report.addError(row.fileRow, ErrorMapper.friendly(e));
+  await _reserveIds(repo, Collections.customers, parsed.length);
+  try {
+    for (final row in parsed) {
+      try {
+        await repo.saveCustomer(row.model, isNew: true);
+        report.created++;
+      } catch (e) {
+        report.addError(row.fileRow, ErrorMapper.friendly(e));
+      }
     }
+  } finally {
+    repo.releaseReservedIds();
   }
 
-  if (report.created > 0) await data.refresh();
   if (!context.mounted) return;
   await _reportImport(context, entity: 'customer', report: report);
+}
+
+/// Best-effort: if the block can't be reserved, each save mints its own id.
+Future<void> _reserveIds(Repository repo, String collection, int count) async {
+  try {
+    await repo.reserveIdsFor(collection, count);
+  } catch (_) {
+    repo.releaseReservedIds();
+  }
 }
 
 // ---- Shared feedback --------------------------------------------------------

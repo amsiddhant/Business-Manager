@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/app_user.dart';
 import '../permissions.dart';
 
 /// Canonical route paths used across the app.
@@ -25,6 +26,7 @@ class Routes {
   static const reports = '/reports';
   static const users = '/users';
   static const settings = '/settings';
+  static const whatsNew = '/whats-new';
 
   static String businessDetailPath(String id) => '/businesses/$id';
   static String productDetailPath(String id) => '/products/$id';
@@ -33,6 +35,38 @@ class Routes {
   static String expenseDetailPath(String id) => '/expenses/$id';
   static String dealerDetailPath(String id) => '/dealers/$id';
   static String customerDetailPath(String id) => '/customers/$id';
+
+  /// The top-level section a location belongs to:
+  /// `/customers/CUST-00001?tab=2` → `/customers`. Null for `/`.
+  static String? sectionOf(String location) {
+    final path = Uri.tryParse(location)?.path ?? location;
+    final first = path.split('/').firstWhere((s) => s.isNotEmpty,
+        orElse: () => '');
+    return first.isEmpty ? null : '/$first';
+  }
+
+  /// The navigation entry whose access rule guards [location]. Detail pages
+  /// inherit their list's rule (`/orders/ORD-000001` needs `viewOrder`).
+  ///
+  /// Null means any signed-in user may open it. Settings is one of these: its
+  /// Profile and Password sections are for everyone, and the screen hides the
+  /// sections a user can't manage.
+  static NavDestination? accessFor(String location) {
+    final section = sectionOf(location);
+    if (section == null || section == settings) return null;
+    for (final d in kNavDestinations) {
+      if (d.route == section) return d;
+    }
+    return null;
+  }
+
+  /// Whether [user] may open [location].
+  static bool canOpen(AppUser? user, String location) {
+    if (user == null) return false;
+    final access = accessFor(location);
+    if (access == null) return true;
+    return user.can(access.permission) && (!access.ownerOnly || user.isOwner);
+  }
 }
 
 /// A primary navigation destination shown in the sidebar / drawer.

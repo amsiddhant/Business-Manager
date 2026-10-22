@@ -29,14 +29,12 @@ class BusinessesScreen extends StatefulWidget {
   State<BusinessesScreen> createState() => _BusinessesScreenState();
 
   static Future<void> openForm(BuildContext context, Business? existing) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _BusinessFormDialog(existing: existing, repo: repo),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
             context,
@@ -247,7 +245,6 @@ class _RowActions extends StatelessWidget {
   }
 
   Future<void> _archive(BuildContext context) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -259,8 +256,7 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.archiveBusiness(business.id);
-      await data.refresh();
+      await repo.archiveBusiness(business.id, known: business);
       if (context.mounted) {
         showSuccessSnack(context, 'Business archived');
       }

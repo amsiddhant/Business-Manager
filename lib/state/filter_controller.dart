@@ -39,6 +39,11 @@ class FilterController extends ChangeNotifier {
   late DateRange _range;
   DateRange get range => _range;
 
+  /// Identifies the current selection (business + date range): equal keys
+  /// mean equal filtered results, so it can key memoised figures.
+  (String?, DateTime, DateTime) get key =>
+      (_selectedBusinessId, _range.start, _range.end);
+
   /// Human label for the current period, e.g. "FY 2026-27".
   String get periodLabel {
     switch (_periodType) {
@@ -97,6 +102,10 @@ class FilterController extends ChangeNotifier {
     _recompute();
   }
 
+  // What the last notification announced, so re-selecting the same period
+  // doesn't rebuild every screen.
+  (PeriodType, DateRange)? _announced;
+
   void _recompute() {
     switch (_periodType) {
       case PeriodType.financialYear:
@@ -112,6 +121,11 @@ class FilterController extends ChangeNotifier {
       case PeriodType.custom:
         _range = _customRange ?? _financialYear.range;
     }
+    // The type matters as well as the range: it drives the period label
+    // (e.g. FY 2026-27 vs a custom range covering the same dates).
+    final next = (_periodType, _range);
+    if (next == _announced) return;
+    _announced = next;
     notifyListeners();
   }
 

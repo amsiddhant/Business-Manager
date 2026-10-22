@@ -21,6 +21,7 @@ import '../../widgets/common/scorecard.dart';
 import '../../widgets/common/search_field.dart';
 import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
+import '../../widgets/layout/app_page.dart';
 
 /// The primary landing screen. Every figure here is derived live from the
 /// working data set via [ProfitCalculationService] over the currently selected
@@ -36,8 +37,7 @@ class DashboardScreen extends StatelessWidget {
     final filter = context.watch<FilterController>();
 
     if (data.loading && !data.loaded) {
-      return const Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return const AppPage(
         children: [
           PageHeader(title: 'Dashboard'),
           SizedBox(height: 48),
@@ -46,8 +46,7 @@ class DashboardScreen extends StatelessWidget {
       );
     }
     if (data.error != null && !data.loaded) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return AppPage(
         children: [
           const PageHeader(title: 'Dashboard'),
           const SizedBox(height: 48),
@@ -103,17 +102,16 @@ class DashboardScreen extends StatelessWidget {
     final subtitle =
         '${filter.periodLabel} · ${range.toString()}';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return AppPage(
       children: [
         PageHeader(
           title: 'Dashboard',
           subtitle: subtitle,
           actions: [
             OutlinedButton.icon(
-              onPressed: () => data.refresh(),
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Refresh'),
+              onPressed: () => data.sync(),
+              icon: const Icon(Icons.sync, size: 18),
+              label: const Text('Sync now'),
             ),
           ],
         ),

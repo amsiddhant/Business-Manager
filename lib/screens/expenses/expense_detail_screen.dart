@@ -107,7 +107,6 @@ class ExpenseDetailScreen extends StatelessWidget {
           expense.copyWith(comments: [...expense.comments, comment]),
           isNew: false,
         );
-        await data.refresh();
       },
     );
 

@@ -65,6 +65,24 @@ class _UsersScreenState extends State<UsersScreen> {
         _future = _load();
       });
 
+  bool _rebuildingIndex = false;
+
+  Future<void> _rebuildSignInIndex() async {
+    final repo = context.read<AppState>().repository;
+    setState(() => _rebuildingIndex = true);
+    try {
+      final count = await repo.rebuildLoginIndex();
+      if (mounted) {
+        showSuccessSnack(context,
+            'Sign-in index rebuilt: $count login ${count == 1 ? 'ID' : 'IDs'}');
+      }
+    } catch (e) {
+      if (mounted) showErrorSnack(context, e);
+    } finally {
+      if (mounted) setState(() => _rebuildingIndex = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
@@ -94,6 +112,16 @@ class _UsersScreenState extends State<UsersScreen> {
           title: 'Users',
           subtitle: 'Manage team members, roles and access',
           actions: [
+            if (appState.isFirebaseMode)
+              Tooltip(
+                message: 'Lets everyone sign in with their login ID. Run it '
+                    'once after deploying the latest security rules.',
+                child: OutlinedButton.icon(
+                  onPressed: _rebuildingIndex ? null : _rebuildSignInIndex,
+                  icon: const Icon(Icons.manage_search, size: 18),
+                  label: const Text('Rebuild sign-in index'),
+                ),
+              ),
             ElevatedButton.icon(
               onPressed: () => _openForm(null, data.selectableBusinesses),
               icon: const Icon(Icons.person_add_alt, size: 18),
@@ -857,10 +885,13 @@ class _UserFormDialogState extends State<_UserFormDialog> {
         );
         // Persist any permission overrides chosen at creation time.
         if (_granted.isNotEmpty || _revoked.isNotEmpty) {
-          await widget.repo.saveUserProfile(created.copyWith(
-            grantedPermissions: _granted,
-            revokedPermissions: _revoked,
-          ));
+          await widget.repo.saveUserProfile(
+            created.copyWith(
+              grantedPermissions: _granted,
+              revokedPermissions: _revoked,
+            ),
+            previous: created,
+          );
         }
       } else if (_isApprove) {
         await widget.repo.approveAccessRequest(
@@ -873,14 +904,17 @@ class _UserFormDialogState extends State<_UserFormDialog> {
           revokedPermissions: _revoked,
         );
       } else {
-        await widget.repo.saveUserProfile(_existing!.copyWith(
-          loginId: _loginId.text.trim(),
-          name: _name.text.trim(),
-          role: _role,
-          assignedBusinessIds: _assigned.toList(),
-          grantedPermissions: _granted,
-          revokedPermissions: _revoked,
-        ));
+        await widget.repo.saveUserProfile(
+          _existing!.copyWith(
+            loginId: _loginId.text.trim(),
+            name: _name.text.trim(),
+            role: _role,
+            assignedBusinessIds: _assigned.toList(),
+            grantedPermissions: _granted,
+            revokedPermissions: _revoked,
+          ),
+          previous: _existing,
+        );
       }
       return true;
     } catch (e) {

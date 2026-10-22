@@ -94,6 +94,8 @@ service cloud.firestore {
     // ---- Users --------------------------------------------------------------
     // A user may always read their own profile. Only the owner may list or
     // write user profiles (create Admin/User accounts, assign businesses, etc.).
+    // The one exception: an active user may record their own sign-in time
+    // (`lastLoginAt`) and nothing else.
     //
     // First-run bootstrap: while the project is unclaimed, a signed-in user may
     // create their OWN profile as OWNER. Once `meta/system` exists this path is
@@ -104,7 +106,56 @@ service cloud.firestore {
       allow create: if isOwner() ||
         (isSignedIn() && request.auth.uid == uid && !projectClaimed() &&
          request.resource.data.role == 'OWNER');
-      allow update, delete: if isOwner();
+      allow update: if isOwner() ||
+        (isSignedIn() && request.auth.uid == uid && isActive() &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['lastLoginAt']));
+      allow delete: if isOwner();
+    }
+
+    // ---- Sign-in index ------------------------------------------------------
+    // `loginIndex/{loginId}` → `{email}`, so someone can sign in with their
+    // login ID: the app reads this ONE document before signing in, then signs
+    // in with the email. Listing is denied, so the index can't be dumped; only
+    // the Owner writes it (alongside the user profile, in one batch).
+    //
+    // Trade-off: anyone who knows (or guesses) a login ID can learn the email
+    // behind it. Signing in with an email address always works and needs no
+    // index; to opt out entirely, delete the index documents.
+    match /loginIndex/{loginId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isOwner() &&
+        request.resource.data.keys().hasOnly(['email']) &&
+        request.resource.data.email is string &&
+        request.resource.data.email.size() <= 254;
+      allow delete: if isOwner();
+    }
+
+    // ---- Id counters --------------------------------------------------------
+    // `counters/{prefix}` → `{value}`: the last id number handed out for that
+    // prefix (PROD-00042 → 42), so a create reserves an id with one read and
+    // one write instead of scanning the collection. The Owner creates them;
+    // anyone who can create records may move one forward (never back), by at
+    // most 1000 at a time. A misbehaving client can only leave gaps in the
+    // numbering, never reuse an id.
+    match /counters/{prefix} {
+      function validCounter() {
+        return prefix in ['PROD', 'ORD', 'CMP', 'EXP', 'DLR', 'BIZ', 'USR',
+                          'CUST'] &&
+          request.resource.data.keys().hasOnly(['value']) &&
+          request.resource.data.value is int;
+      }
+      allow get: if isSignedIn() && isActive();
+      allow list: if false;
+      allow create: if isOwner() && validCounter() &&
+        request.resource.data.value >= 0;
+      allow update: if validCounter() &&
+        request.resource.data.value > resource.data.value &&
+        (isOwner() ||
+         ((isAdmin() || isUser()) &&
+          request.resource.data.value - resource.data.value <= 1000));
+      allow delete: if false;
     }
 
     // ---- Access requests ----------------------------------------------------

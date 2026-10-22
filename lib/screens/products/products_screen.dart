@@ -209,7 +209,6 @@ class _ProductsScreenState extends State<ProductsScreen> {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
             context,
@@ -275,7 +274,6 @@ class _RowActions extends StatelessWidget {
   }
 
   Future<void> _delete(BuildContext context) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -284,8 +282,7 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.deleteProduct(product.id);
-      await data.refresh();
+      await repo.deleteProduct(product.id, known: product);
       if (context.mounted) showSuccessSnack(context, 'Product deleted');
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);

@@ -59,7 +59,6 @@ class CampaignsScreen extends StatefulWidget {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
             context,
@@ -252,7 +251,6 @@ class _RowActions extends StatelessWidget {
   }
 
   Future<void> _delete(BuildContext context) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -262,8 +260,7 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.deleteCampaign(campaign.id);
-      await data.refresh();
+      await repo.deleteCampaign(campaign.id, known: campaign);
       if (context.mounted) showSuccessSnack(context, 'Campaign deleted');
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);
@@ -409,6 +406,12 @@ class _CampaignFormDialogState extends State<_CampaignFormDialog> {
                 onChanged: (v) => setState(() => _status = v ?? _status),
               ),
             ]),
+            const FormGap(),
+            AppTextField(
+              label: 'Type',
+              controller: _type,
+              hintText: 'e.g. Awareness, Retargeting, Lead generation',
+            ),
             const FormGap(),
             FormRow([
               AppDateField(

@@ -26,6 +26,7 @@ import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
+import '../../widgets/layout/app_page.dart';
 
 /// Lists orders for the selected scope with full CRUD gated by permission.
 class OrdersScreen extends StatefulWidget {
@@ -53,7 +54,6 @@ class OrdersScreen extends StatefulWidget {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
             context,
@@ -83,8 +83,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
       return const _Loading();
     }
     if (data.error != null && !data.loaded) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return AppPage(
         children: [
           const PageHeader(title: 'Orders'),
           const SizedBox(height: 48),
@@ -100,8 +99,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     final canEdit = user?.can(Permission.editOrder) ?? false;
     final canDelete = user?.can(Permission.deleteOrder) ?? false;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return AppPage(
       children: [
         PageHeader(
           title: 'Orders',
@@ -208,8 +206,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
 class _Loading extends StatelessWidget {
   const _Loading();
   @override
-  Widget build(BuildContext context) => const Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => const AppPage(
         children: [
           PageHeader(title: 'Orders'),
           SizedBox(height: 48),
@@ -333,7 +330,6 @@ class _RowActions extends StatelessWidget {
         ),
         isNew: false,
       );
-      await data.refresh();
       if (context.mounted) {
         final full = result.amount >= order.totalRevenue;
         showSuccessSnack(
@@ -355,7 +351,6 @@ class _RowActions extends StatelessWidget {
     required String success,
     bool clearRefund = false,
   }) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -389,7 +384,6 @@ class _RowActions extends StatelessWidget {
         );
       }
       await repo.saveOrder(updated, isNew: false);
-      await data.refresh();
       if (context.mounted) showSuccessSnack(context, success);
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);
@@ -397,7 +391,6 @@ class _RowActions extends StatelessWidget {
   }
 
   Future<void> _delete(BuildContext context) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -406,8 +399,7 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.deleteOrder(order.id);
-      await data.refresh();
+      await repo.deleteOrder(order.id, known: order);
       if (context.mounted) showSuccessSnack(context, 'Order deleted');
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);

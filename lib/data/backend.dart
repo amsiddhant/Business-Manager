@@ -109,4 +109,13 @@ class Collections {
   /// Application metadata (e.g. the `meta/system` bootstrap sentinel that marks
   /// the first Owner as having claimed the project).
   static const meta = 'meta';
+
+  /// Sequential id counters, one document per prefix (`counters/PROD` holds
+  /// `{value: 42}`), so creating a record never scans its collection.
+  static const counters = 'counters';
+
+  /// Sign-in index: `loginIndex/{login id, lower-case}` holds `{email}`, so a
+  /// login id can be turned into an email with a single `get` before sign-in
+  /// (the rules deny listing it). Maintained with every user save.
+  static const loginIndex = 'loginIndex';
 }

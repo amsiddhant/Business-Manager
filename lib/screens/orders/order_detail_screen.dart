@@ -103,7 +103,6 @@ class OrderDetailScreen extends StatelessWidget {
           order.copyWith(comments: [...order.comments, comment]),
           isNew: false,
         );
-        await data.refresh();
       },
     );
 

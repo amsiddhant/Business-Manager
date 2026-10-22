@@ -8,14 +8,18 @@
 
 ## 0. THE ONE LAYOUT RULE (do not violate)
 
-Screens rendered inside `ShellRoute`/`AppShell` return a **plain widget** — normally:
+Screens rendered inside `ShellRoute`/`AppShell` **own their scrolling** through `AppPage` (`lib/widgets/layout/app_page.dart`):
 
 ```dart
-Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [PageHeader(...), ...])
+AppPage(children: [PageHeader(...), SectionCard(...), ...])
+// or, for slivers (pinned headers, long lists):
+AppPage.slivers(slivers: [...])
 ```
 
-- **NO** `Scaffold`, **NO** outer `SingleChildScrollView`, **NO** `SafeArea`.
-- `AppShell` already provides: scroll, `EdgeInsets.all(AppSpacing.lg)` padding, and `ConstrainedBox(maxWidth: 1400)`.
+- **NO** `Scaffold`, **NO** `SingleChildScrollView`, **NO** `SafeArea`.
+- `AppShell` does **not** scroll (since 1.1.0). `AppPage` provides the `CustomScrollView`, `AppSpacing.lg` padding, centring at `maxWidth` (default 1400), and builds each child lazily — off-screen sections aren't built until scrolled to, and once built they are kept alive (table sort/page/search survive scrolling).
+- Pass sections as separate `children`, not one big `Column`, or nothing is lazy.
+- Routes not yet migrated are wrapped in `LegacyScroll` **in the router** (the old scroll + padding). Migrated so far: Dashboard, Orders, Customers, Customer detail. When you migrate a screen to `AppPage`, drop its `LegacyScroll` wrapper in `app_router.dart`. `LegacyScroll` is deleted once every screen is migrated.
 - **Auth screens** (`login_screen.dart`, `forgot_password_screen.dart`) DO use their own `Scaffold` — they render outside the shell.
 
 The **12 list/section shell screens** have `const` no-arg constructors (Dashboard, Businesses, Products, Campaigns, Orders, Expenses, Dealers, **Customers**, Reports, Users, Settings, plus the `PlaceholderScreen`). The **7 detail screens** each take one required id: `BusinessDetailScreen({required String businessId})`, `ProductDetailScreen({required String productId})`, `CampaignDetailScreen({required String campaignId})`, `OrderDetailScreen({required String orderId})`, `ExpenseDetailScreen({required String expenseId})`, `DealerDetailScreen({required String dealerId})`, `CustomerDetailScreen({required String customerId})`. Detail screens follow the SAME layout rule (plain `Column`, no Scaffold).
@@ -89,8 +93,12 @@ final user      = context.read<AppState>().currentUser;  // AppUser?  (gate UI w
 ### DataController (ChangeNotifier) — cached working set
 Fields (already scoped to what user can access): `List<Business> businesses`, `products`, `campaigns`, `orders`, `expenses`, `dealers`, `customers`.
 Flags: `bool loading`, `bool loaded`, `String? error`, `List<String> warnings`, `bool hasWarnings`.
-Lifecycle: `load()`, `refresh()` (== load), `clear()`, `rebind(Repository)`.
-**After any mutation call `await data.refresh()`.**
+Lifecycle: `load()` (concurrent calls share one in-flight load), `sync()` (== load; the header's "Sync now"), `refresh()` (kept for `ErrorView` retry; == sync), `softSyncIfStale({maxAge = 30 min})` (run when the tab returns to the foreground), `clear()`, `bind(Repository)` / `rebind(Repository)`.
+Sync state: `int version` (bumps on every change — use it as a memo stamp), `DateTime? lastSyncedAt` (last server read), `bool showingCachedData` (painted from the offline cache, server read pending), `ValueNotifier<bool> syncing`.
+
+**Do NOT refresh after a mutation.** The controller subscribes to `Repository.changes` and applies each `Upserted`/`Removed` in place (copy-on-write lists, same sort as `load()`, records the user can no longer see are dropped). Notifications are coalesced into one per microtask, so a CSV import notifies once. A change that lands during a `load()` is re-applied after it.
+
+`*ById` lookups are O(1) maps; `*For(businessId)` results are memoised by `version` — safe inside row builders.
 
 **Per-collection load isolation** (see §11.4): only `businesses` is *essential* — if it fails, `error` is set and the app shows an error state. Every other collection loads through a `guard` that, on failure, degrades to `[]` and appends a human-readable line to `warnings` instead of blanking the whole app. So one denied query (e.g. a rules mismatch on customers) can't take down the dashboard.
 
@@ -120,6 +128,8 @@ Scoped views:
 
 `Repository({required Backend backend, AppUser? currentUser})`; `currentUser` getter. `rebind({required Backend backend, AppUser? currentUser})` swaps the backend (used on Firebase activate/deactivate); `setCurrentUser(AppUser?)` updates the identity used by guards.
 
+**Change stream:** `Stream<RepoChange> changes` (`lib/data/repo_change.dart`: sealed `RepoChange` → `Upserted(collection, id, entity)` / `Removed(collection, id)`). Emitted only after a write succeeds, including the dealer mirror `EXP-DLR-<id>` expense. Every `saveX` **returns the saved entity** (with its minted id). Every delete/archive takes an optional `known:` entity — pass the in-memory one and the repo skips the pre-read.
+
 - **Businesses:** `fetchBusinesses()`, `saveBusiness(Business, {required bool isNew})`, `archiveBusiness(String id)` (soft-delete)
 - **Products:** `fetchProducts({String? businessId})`, `fetchProduct(id)`, `saveProduct(Product, {required bool isNew})`, `deleteProduct(id)`
 - **Campaigns:** `fetchCampaigns({businessId})`, `saveCampaign(Campaign, {isNew})`, `deleteCampaign(id)`
@@ -127,11 +137,25 @@ Scoped views:
 - **Expenses:** `fetchExpenses({businessId})`, `saveExpense(Expense, {isNew})`, `deleteExpense(id)` — **throws AppException if `expense.isFromDealer`**
 - **Dealers:** `fetchDealers({businessId})`, `saveDealer(Dealer, {isNew})` (mirrors `EXP-DLR-<id>` expense), `deleteDealer(id)` (removes mirror)
 - **Customers:** `fetchCustomers({String? businessId})` — for a non-owner, fans out one `fetchWhereArrayContains(customers, 'businessIds', biz)` per assigned business and dedupes by id (see §11.3 — the customers read rule is `array-contains`-shaped, NOT a filter); `saveCustomer(Customer, {required bool isNew})` — for a non-owner, re-reads the stored doc and **merges back** business tags & per-business contracts the caller can't see, so a limited-scope edit never drops another business's data; `deleteCustomer(id)`.
-- **Users:** `fetchUsers()`, `fetchUserByUid(uid)`, `resolveUserByLogin(loginOrEmail)`, `touchLastLogin(uid)` — **no permission guard** (needed pre-login / for self); `createUser({required String loginId, name, email, UserRole role, List<String> assignedBusinessIds, String password})` (guard `manageUsers`; throws if role==owner; friendly `email-already-in-use` message pointing to the access-request flow), `saveUserProfile(AppUser)` / `setUserStatus(uid, AccountStatus)` (guard `manageUsers`), `deleteUser(uid)` (guard `manageUsers`; refuses to delete an owner or yourself; also clears any matching access request), `bootstrapFirstOwnerIfNeeded(AuthAccount) → AppUser?` (unguarded — provisions first OWNER iff project unclaimed).
+- **Sign-in:** `emailForLogin(loginOrEmail) → String?` — input with `@` is used as typed; a login ID is looked up with **one `get`** of `loginIndex/{key}` (pre-auth; `list` is denied), falling back to `resolveUserByLogin` on backends without `PublicLookupCapable` (demo). Errors → null. `static loginIndexKey(loginId) → String?` (lower-cased; null for ids that can't be a doc key). `rebuildLoginIndex() → int` (Owner; one batch over all users — the Users screen's "Rebuild sign-in index" button).
+- **Users:** `fetchUsers()`, `fetchUsersCached()` (per-session cache, cleared on any user write or sign-in change), `fetchUserByUid(uid)`, `resolveUserByLogin(loginOrEmail)`, `touchLastLogin(AppUser)` (self, `lastLoginAt`-only field update, fire-and-forget, skipped if already today) — **no permission guard** (needed pre-login / for self); `createUser({required String loginId, name, email, UserRole role, List<String> assignedBusinessIds, String password})` (guard `manageUsers`; throws if role==owner; friendly `email-already-in-use` message pointing to the access-request flow), `saveUserProfile(AppUser, {AppUser? previous})` (pass `previous` so a renamed login ID moves its `loginIndex` entry in the same batch) / `setUserStatus(uid, AccountStatus)` (guard `manageUsers`), `deleteUser(uid)` (guard `manageUsers`; refuses to delete an owner or yourself; also clears any matching access request), `bootstrapFirstOwnerIfNeeded(AuthAccount) → AppUser?` (unguarded — provisions first OWNER iff project unclaimed).
 - **Access requests:** `recordAccessRequest(AuthAccount)` (unguarded — self-service on failed login), `fetchAccessRequests()` / `approveAccessRequest(AccessRequest, {loginId, name, role, assignedBusinessIds, granted, revoked})` / `denyAccessRequest(uid)` (all guard `manageUsers`).
 - **Audit:** `fetchAuditLogs({int limit=100})` — requires `Permission.manageSettings`
 
-Internals: `_nextScopedId(prefix, collection, {int width, bool arrayScoped})` generates the next sequential id. **do NOT set `.id` when creating** — repo generates it. For updates, pass the model with its existing id.
+**Ids:** **do NOT set `.id` when creating** — repo generates it. For updates, pass the model with its existing id. `_nextScopedId` reserves from the global `counters/{prefix}` doc in a transaction (1 read + 1 write) when the backend is `CounterCapable`, floored at `max(idHint, highest minted this session)` so a lagging counter heals itself. The counter is created lazily by the **Owner** from one scan; until it exists (or while its rules aren't deployed) everyone falls back to the old scan. Mints run one at a time per repository, so two creates in flight never share an id.
+- `idHint` — set by `DataController` to `highestIdNumber(prefix)`.
+- `reserveIdsFor(collection, count)` before a bulk create (CSV import) reserves a block in one transaction; `releaseReservedIds()` afterwards.
+- `healIdCounters(Map<String,int> highestByPrefix)` — Owner only, best-effort `ensureAtLeast`.
+
+**Atomic writes:** on a `BatchCapable` backend, a save writes the entity + any mirror + its audit log in **one batch**. If the batch is refused (`permission-denied`, e.g. the audit rule isn't deployed), it is retried without the optional audit write and a line is added to `List<String> diagnostics` (newest last, capped at 50). Without batches, writes run in sequence and an audit failure is swallowed.
+
+### Backend capabilities — `lib/data/backend_capabilities.dart`
+`Backend` has **no new abstract methods** (test fakes keep compiling). Optional features are interfaces, checked with a pattern — `if (_backend case final CounterCapable c) { ... }` (`is` won't promote to an unrelated interface):
+- `BatchCapable` — `maxOps` (450), `commit(List<WriteOp>)`; `WriteOp` is sealed: `SetOp(collection, id, data)`, `DeleteOp(collection, id)`.
+- `CounterCapable` — `reserveNumbers(prefix, count, {floor, create}) → int?` (first number, or null if the counter doesn't exist and `create` is false), `ensureAtLeast(prefix, value)`.
+- `FieldUpdateCapable` — partial field update (used by `touchLastLogin`).
+- `QueryCapable`, `CacheCapable` (cache-first reads), `PublicLookupCapable` (`fetchPublicDoc` before sign-in), `UsageMeter` (reads/writes this session).
+`LocalBackend` implements Batch/Counter/FieldUpdate/Query; its store is persisted with a 250 ms debounce (`flush()` forces it). Fakes for tests: `test/support/memory_backend.dart` (`MemoryBackend`, `BatchMemoryBackend`, `LookupMemoryBackend`).
 
 ---
 
@@ -285,8 +309,9 @@ Methods: `withRenewedContract(ServiceContract renewal)` (moves the current activ
 `AppException(message, {code})`, `PermissionDeniedException([msg])`, `NotFoundException([msg])`, `ErrorMapper.friendly(Object) → String`.
 
 ### routing (`lib/core/routing/app_routes.dart`)
-`Routes.{login, forgotPassword, dashboard, businesses, businessDetail, products, productDetail, campaigns, campaignDetail, orders, orderDetail, expenses, expenseDetail, dealers, dealerDetail, customers, customerDetail, reports, users, settings}`. Path helpers for every detail route: `Routes.businessDetailPath(id)`, `productDetailPath(id)`, `campaignDetailPath(id)`, `orderDetailPath(id)`, `expenseDetailPath(id)`, `dealerDetailPath(id)`, `customerDetailPath(id)`.
+`Routes.{login, forgotPassword, dashboard, businesses, businessDetail, products, productDetail, campaigns, campaignDetail, orders, orderDetail, expenses, expenseDetail, dealers, dealerDetail, customers, customerDetail, reports, users, settings, whatsNew}`. Path helpers for every detail route: `Routes.businessDetailPath(id)`, `productDetailPath(id)`, `campaignDetailPath(id)`, `orderDetailPath(id)`, `expenseDetailPath(id)`, `dealerDetailPath(id)`, `customerDetailPath(id)`.
 `kNavDestinations` (List<NavDestination>) already drives the sidebar (Users is `ownerOnly`; Customers gated on `viewCustomer`). Navigate with `context.go(Routes.x)` (import `go_router`).
+**Route guard:** every shell route is wrapped in `PermissionGuard` (`app_router.dart`), which shows an access-denied message when `Routes.canOpen(user, location)` is false — so a pasted URL can't open a screen the sidebar hides. `Routes.sectionOf(location)` → the top-level section (`/orders/ORD-000001` → `/orders`); `Routes.accessFor(location)` → the `NavDestination` whose rule applies (detail pages inherit their list's rule; `null` for Settings and What's new, which every signed-in user can open — Settings gates its own sections). The sidebar highlights by `sectionOf`, so detail pages keep their section selected. A new route needs a `kNavDestinations` entry (or is open to all signed-in users).
 
 ### id_generator (`lib/core/utils/id_generator.dart`)
 Sequential prefixes: `PROD, ORD, CMP, EXP, DLR, BIZ, USR, CUST` (customers → `CUST-00001`). Repo calls this; don't set ids yourself on create.
@@ -298,6 +323,14 @@ Sequential prefixes: `PROD, ORD, CMP, EXP, DLR, BIZ, USR, CUST` (customers → `
 ### Layout
 - `PageHeader({required String title, String? subtitle, List<Widget> actions = const []})` — `lib/widgets/common/page_header.dart`
 - `AppShell` / `AppHeader` / `AppSidebar` — already wired; screens don't touch these.
+- `AppPage({children, maxWidth = 1400})` / `AppPage.slivers({slivers})` — the page scroll (see §0). `LegacyScroll(child)` — router-only wrapper for unmigrated screens.
+- `SyncStatus` (`lib/widgets/layout/sync_status.dart`) — header "Synced X ago · Sync now"; `syncedAgoLabel(DateTime?, DateTime now)` is the pure label.
+- `WhatsNewPrompt` — in the shell; shows a one-time "Updated to version X" snackbar after an upgrade (`AppState.hasUnseenRelease` / `markReleaseSeen()`).
+
+### Version & release notes
+- `lib/core/app_info.dart` — `kAppVersion`, `kAppBuild`; **must equal** `pubspec.yaml` `version:` (`test/app_info_test.dart` enforces it). Shown in the sidebar footer.
+- `lib/core/release_notes.dart` — `kReleaseNotes` (newest first, `ReleaseNote{version, date, title, highlights}`); the first entry must be `kAppVersion`. Rendered by `WhatsNewScreen` at `/whats-new`.
+- Releasing: bump pubspec **and** `app_info.dart`, add a `kReleaseNotes` entry at the top.
 
 ### Cards / states — `lib/widgets/common/`
 - `AppCard({required Widget child, EdgeInsetsGeometry padding=EdgeInsets.all(xl), VoidCallback? onTap})`
@@ -376,13 +409,13 @@ Businesses `BIZ-00001` (Aurora Gadgets), `BIZ-00002` (Bloom Organics). Products 
 
 ## 10. Screen authoring checklist
 
-1. Return `Column(crossAxisAlignment: stretch, children: [PageHeader(...), ...])`. No Scaffold/scroll.
-2. `context.watch<DataController>()` for `loading`/`error`/`loaded` → show `LoadingView`/`ErrorView(onRetry: data.refresh)` early.
+1. Return `AppPage(children: [PageHeader(...), ...])`, one child per section. No Scaffold/scroll. Don't wrap the route in `LegacyScroll`.
+2. `context.watch<DataController>()` for `loading`/`error`/`loaded` → show `LoadingView`/`ErrorView(onRetry: data.refresh)` early (inside an `AppPage`).
 3. Scope lists via `data.*For(filter.selectedBusinessId)`.
 4. Metrics via `const ProfitCalculationService()` over `filter.range`. Never compute money in the widget.
 5. Currency = selected business currency (INR for All Businesses).
-6. Create/Edit → `FormDialog` in a StatefulWidget with `GlobalKey<FormState>`; on submit call `repo.saveX(...)`, then `await data.refresh()`, `showSuccessSnack`, return true. Catch → `showErrorSnack`, return false.
-7. Delete/archive → `showConfirmDialog` then `repo.deleteX`/`archiveBusiness`, refresh, snack.
+6. Create/Edit → `FormDialog` in a StatefulWidget with `GlobalKey<FormState>`; on submit call `repo.saveX(...)`, `showSuccessSnack`, return true — **no refresh** (the change stream updates the lists). Catch → `showErrorSnack`, return false.
+7. Delete/archive → `showConfirmDialog` then `repo.deleteX(id, known: entity)`/`archiveBusiness(id, known: biz)`, snack.
 8. Gate every action button with `user.can(Permission.x)` (and `user.isOwner` where owner-only). New-business select needs a business chosen (can't create product without one).
 9. Grid layout: use `LayoutBuilder`/`Wrap` or `Responsive` for scorecard/chart grids (e.g. `Wrap` with fixed-width cards, or `Row` of `Expanded` on desktop).
 
@@ -391,10 +424,10 @@ Businesses `BIZ-00001` (Aurora Gadgets), `BIZ-00002` (Bloom Organics). Products 
 ## 11. Gotchas & contracts (learned the hard way — do not relearn)
 
 ### 11.1 FormDialog owns the single pop
-`FormDialog` calls `Navigator.pop(true)` itself when its `onSubmit` returns `true`. A child dialog's `_submit` must **persist-and-return-bool, NEVER call `Navigator.pop`** — doing both pops twice, tears down the page route beneath, and leaves a blank white screen (the save still runs, so it looks like data vanished). The caller keys off the returned bool: `if (saved == true) { await data.refresh(); showSuccessSnack(...); }`. A dialog that must return a **payload** (not a bool) via `showDialog<T>` (e.g. the orders Refund dialog returning a result object) pops itself with the payload and then **`return false`** so FormDialog doesn't pop again.
+`FormDialog` calls `Navigator.pop(true)` itself when its `onSubmit` returns `true`. A child dialog's `_submit` must **persist-and-return-bool, NEVER call `Navigator.pop`** — doing both pops twice, tears down the page route beneath, and leaves a blank white screen (the save still runs, so it looks like data vanished). The caller keys off the returned bool: `if (saved == true) showSuccessSnack(...);`. A dialog that must return a **payload** (not a bool) via `showDialog<T>` (e.g. the orders Refund dialog returning a result object) pops itself with the payload and then **`return false`** so FormDialog doesn't pop again.
 
-### 11.2 Always refresh after a mutation
-After any `repo.saveX/deleteX/archiveX`, `await context.read<DataController>().refresh()` before showing success. The cached working set does not auto-invalidate.
+### 11.2 Never refresh after a mutation (changed in 1.1.0)
+`DataController` applies `Repository.changes` in place, so a save is visible immediately and costs no reads. The old `await data.refresh()` after every save re-read all 7 collections (≈189k reads/day at 1.5k docs × 100 edits — far past the Spark 50k/day quota). Only `ErrorView` retry, the header's "Sync now" and the stale-tab soft sync read from the server. If you add a repository write, emit a `RepoChange` for it (after the write succeeds) and teach `DataController._apply` its collection.
 
 ### 11.3 Firestore rules are NOT filters
 Every non-owner list query must be **provably authorizable by its own where-clauses**, because Firestore evaluates the read rule against the *query*, not the returned rows. Customers are scoped by `array-contains` on `businessIds`: `Repository.fetchCustomers` fans out one `fetchWhereArrayContains(customers, 'businessIds', biz)` per assigned business and dedupes by id — it never issues an unfiltered `list()`. **Do NOT add conditional / data-shape branches to the customers read rule**, and do not "optimize" the fan-out into a single unscoped query — either reintroduces the Sept 2026 Admin/User lockout. On write, `saveCustomer` merges back business tags & contracts the caller can't see so a limited-scope edit never drops another business's data.
@@ -403,7 +436,13 @@ Every non-owner list query must be **provably authorizable by its own where-clau
 `DataController.load()` treats only `businesses` as essential. Every other collection loads through a `guard` that degrades to `[]` + a `warnings` entry on failure. So a single denied/misconfigured query surfaces a warning banner, not a blank app. Preserve this — don't hoist another collection into the essential path, and don't let a `guard` rethrow.
 
 ### 11.5 Listing users is owner-only; identity lookups are not
-`fetchUsers` / `createUser` / `saveUserProfile` / `setUserStatus` / `deleteUser` / access-request methods require `manageUsers`. But `fetchUserByUid` / `resolveUserByLogin` / `touchLastLogin` are **unguarded** on purpose — they run before a role is known (login, self-profile). Keep that split.
+`fetchUsers` / `createUser` / `saveUserProfile` / `setUserStatus` / `deleteUser` / access-request methods require `manageUsers`. But `fetchUserByUid` / `resolveUserByLogin` / `emailForLogin` / `touchLastLogin` are **unguarded** on purpose — they run before a role is known (login, self-profile). Keep that split. In Firebase mode a login ID is resolved via `loginIndex/{key}` (single-doc `get`, allowed before sign-in) — **never** by listing `users`, which the rules refuse before auth. `touchLastLogin` may only touch `lastLoginAt` (the rule checks `affectedKeys().hasOnly(['lastLoginAt'])`).
 
 ### 11.6 Never surface raw Firebase errors
 Catch and route through `ErrorMapper.friendly(e)` / `showErrorSnack(ctx, e)`. Prefer soft delete/archive for anything financial.
+
+### 11.7 Counters and the sign-in index are rules-backed
+`counters/{prefix}`: prefix allow-list (`PROD, ORD, CMP, EXP, DLR, BIZ, USR, CUST`), `{value: int}` only, created by the Owner, and every update must **increase** the value (by ≤ 1000 for non-owners). No list, no delete. `loginIndex/{key}`: `get` for anyone, `list` denied, written by the Owner as `{email}` only. Trade-off (accepted): knowing a login ID reveals its email; email sign-in always works. Both degrade gracefully if the rules aren't deployed yet (scan fallback; `resolveUserByLogin`), so deploy **rules first, then hosting**, then run Users → "Rebuild sign-in index" once.
+
+### 11.8 Hosting cache headers
+`firebase.json` serves the un-hashed app files (`index.html`, `flutter_bootstrap.js`, `flutter.js`, `flutter_service_worker.js`, `main.dart.js` + parts, `manifest.json`, `version.json`, `assets/**`, `canvaskit/**`) with `no-cache` so users never get stuck on an old build. Only versioned folders (`/tfjs/**`, `/smart/**`) are `immutable`. No COOP/COEP headers — they break the Google sign-in popup. `test/firebase_json_test.dart` enforces all of this.

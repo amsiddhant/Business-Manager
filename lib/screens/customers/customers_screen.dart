@@ -25,6 +25,7 @@ import '../../widgets/common/state_views.dart';
 import '../../widgets/common/status_badge.dart';
 import '../../widgets/forms/form_dialog.dart';
 import '../../widgets/forms/form_fields.dart';
+import '../../widgets/layout/app_page.dart';
 import 'invoice_action.dart';
 
 /// Lists customers (CRM contacts) for the selected scope with a live search
@@ -54,8 +55,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
       return const _Loading();
     }
     if (data.error != null && !data.loaded) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      return AppPage(
         children: [
           const PageHeader(title: 'Customers'),
           const SizedBox(height: 48),
@@ -77,8 +77,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
           customers.where((c) => c.dealStatus == _dealFilter).toList();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    return AppPage(
       children: [
         PageHeader(
           title: 'Customers',
@@ -222,7 +221,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
       ),
     );
     if (saved == true) {
-      await data.refresh();
       if (context.mounted) {
         showSuccessSnack(
             context,
@@ -237,8 +235,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
 class _Loading extends StatelessWidget {
   const _Loading();
   @override
-  Widget build(BuildContext context) => const Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => const AppPage(
         children: [
           PageHeader(title: 'Customers'),
           SizedBox(height: 48),
@@ -385,7 +382,6 @@ class _RowActions extends StatelessWidget {
   }
 
   Future<void> _delete(BuildContext context) async {
-    final data = context.read<DataController>();
     final repo = context.read<AppState>().repository;
     final ok = await showConfirmDialog(
       context,
@@ -395,8 +391,7 @@ class _RowActions extends StatelessWidget {
     );
     if (ok != true) return;
     try {
-      await repo.deleteCustomer(customer.id);
-      await data.refresh();
+      await repo.deleteCustomer(customer.id, known: customer);
       if (context.mounted) showSuccessSnack(context, 'Customer deleted');
     } catch (e) {
       if (context.mounted) showErrorSnack(context, e);

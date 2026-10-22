@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/app_info.dart';
 import '../../core/routing/app_routes.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
@@ -64,15 +65,8 @@ class AppSidebar extends StatelessWidget {
     );
   }
 
-  bool _isSelected(String route) {
-    if (route == Routes.products) {
-      return currentRoute == route || currentRoute.startsWith('/products');
-    }
-    if (route == Routes.customers) {
-      return currentRoute == route || currentRoute.startsWith('/customers');
-    }
-    return currentRoute == route;
-  }
+  /// Detail pages highlight their section (`/orders/ORD-000001` → Orders).
+  bool _isSelected(String route) => Routes.sectionOf(currentRoute) == route;
 
   Widget _brand(String appName) => Padding(
         padding: const EdgeInsets.fromLTRB(
@@ -151,6 +145,19 @@ class AppSidebar extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            TextButton(
+              onPressed: () {
+                onNavigate?.call();
+                context.go(Routes.whatsNew);
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textSecondary,
+                textStyle: const TextStyle(fontSize: 12),
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text("Version $kAppVersion · What's new"),
             ),
           ],
         ),

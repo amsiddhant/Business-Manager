@@ -99,7 +99,6 @@ class CampaignDetailScreen extends StatelessWidget {
           campaign.copyWith(comments: [...campaign.comments, comment]),
           isNew: false,
         );
-        await data.refresh();
       },
     );
 

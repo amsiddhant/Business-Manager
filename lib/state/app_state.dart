@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:universal_html/html.dart' as html;
 
 import '../core/app_exception.dart';
+import '../core/app_info.dart';
 import '../core/utils/date_utils.dart';
 import '../data/backend.dart';
+import '../data/backend_capabilities.dart';
 import '../data/config_store.dart';
 import '../data/firebase_backend.dart';
 import '../data/local_backend.dart';
@@ -45,6 +48,15 @@ class AppState extends ChangeNotifier {
   bool get isFirebaseMode => _configStore.isFirebaseMode;
   String get appName => _configStore.appName;
   String get dateFormat => _configStore.dateFormat;
+
+  static const _seenReleaseKey = 'sbm_last_seen_release';
+
+  /// True when this browser hasn't been told about the current version yet
+  /// (after an upgrade, or the first time the app is opened here).
+  bool get hasUnseenRelease => _prefs.getString(_seenReleaseKey) != kAppVersion;
+
+  Future<void> markReleaseSeen() =>
+      _prefs.setString(_seenReleaseKey, kAppVersion);
 
   /// Persists a new application display name and notifies observers so the
   /// header/title update live.
@@ -99,14 +111,40 @@ class AppState extends ChangeNotifier {
     await _onAuthChanged(_backend.currentAccount);
   }
 
-  Future<void> _onAuthChanged(AuthAccount? account) async {
+  Future<void>? _profileLoad;
+  String? _profileLoadUid;
+
+  /// Handles an auth event. The same account is often reported twice in a row
+  /// (the start-up prime and the stream's first event), so its profile is read
+  /// once: a repeat while that read runs, or once signed in, is ignored.
+  Future<void> _onAuthChanged(AuthAccount? account) {
     if (account == null) {
+      _profileLoad = null;
+      _profileLoadUid = null;
       _currentUser = null;
       repository.setCurrentUser(null);
       _status = AuthStatus.signedOut;
       notifyListeners();
-      return;
+      return Future.value();
     }
+    if (_status == AuthStatus.signedIn && _currentUser?.uid == account.uid) {
+      return Future.value();
+    }
+    final running = _profileLoad;
+    if (running != null && _profileLoadUid == account.uid) return running;
+    late final Future<void> load;
+    load = _loadProfile(account).whenComplete(() {
+      if (identical(_profileLoad, load)) {
+        _profileLoad = null;
+        _profileLoadUid = null;
+      }
+    });
+    _profileLoad = load;
+    _profileLoadUid = account.uid;
+    return load;
+  }
+
+  Future<void> _loadProfile(AuthAccount account) async {
     try {
       var profile = await repository.fetchUserByUid(account.uid);
       if (profile == null) {
@@ -132,11 +170,16 @@ class AppState extends ChangeNotifier {
         await _backend.signOut();
         return;
       }
+      // Signed out (or switched account) while the profile was loading.
+      if (_backend.currentAccount?.uid != account.uid) return;
       _currentUser = profile;
       repository.setCurrentUser(profile);
       _status = AuthStatus.signedIn;
       _authError = null;
       notifyListeners();
+      // Covers every way in (password, Google, a restored session); at most
+      // one write per person per day.
+      unawaited(repository.touchLastLogin(profile));
     } catch (e) {
       _authError = ErrorMapper.friendly(e);
       _status = AuthStatus.signedOut;
@@ -146,14 +189,19 @@ class AppState extends ChangeNotifier {
 
   // ---- Auth actions ---------------------------------------------------------
 
-  /// Signs in with a friendly login id OR email plus password. The login id is
-  /// resolved to the underlying email first.
+  /// Signs in with a friendly login id OR email plus password. An email signs
+  /// in directly; a login id is first looked up in the sign-in index (one
+  /// document read, allowed before sign-in) to find its email.
   Future<void> signIn(String loginOrEmail, String password) async {
     _authError = null;
-    final profile = await repository.resolveUserByLogin(loginOrEmail);
-    final email = profile?.email ?? loginOrEmail;
-    final account = await _backend.signIn(email, password);
-    await repository.touchLastLogin(account.uid);
+    final email = await repository.emailForLogin(loginOrEmail);
+    if (email == null) {
+      throw const AppException(
+          'Incorrect login ID or password. You can also sign in with your '
+          'email address.',
+          code: 'invalid-credential');
+    }
+    await _backend.signIn(email, password);
     // _onAuthChanged (via the stream) finalises the session.
   }
 
@@ -164,14 +212,28 @@ class AppState extends ChangeNotifier {
     await _backend.signInWithGoogle();
   }
 
+  /// Signs out. With Firebase, the on-device copy of the data is wiped too so
+  /// the next person on this device can't read it, and the page reloads (the
+  /// wiped Firestore instance can't be used again).
   Future<void> signOut() async {
-    await _backend.signOut();
+    final backend = _backend;
+    await backend.signOut();
+    if (backend case final CacheCapable cache) {
+      await cache.clearCache();
+      if (kIsWeb) html.window.location.reload();
+    }
   }
 
+  /// Sends a reset link for a login id or email. Says nothing about whether
+  /// the account exists: an unknown login id or email simply sends nothing.
   Future<void> sendPasswordReset(String loginOrEmail) async {
-    final profile = await repository.resolveUserByLogin(loginOrEmail);
-    final email = profile?.email ?? loginOrEmail;
-    await _backend.sendPasswordReset(email);
+    final email = await repository.emailForLogin(loginOrEmail);
+    if (email == null) return;
+    try {
+      await _backend.sendPasswordReset(email);
+    } on AppException catch (e) {
+      if (e.code != 'user-not-found') rethrow;
+    }
   }
 
   Future<void> changePassword(
@@ -222,6 +284,8 @@ class AppState extends ChangeNotifier {
     await _authSub?.cancel();
     _backend = backend;
     repository.rebind(backend: backend, currentUser: null);
+    _profileLoad = null;
+    _profileLoadUid = null;
     _currentUser = null;
     _status = AuthStatus.signedOut;
     _authSub = _backend.authStateChanges().listen(_onAuthChanged);

@@ -106,7 +106,6 @@ class DealerDetailScreen extends StatelessWidget {
           dealer.copyWith(comments: [...dealer.comments, comment]),
           isNew: false,
         );
-        await data.refresh();
       },
     );
 
